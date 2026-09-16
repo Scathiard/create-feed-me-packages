@@ -4,7 +4,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.fml.ModList;
 import net.neoforged.fml.loading.FMLEnvironment;
-import net.neoforged.neoforge.items.ItemStackHandler;
+import net.neoforged.neoforge.items.IItemHandler;
+import net.neoforged.neoforge.items.IItemHandlerModifiable;
 import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 import java.util.ArrayList;
@@ -15,12 +16,12 @@ import java.util.List;
  *
  * <p>Unlike the mixins (which live in a separate package, because Mixin must never load our helpers from the
  * declared mixin package), this class is ordinary code. It is called for the duration of ONE of their
- * transfer calls and returns a wrapper that exists only in that call's local variable:
+ * transfer calls and returns a wrapper that exists only in that call's local variable or argument:
  * <ul>
  *   <li>nothing is registered, replaced or vetoed in JEI or in their mod;</li>
  *   <li>their real container is never written - only their EMPTY item slots are lent;</li>
  *   <li>the wrapper is never stored in a field, a static or a cache;</li>
- *   <li>when they are absent, or their shape moved, we hand their handler straight back (quietly).</li>
+ *   <li>when they are absent, or their shape moved, we hand their handler straight back (and say so once).</li>
  * </ul>
  */
 public final class FxntCompat {
@@ -28,35 +29,54 @@ public final class FxntCompat {
     private static final int[] NO_RANGE = null;
     private FxntCompat() {}
 
-    /** Wrap their handler for the duration of one of their transfer calls; pass-through on any doubt. */
-    public static ItemStackHandler present(ItemStackHandler original, String owner) {
+    /** Wrap their modifiable handler (the client preview local, their placement argument). */
+    public static IItemHandlerModifiable presentModifiable(IItemHandlerModifiable original, String owner) {
+        CachePresentingHandler wrapper = wrap(original, owner);
+        return wrapper == null ? original : wrapper;
+    }
+
+    /** Wrap their read-only handler view (their max-craftable count argument). */
+    public static IItemHandler presentSlots(IItemHandler original, String owner) {
+        CachePresentingHandler wrapper = wrap(original, owner);
+        return wrapper == null ? original : wrapper;
+    }
+
+    /** The one place the decision "do we expose our cache here" is made; null means plain pass-through. */
+    private static CachePresentingHandler wrap(IItemHandler original, String owner) {
         try {
-            if (original == null || !ModList.get().isLoaded(FXNT)) return original;
+            if (original == null) {
+                CompatLog.once("pass-null", "FMP compat: pass-through (no handler at this call site)");
+                return null;
+            }
+            if (!ModList.get().isLoaded(FXNT)) {
+                CompatLog.once("pass-absent", "FMP compat: pass-through (their mod is not loaded)");
+                return null;
+            }
             int[] range = itemSlots(original);
             if (range == NO_RANGE) {
                 CompatLog.once("slots-unknown", "FMP compat: degraded (slot layout unknown)");
-                return original;
+                return null;
             }
             CacheSupply supply = supplyFor(original);
             if (supply == null) {
-                CompatLog.once("no-owner", "FMP compat: degraded (no cache view)");
-                return original;
+                CompatLog.once("no-owner", "FMP compat: degraded (no cache view: unknown owner)");
+                return null;
             }
             List<ItemStack> available = supply.available();
             if (available.isEmpty()) {
-                CompatLog.once("no-cache-" + supply.side(), "FMP compat: degraded (no cache view)");
-                return original;
+                CompatLog.once("no-cache-" + supply.side(), "FMP compat: degraded (no cache view: nothing available)");
+                return null;
             }
             return new CachePresentingHandler(original, supply, available, range[0], range[1], owner);
         } catch (Throwable shape) {
             CompatLog.once("present-" + shape.getClass().getName(),
                     "FMP compat: degraded ({}), their transfer stays untouched", shape.getClass().getName());
-            return original;
+            return null;
         }
     }
 
     /** The cache view of the side we are on: the client's hints, or the server cache of the handler's owner. */
-    private static CacheSupply supplyFor(ItemStackHandler original) {
+    private static CacheSupply supplyFor(IItemHandler original) {
         if (FMLEnvironment.dist.isClient()) return new ClientCacheSupply();
         var server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) return null;
@@ -68,7 +88,7 @@ public final class FxntCompat {
     }
 
     /** Their item slots as [first, lastExclusive]; null when the shape is unknown (then we do not lend). */
-    private static int[] itemSlots(ItemStackHandler original) {
+    private static int[] itemSlots(IItemHandler original) {
         int first;
         int last;
         try {   // 1.3.x: BackpackSlotLayout.createLayout().items() -> SlotSection(startIndex, count)
@@ -93,7 +113,7 @@ public final class FxntCompat {
     }
 
     /** Their empty lendable slots, in order (their occupied slots are never borrowed). */
-    static List<Integer> emptySlots(ItemStackHandler handler, int first, int last) {
+    static List<Integer> emptySlots(IItemHandler handler, int first, int last) {
         var slots = new ArrayList<Integer>();
         for (int index = Math.max(0, first); index < Math.min(last, handler.getSlots()); index++) {
             if (handler.getStackInSlot(index).isEmpty()) slots.add(index);

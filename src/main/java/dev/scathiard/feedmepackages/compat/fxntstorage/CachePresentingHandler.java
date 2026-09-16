@@ -1,28 +1,35 @@
 package dev.scathiard.feedmepackages.compat.fxntstorage;
 
 import net.minecraft.world.item.ItemStack;
+import net.neoforged.neoforge.items.IItemHandler;
+import net.neoforged.neoforge.items.IItemHandlerModifiable;
 import net.neoforged.neoforge.items.ItemStackHandler;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The wrapper Create: Storage's own transfer code sees instead of their plain {@link ItemStackHandler}.
+ * The wrapper Create: Storage's own transfer code sees instead of their plain handler.
  *
  * <p>Rules (one instance per transfer call, never stored anywhere):
  * <ul>
- *   <li>their occupied slot => their stack, unchanged, and writes to it go back to {@code super};</li>
- *   <li>their EMPTY item slot that we lent => a COPY of a cache stack (count clipped to the cache and to the
- *       item's stack size) - their container is never touched;</li>
- *   <li>write-back on a lent slot => how much they really took is debited from our cache, the lending ends,
+ *   <li>their occupied slot =&gt; their stack, unchanged, and writes to it go back to them;</li>
+ *   <li>their EMPTY item slot that we lent =&gt; a COPY of a cache stack (count clipped to the cache and to
+ *       the item's stack size) - their container is never touched;</li>
+ *   <li>write-back on a lent slot =&gt; how much they really took is debited from our cache, the lending ends,
  *       and nothing is written into their container;</li>
  *   <li>everything else (size, slot limit, validity, inserts) delegates to their handler.</li>
  * </ul>
- * Because the wrapper only ever exists as a local of their method and is never serialized, a virtual item
- * cannot reach their backpack, their save file or their GUI.
+ * Because the wrapper only ever exists as a local/argument of their method and is never serialized, a virtual
+ * item cannot reach their backpack, their save file or their GUI.
+ *
+ * <p>It extends {@link ItemStackHandler} because every call site's declared type is that class or a
+ * supertype, and it delegates to whatever handler it wraps - the LVT-confirmed type at each site is
+ * {@code IItemHandlerModifiable} or {@code IItemHandler}, so the delegate is typed as {@link IItemHandler}
+ * and only writes when it really is modifiable.
  */
 public final class CachePresentingHandler extends ItemStackHandler {
-    private final ItemStackHandler delegate;
+    private final IItemHandler delegate;
     private final CacheSupply supply;
     private final List<ItemStack> available;
     private final String owner;
@@ -31,7 +38,7 @@ public final class CachePresentingHandler extends ItemStackHandler {
     private final CacheBorrow borrow = new CacheBorrow();
     private int served;
 
-    public CachePresentingHandler(ItemStackHandler delegate, CacheSupply supply, List<ItemStack> available, int first, int last, String owner) {
+    public CachePresentingHandler(IItemHandler delegate, CacheSupply supply, List<ItemStack> available, int first, int last, String owner) {
         this.delegate = delegate;
         this.supply = supply;
         this.available = List.copyOf(available);
@@ -39,6 +46,11 @@ public final class CachePresentingHandler extends ItemStackHandler {
         this.last = last;
         this.owner = owner;
         plan();
+    }
+
+    /** Their handler when it can be written to; a read-only site simply never writes back. */
+    private IItemHandlerModifiable writable() {
+        return delegate instanceof IItemHandlerModifiable modifiable ? modifiable : null;
     }
 
     /** Lend one cache stack per empty item slot; a shortage simply exposes fewer, never invents material. */
@@ -50,9 +62,7 @@ public final class CachePresentingHandler extends ItemStackHandler {
             supplies.add(new CacheBorrow.Supply(key, stack.getCount(), stack.getMaxStackSize()));
         }
         borrow.plan(FxntCompat.emptySlots(delegate, first, last), supplies);
-        if (borrow.exposed() > 0) {
-            CompatLog.compat("FMP compat: exposed=" + borrow.exposed() + " cache stacks to " + owner + "; served=0 items");
-        }
+        CompatLog.compat("FMP compat: exposed=" + borrow.exposed() + " cache stacks to " + owner + "; served=0 items");
     }
 
     /** The copy we present for a lent slot: never the cache stack itself, never more than it can give. */
@@ -92,10 +102,11 @@ public final class CachePresentingHandler extends ItemStackHandler {
 
     @Override public void setStackInSlot(int slot, ItemStack stack) {
         if (borrow.lend(slot) == null) {
-            delegate.setStackInSlot(slot, stack);   // not ours: hand it straight back to them
+            var writable = writable();
+            if (writable != null) writable.setStackInSlot(slot, stack);   // not ours: hand it straight back to them
             return;
         }
-        settle(slot, stack.getCount());             // ours: debit what was taken, never write their container
+        settle(slot, stack.getCount());     // ours: debit what was taken, never write their container
     }
 
     @Override public ItemStack extractItem(int slot, int amount, boolean simulate) {

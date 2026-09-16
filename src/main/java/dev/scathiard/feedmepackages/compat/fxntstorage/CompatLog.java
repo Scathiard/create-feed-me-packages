@@ -14,6 +14,8 @@ public final class CompatLog {
     public static void once(String reason, String format, Object... arguments) {
         if (ONCE.add(reason)) FeedMePackages.LOGGER.info(format, arguments);
     }
+    /** Whether a one-shot line was ever emitted - the injection probe test asserts on this. */
+    public static boolean hasLogged(String reason) { return ONCE.contains(reason); }
     /** Log one line for an event that is inherently rare (a transfer click). */
     public static void compat(String message) {
         FeedMePackages.LOGGER.info(message);
