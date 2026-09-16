@@ -420,19 +420,29 @@ public final class CraftingCacheWithdrawalTests {
         helper.succeed();
     }
 
-    /** (t62-3) The contrast the user reported: the same recipe, the same cache, both menus. */
+    /**
+     * (t62-3) The contrast the user reported, taken all the way through BOTH phases: the same recipe and
+     * the same cache in the player's 2x2 grid and at a real crafting table must agree on the fill, on the
+     * result and on the settlement - not merely on the parameters the two handlers are built with.
+     */
     @GameTest(template = "empty")
-    public static void theSameRecipeFillsInBothMenus(GameTestHelper helper) {
+    public static void theSameRecipeBehavesTheSameInBothMenus(GameTestHelper helper) {
         var small = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
         small.containerMenu = new InventoryMenu(small.getInventory(), true, small);
         seed(small, 0, new ItemStack(Items.IRON_INGOT), 2);
-        var smallResult = fill(small, "minecraft:shears", false);
+        var smallFill = fill(small, "minecraft:shears", false);
         var large = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); table(helper, large);
         seed(large, 0, new ItemStack(Items.IRON_INGOT), 2);
-        var largeResult = fill(large, "minecraft:shears", false);
-        helper.assertTrue(smallResult == CacheActions.Result.OK && largeResult == CacheActions.Result.OK
+        var largeFill = fill(large, "minecraft:shears", false);
+        helper.assertTrue(smallFill == CacheActions.Result.OK && largeFill == CacheActions.Result.OK
                         && gridCount(small, Items.IRON_INGOT) == 2 && gridCount(large, Items.IRON_INGOT) == 2,
-                "2x2 and 3x3 must agree for the same recipe and cache: inventory=" + smallResult + ", table=" + largeResult);
+                "Both menus must fill the same recipe from the same cache: inventory=" + smallFill + ", table=" + largeFill);
+        small.containerMenu.clicked(0, 0, ClickType.QUICK_MOVE, small);
+        large.containerMenu.clicked(0, 0, ClickType.QUICK_MOVE, large);
+        String smallState = inventoryCount(small, Items.SHEARS) + "/" + stock(small, 0) + "/" + gridCount(small, Items.IRON_INGOT);
+        String largeState = inventoryCount(large, Items.SHEARS) + "/" + stock(large, 0) + "/" + gridCount(large, Items.IRON_INGOT);
+        helper.assertTrue(smallState.equals("1/0/0") && smallState.equals(largeState),
+                "Both menus must settle identically (shears/cache/grid): inventory=" + smallState + ", table=" + largeState);
         helper.succeed();
     }
 
