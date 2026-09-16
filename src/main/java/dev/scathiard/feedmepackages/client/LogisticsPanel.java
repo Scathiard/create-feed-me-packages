@@ -344,6 +344,8 @@ public final class LogisticsPanel {
     public static boolean cacheLive() { return active(); }
     /** A live panel whose pendant carries no network binding: it serves the cache but cannot restock. */
     public static boolean unbound() { return snapshot != null && !snapshot.bound(); }
+    /** Whether any logistics snapshot exists at all: used to tell "cache in play" from "cache never involved". */
+    public static boolean hasSnapshot() { return snapshot != null; }
 
     private static boolean bookOpen() {
         RecipeUpdateListener listener;

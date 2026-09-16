@@ -81,11 +81,17 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
     }
     /**
      * No live panel (unworn, disabled, or the snapshot never arrived): JEI's own transfer is the only
-     * option, so the backpack keeps working - but the cache was not consulted, and the log says so.
+     * option, so the backpack keeps working - but the cache was not consulted, and that has to be visible.
+     * (a1) A player who owns a cache must be able to tell "our handler ran and then fell back to JEI's own
+     * transfer" from "our handler was never called at all": both currently end in JEI's own "missing items"
+     * text. When a logistics snapshot exists we answer with our own key instead; with no snapshot the cache
+     * was never in play, so JEI's own words stay the truthful ones.
      */
     private IRecipeTransferError withoutPanel(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
-        once("withoutPanel", "FMP JEI plus delegated to JEI's own transfer: no live logistics panel, the cache was not consulted");
-        return nativeTransfer(menu, recipe, slots, player, maximum, perform);
+        var plain = nativeTransfer(menu, recipe, slots, player, maximum, perform);
+        if (plain == null || !LogisticsPanel.hasSnapshot()) return plain;
+        once("withoutPanel", "FMP JEI plus delegated to JEI's own transfer: a logistics panel exists but is not live, the cache was not consulted");
+        return error(LogisticsPanel.unbound() ? "unbound" : "panel_not_ready");
     }
     private IRecipeTransferError nativeTransfer(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
         if (width == 3) return fallback.transferRecipe(menu, recipe, slots, player, maximum, perform);
