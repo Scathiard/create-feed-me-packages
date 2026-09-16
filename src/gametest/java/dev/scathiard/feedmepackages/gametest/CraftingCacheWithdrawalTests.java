@@ -528,4 +528,48 @@ public final class CraftingCacheWithdrawalTests {
                 "Swapping the healthy ledger back must restore the cache (otherwise this test poisons the world)");
         helper.succeed();
     }
+
+    /**
+     * The player side of the lock, on REAL server players (a FakePlayer swallows client messages): the
+     * very first tick after joining reports it once - even for a player wearing nothing, which is the
+     * whole point, since an unworn player never reaches the gate - the worn case then repeats about every
+     * five seconds, and a healthy world stays silent.
+     */
+    @GameTest(template = "empty")
+    public static void theLockIsAnnouncedOncePerJoinAndThenOnAPace(GameTestHelper helper) {
+        var server = helper.getLevel().getServer();
+        var storage = server.overworld().getDataStorage();
+        var healthy = CacheLedger.get(server);
+        var fromNewer = new CompoundTag(); fromNewer.putInt("schema", 10);
+        var locked = CacheLedger.load(fromNewer, helper.getLevel().registryAccess());
+        int unworn, unwornQuiet, worn, wornRepeat, sentCount; String sentTypes;
+        try {
+            storage.set(CacheLedger.NAME, locked);
+            var bare = TestPlayers.real(helper, UUID.randomUUID());
+            var bareSent = TestPlayers.nativePackets(bare);
+            bare.tickCount = 0; MaterialHints.tick(bare); unworn = actionBars(bareSent);
+            bare.tickCount = 4; MaterialHints.tick(bare); unwornQuiet = actionBars(bareSent);
+            sentCount = bareSent.size();
+            sentTypes = bareSent.stream().map(entry -> entry.getClass().getSimpleName()).distinct().toList().toString();
+            var wornPlayer = TestPlayers.real(helper, UUID.randomUUID());
+            TestPlayers.necklace(wornPlayer).setStackInSlot(0, FmpRegistries.PENDANT.toStack());
+            var wornSent = TestPlayers.nativePackets(wornPlayer);
+            wornPlayer.tickCount = 0; MaterialHints.tick(wornPlayer); worn = actionBars(wornSent);
+            wornPlayer.tickCount = 200; MaterialHints.tick(wornPlayer); wornRepeat = actionBars(wornSent);
+        } finally { storage.set(CacheLedger.NAME, healthy); }
+        var quiet = TestPlayers.real(helper, UUID.randomUUID());
+        var quietSent = TestPlayers.nativePackets(quiet);
+        quiet.tickCount = 0; MaterialHints.tick(quiet);
+        int healthySilent = actionBars(quietSent);
+        helper.assertTrue(unworn == 1 && unwornQuiet == 1 && worn == 1 && wornRepeat == 2 && healthySilent == 0,
+                "The lock must be announced once on join (even unworn), then on a five-second pace, and never in a healthy world: unworn=" + unworn
+                        + ", unwornQuiet=" + unwornQuiet + ", worn=" + worn + ", wornRepeat=" + wornRepeat + ", healthySilent=" + healthySilent
+                        + ", packetsSeen=" + sentCount + " types=" + sentTypes + " problem=[" + CacheLedger.get(server).problem() + "]");
+        helper.succeed();
+    }
+    /** The action bar is an overlay SystemChat packet in 1.21, not a SetActionBarText packet. */
+    private static int actionBars(java.util.List<net.minecraft.network.protocol.Packet<?>> sent) {
+        return (int) sent.stream().filter(packet -> packet instanceof net.minecraft.network.protocol.game.ClientboundSystemChatPacket chat
+                && chat.overlay()).count();
+    }
 }

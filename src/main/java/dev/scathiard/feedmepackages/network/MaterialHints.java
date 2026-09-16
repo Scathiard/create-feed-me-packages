@@ -77,17 +77,18 @@ public final class MaterialHints {
     public static void forget(ServerPlayer player) { LAST.remove(player); }
     public static void tick(ServerPlayer player) {
         if (player.tickCount % 4 != 0) return;
-        // ★ A locked ledger used to exist only in a server log: the player saw "missing materials" for
-        // every cache-supplied recipe with nothing to read. Say it in their own language, on the action
-        // bar, about once every five seconds for as long as the lock lasts (translatable, so it is CN or
-        // EN by the client's own locale and needs no new protocol field).
-        if (player.tickCount % 100 == 0 && AccessGate.resolve(player).status() == AccessGate.Status.STORAGE_LOCKED) noticeLocked(player);
+        // ★ A locked ledger is WORLD-level data state: an unworn player never reaches the gate (NOT_WORN)
+        // and would see nothing at all, so the first tick of every join reports it once - and never more
+        // than once per join, because the map is weak and a rejoin brings a new player instance.
+        if (JOIN_CHECKED.put(player, Boolean.TRUE) == null && !CacheLedger.get(player.getServer()).problem().isEmpty()) noticeLocked(player, "join");
+        else if (player.tickCount % 100 == 0 && AccessGate.resolve(player).status() == AccessGate.Status.STORAGE_LOCKED) noticeLocked(player, "worn");
         var packet = next(player); if (packet != null) PacketDistributor.sendToPlayer(player, packet);
     }
     private static final Set<UUID> TOLD_LOCKED = new HashSet<>();
-    private static void noticeLocked(ServerPlayer player) {
+    private static final Map<ServerPlayer, Boolean> JOIN_CHECKED = new WeakHashMap<>();
+    private static void noticeLocked(ServerPlayer player, String reason) {
         if (TOLD_LOCKED.add(player.getUUID()))
-            FeedMePackages.LOGGER.warn("FMP cache ledger locked; telling {} why, in their own language", player.getGameProfile().getName());
+            FeedMePackages.LOGGER.warn("FMP cache ledger locked; telling {} why, in their own language ({})", player.getGameProfile().getName(), reason);
         player.displayClientMessage(lockMessage(player), true);
     }
     /**
