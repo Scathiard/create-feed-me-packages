@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-16T19:47:46" hostname="BASELINE" time="0.002">
+  <properties/>
+  <testcase name="theTakeoverConfigIsGone()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.0"/>
+  <testcase name="ourOwnMixinConfigNeverTargetsJei()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.001"/>
+  <testcase name="theModCarriesExactlyOneMixinConfigAndItIsOurs()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
