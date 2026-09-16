@@ -53,13 +53,25 @@ public final class FmpJeiPlugin implements IModPlugin {
     }
     @Override public void registerRecipeTransferHandlers(IRecipeTransferRegistration registration) {
         var helper = registration.getTransferHelper();
-        registration.addRecipeTransferHandler(new FmpRecipeTransfer<>(InventoryMenu.class, null, 2, helper), mezz.jei.api.constants.RecipeTypes.CRAFTING);
-        registration.addRecipeTransferHandler(new FmpRecipeTransfer<>(CraftingMenu.class, MenuType.CRAFTING, 3, helper), mezz.jei.api.constants.RecipeTypes.CRAFTING);
+        var small = new FmpRecipeTransfer<>(InventoryMenu.class, null, 2, helper);
+        var large = new FmpRecipeTransfer<>(CraftingMenu.class, MenuType.CRAFTING, 3, helper);
+        registration.addRecipeTransferHandler(small, mezz.jei.api.constants.RecipeTypes.CRAFTING);
+        registration.addRecipeTransferHandler(large, mezz.jei.api.constants.RecipeTypes.CRAFTING);
+        // The universal channel is a SECOND registration of the same handlers: JEI consults it only when the
+        // normal (container class, recipe type) lookup misses (RecipeTransferManager.getRecipeTransferHandler
+        // falls through to Constants.UNIVERSAL_RECIPE_TRANSFER_TYPE). It therefore makes the handler reachable
+        // for menus/recipe types we have no normal entry for, and it does NOT override an occupied normal slot -
+        // so it does not by itself fix the reported crafting-table symptom (see the U09 record §十七: the
+        // transfer chain is byte-for-byte equivalent in JEI 19.39.0.369 and 19.51.0.418).
+        registration.addUniversalRecipeTransferHandler(small);
+        registration.addUniversalRecipeTransferHandler(large);
         // Proof for the log that JEI discovered this plugin and what the two handlers were registered as:
         // CraftingMenu is constructed with MenuType.CRAFTING (verified in the merged Minecraft jar), so the
         // 3x3 handler must match the crafting table's menu type.
         FeedMePackages.LOGGER.info("FMP JEI transfer handlers registered: 2x2={} menuType=null width=2, 3x3={} menuType={} width=3",
                 InventoryMenu.class.getSimpleName(), CraftingMenu.class.getSimpleName(), MenuType.CRAFTING);
+        FeedMePackages.LOGGER.info("FMP JEI universal transfer handlers registered: {} and {} (a fallback JEI consults only on a normal lookup miss)",
+                InventoryMenu.class.getSimpleName(), CraftingMenu.class.getSimpleName());
     }
     @Override public void registerGuiHandlers(IGuiHandlerRegistration registration) {
         register(registration, InventoryScreen.class); register(registration, CraftingScreen.class); register(registration, CreativeModeInventoryScreen.class);
