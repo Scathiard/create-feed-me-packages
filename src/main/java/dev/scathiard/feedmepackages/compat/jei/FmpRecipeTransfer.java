@@ -20,15 +20,17 @@ import net.minecraft.world.item.crafting.*;
 import java.util.*;
 
 /**
- * Public JEI extension. The cache is a real source, so this handler never decides "not enough material"
- * from a guess: with a live logistics panel the SERVER arbitrates through the same {@code FILL_RECIPE}
- * intent the panel uses - even when the client's material hints have not arrived - and every refusal
- * names its own reason. Only a player without a live panel falls back to JEI's own transfer, and that
- * fallback is now announced in the log instead of being silent.
+ * Public JEI extension, registered through JEI's official API only ({@code IRecipeTransferRegistration}).
+ * The cache is a real source, so this handler never decides "not enough material" from a guess: with a live
+ * logistics panel the SERVER arbitrates through the same {@code FILL_RECIPE} intent the panel uses - even
+ * when the client's material hints have not arrived - and every refusal names its own reason. Only a player
+ * without a live panel falls back to JEI's own transfer (the generic, unregistered-handler simulation JEI
+ * hands to plugins), and that fallback is announced in the log instead of being silent.
  *
- * <p>Two sources of answers, in this order: the handler our takeover DISPLACED (someone else's, which may
- * know extra sources such as a worn backpack) is consulted first, JEI's generic transfer is the fallback,
- * and the cache only tops up whatever the first step left over.
+ * <p>This class does NOT replace, veto or wrap anyone else's registered handler: no mixins, no reflection,
+ * no writes into JEI's registry. When another mod's handler owns the (CraftingMenu, crafting) key, that
+ * handler is simply the one JEI calls - the cache supply is then reached through our own panel and the
+ * vanilla recipe book, which is a documented limitation, not something we work around.
  *
  * <p>The outcome a viewer sees is spoken on the ACTION BAR, because a JEI recipe page covers the panel.
  */
@@ -58,16 +60,16 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
         // say what is missing". This REPLACES the always-allow round, whose premise was wrong: the grey button
         // at 02:03 was judged correctly (that client had no iron plates anywhere), so releasing everything made
         // the button lie. The one safety valve kept: a miss we cannot name is released, never refused.
-        // 1) Whoever answers natively (the displaced handler, or JEI's generic one) can do this click -> usable.
+        // 1) JEI's own transfer (the generic unregistered-handler simulation) can do this click -> usable.
         var nativePreview = nativeTransfer(menu, recipe, slots, player, maximum, false);
         lastPreview = type(nativePreview);
         if (nativePreview == null) {
-            once("previewNative", "FMP JEI plus preview: {} via={} native=ok checked=n/a decision={} missing=[]", inputs(recipe, player, panel, hints, maximum), via(menu), PreviewPolicy.Decision.ALLOW_NATIVE);
+            once("previewNative", "FMP JEI plus preview: {} native=ok checked=n/a decision={} missing=[]", inputs(recipe, player, panel, hints, maximum), PreviewPolicy.Decision.ALLOW_NATIVE);
             return null;
         }
         // 2) No client material view: the cache cannot be judged here at all, so release (as before).
         if (!hints) {
-            once("previewNoHints", "FMP JEI plus preview: {} via={} native={} checked=n/a decision={} missing=[] (no client material view)", inputs(recipe, player, panel, false, maximum), via(menu), type(nativePreview), PreviewPolicy.Decision.ALLOW_UNPROVABLE);
+            once("previewNoHints", "FMP JEI plus preview: {} native={} checked=n/a decision={} missing=[] (no client material view)", inputs(recipe, player, panel, false, maximum), type(nativePreview), PreviewPolicy.Decision.ALLOW_UNPROVABLE);
             return null;
         }
         // 3) Our own estimate - the same planner the server's fill uses (grid + player slots + cache view).
@@ -75,7 +77,7 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
         var missing = missing(estimate.missing());
         var verdict = verdict(estimate.result());
         var decision = PreviewPolicy.decide(false, verdict, !missing.components().isEmpty());
-        once("preview" + decision + verdict + missing.log(), "FMP JEI plus preview: {} via={} native={} checked={} decision={} missing=[{}]", inputs(recipe, player, panel, true, maximum), via(menu), type(nativePreview), estimate.result(), decision, missing.log());
+        once("preview" + decision + verdict + missing.log(), "FMP JEI plus preview: {} native={} checked={} decision={} missing=[{}]", inputs(recipe, player, panel, true, maximum), type(nativePreview), estimate.result(), decision, missing.log());
         if (decision != PreviewPolicy.Decision.REFUSE) return null;
         return error(PreviewPolicy.reason(decision, verdict), missing);
     }
@@ -99,16 +101,16 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
      */
     private IRecipeTransferError performTransfer(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum) {
         var missing = missing(player, recipe, maximum);
-        // 1) The displaced handler (or JEI's generic transfer) first: grid + player inventory + whatever else it
-        //    knows, exactly as JEI would do it without us. Server rules unchanged.
+        // 1) JEI's own transfer first (the generic unregistered-handler simulation): grid + player inventory,
+        //    exactly as JEI would do it without us. Server rules unchanged, nobody else's handler involved.
         var nativeResult = nativeTransfer(menu, recipe, slots, player, maximum, true);
         // 2) Then let the server top up the remaining grid gap from the cache (FILL_RECIPE as before).
         if (LogisticsPanel.fillRecipeForViewer(recipe.id(), maximum, missing.components())) {
-            FeedMePackages.LOGGER.info("FMP JEI plus clicked: {} via={} preview={} native={} topup=sent notice=awaited(server verdict) missing=[{}]", inputs(recipe, player, true, ClientMaterials.active(), maximum), via(menu), lastPreview, type(nativeResult), missing.log());
+            FeedMePackages.LOGGER.info("FMP JEI plus clicked: {} preview={} native={} topup=sent notice=awaited(server verdict) missing=[{}]", inputs(recipe, player, true, ClientMaterials.active(), maximum), lastPreview, type(nativeResult), missing.log());
             return null;
         }
         if (nativeResult == null) {
-            FeedMePackages.LOGGER.info("FMP JEI plus clicked: {} via={} preview={} native=ok topup=not-needed notice=none", inputs(recipe, player, true, ClientMaterials.active(), maximum), via(menu), lastPreview);
+            FeedMePackages.LOGGER.info("FMP JEI plus clicked: {} preview={} native=ok topup=not-needed notice=none", inputs(recipe, player, true, ClientMaterials.active(), maximum), lastPreview);
             return null; // The grid/backpack alone already satisfied the click.
         }
         boolean ready = LogisticsPanel.recipeReady();
@@ -116,7 +118,7 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
         // The intent was never sent, so the server will never answer: say it here, on the action bar, because the
         // panel's own notice can be covered by the recipe page that asked for this transfer.
         ClientNotice.speak(reason, missing.components());
-        FeedMePackages.LOGGER.info("FMP JEI plus clicked: {} via={} preview={} native={} topup=never-sent notice={} missing=[{}]", inputs(recipe, player, true, ClientMaterials.active(), maximum), via(menu), lastPreview, type(nativeResult), ClientNotice.reasonKey(reason), missing.log());
+        FeedMePackages.LOGGER.info("FMP JEI plus clicked: {} preview={} native={} topup=never-sent notice={} missing=[{}]", inputs(recipe, player, true, ClientMaterials.active(), maximum), lastPreview, type(nativeResult), ClientNotice.reasonKey(reason), missing.log());
         return error(reason);
     }
     /** The best-effort sentence material: rendered entries for the player, plain text for the log. */
@@ -159,11 +161,6 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
                 + " hintStacks=" + hintStacks + " hintTotal=" + hintTotal + " cacheStacks=" + cacheStacks + " cacheTotal=" + cacheTotal
                 + " gridSlots=" + gridSize + " maximum=" + maximum;
     }
-    /** Who answers the native half right now: the handler we displaced, or JEI's generic transfer. */
-    private String via(C menu) {
-        var delegate = delegate(menu);
-        return delegate == null ? "generic-fallback" : "displaced:" + delegate.getClass().getSimpleName();
-    }
     private static String type(IRecipeTransferError error) {
         if (error == null) return "ok";
         try { return String.valueOf(error.getType()); } catch (Throwable t) { return error.getClass().getSimpleName(); }
@@ -177,33 +174,11 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
         return nativeTransfer(menu, recipe, slots, player, maximum, perform);
     }
     /**
-     * The handler our takeover displaced, when it can serve this menu. Never our own handler (the plugin
-     * refuses to store it), so delegating cannot recurse.
-     */
-    @SuppressWarnings("unchecked")
-    private IRecipeTransferHandler<C, RecipeHolder<CraftingRecipe>> delegate(C menu) {
-        var original = FmpJeiPlugin.displacedHandler().orElse(null);
-        if (original == null || menu == null) return null;
-        try {
-            if (!original.getContainerClass().isInstance(menu)) return null;
-        } catch (Throwable t) {
-            return null;
-        }
-        return (IRecipeTransferHandler<C, RecipeHolder<CraftingRecipe>>) original;
-    }
-    /**
-     * The native half: the displaced handler first (it may know sources we cannot see, e.g. a worn backpack),
-     * JEI's generic transfer as the fallback. Kept in one place so preview and click cannot diverge.
+     * JEI's generic transfer - the unregistered-handler simulation JEI itself hands to plugins - and nothing
+     * else. No other mod's handler is wrapped, replaced or even looked up: if another mod owns the key, JEI
+     * calls it and we are not in that path at all. Kept in one place so preview and click cannot diverge.
      */
     private IRecipeTransferError nativeTransfer(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
-        var delegate = delegate(menu);
-        if (delegate != null) {
-            try {
-                return delegate.transferRecipe(menu, recipe, slots, player, maximum, perform);
-            } catch (Throwable t) {
-                once("delegateFailed" + t.getClass().getName(), "FMP JEI plus: the displaced handler {} threw {} - falling back to JEI's generic transfer", delegate.getClass().getSimpleName(), t.getClass().getName());
-            }
-        }
         if (width == 3) return fallback.transferRecipe(menu, recipe, slots, player, maximum, perform);
         var input = slots.getSlotViews(RecipeIngredientRole.INPUT);
         var mapped = new ArrayList<mezz.jei.api.gui.ingredient.IRecipeSlotView>();
@@ -218,16 +193,16 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
     }
     private IRecipeTransferError error(String key) { return helper.createUserErrorWithTooltip(Component.translatable("gui.create_feed_me_packages.result." + key)); }
     /**
-     * A refusal the player can act on: our reason, plus what is missing when this client could name it,
-     * plus - only when a displaced handler exists - the note that this estimate never looked at any worn
-     * backpack, so the player does not think we checked it.
+     * A refusal the player can act on: our reason, plus what is missing when this client could name it, plus
+     * - unconditionally - which sources that estimate looked at, so nobody thinks a worn backpack or another
+     * mod's container was consulted.
      */
     private IRecipeTransferError error(String key, Missing missing) {
         var text = Component.empty().append(Component.translatable("gui.create_feed_me_packages.result." + key));
         var detail = ClientNotice.detail(missing == null ? List.of() : missing.components());
         if (detail != null) {
             text.append(detail);
-            if (FmpJeiPlugin.displacedHandler().isPresent()) text.append(Component.translatable("gui.create_feed_me_packages.result.missing_scope"));
+            text.append(Component.translatable("gui.create_feed_me_packages.result.missing_scope"));
         }
         return helper.createUserErrorWithTooltip(text);
     }

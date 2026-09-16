@@ -66,7 +66,7 @@
   "gui.create_feed_me_packages.result.missing_material": "Not enough available materials in the backpack, the cache and the crafting grid; nothing was moved",
   "gui.create_feed_me_packages.result.missing_entry": "%s ×%s",
   "gui.create_feed_me_packages.result.missing_detail": "Missing: %s",
-  "gui.create_feed_me_packages.result.missing_scope": " (estimated from the cache and your own slots only; a worn backpack was not consulted)",
+  "gui.create_feed_me_packages.result.missing_scope": " (only the crafting grid, your own slots and the cache were checked)",
   "gui.create_feed_me_packages.result.panel_not_ready": "The logistics panel is not ready; nothing was moved from the cache. Open the panel once and retry",
   "gui.create_feed_me_packages.result.inactive": "Cache material hints are not active (the client has no cache material view); nothing was moved from the cache. Reopen the screen or re-equip the pendant and retry",
   "gui.create_feed_me_packages.result.unbound": "The pendant is not bound to a network: the panel works but the client's material hints are inactive, so nothing was moved from the cache. Reopen the screen or re-equip the pendant and retry",

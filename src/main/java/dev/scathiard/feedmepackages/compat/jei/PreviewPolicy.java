@@ -24,7 +24,7 @@ public final class PreviewPolicy {
     private PreviewPolicy() {}
 
     /**
-     * @param nativePreviewOk the displaced handler / JEI's generic transfer said it can do this click
+     * @param nativePreviewOk JEI's own (generic) transfer said it can do this click
      * @param estimate        this client's own estimate (crafting grid + player slots + cache view)
      * @param missingNamed    whether the estimate could name the concrete shortfall
      */

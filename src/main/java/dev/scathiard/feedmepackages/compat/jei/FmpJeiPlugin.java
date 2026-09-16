@@ -25,8 +25,6 @@ import java.util.*;
 public final class FmpJeiPlugin implements IModPlugin {
     private static IJeiRuntime runtime;
     private static FmpRecipeTransfer<CraftingMenu> craftingHandler;
-    /** The handler our takeover displaced (in a pack that is FXNT Storage's, which knows the worn backpack). */
-    private static mezz.jei.api.recipe.transfer.IRecipeTransferHandler<?, ?> displaced;
     @Override public ResourceLocation getPluginUid() { return ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "jei"); }
     @Override public void onRuntimeAvailable(IJeiRuntime value) {
         runtime = value; LogisticsPanel.recipeOverlay(candidate -> candidate == runtime.getRecipesGui());
@@ -38,22 +36,6 @@ public final class FmpJeiPlugin implements IModPlugin {
     }
     public static Optional<IJeiRuntime> runtime() { return Optional.ofNullable(runtime); }
     public static Optional<mezz.jei.api.recipe.transfer.IRecipeTransferHandler<?, ?>> craftingHandler() { return Optional.ofNullable(craftingHandler); }
-    /** The displaced handler, when the crafting slot held someone else's (never our own - that would recurse). */
-    public static Optional<mezz.jei.api.recipe.transfer.IRecipeTransferHandler<?, ?>> displacedHandler() { return Optional.ofNullable(displaced); }
-    /**
-     * Called by the takeover mixin with JEI's OWN answer for the crafting key, before we decide whether to
-     * replace it. Our own handler is never stored: delegating to ourselves would recurse. Captured so the
-     * displaced handler (which may know extra sources, e.g. a worn backpack) can be consulted first and the
-     * cache only tops up what it left over.
-     */
-    public static void rememberDisplaced(Object answer) {
-        if (!(answer instanceof mezz.jei.api.recipe.transfer.IRecipeTransferHandler<?, ?> handler)) return;
-        if (handler == craftingHandler || handler instanceof FmpRecipeTransfer) return;
-        if (displaced == null || displaced.getClass() != handler.getClass()) {
-            FeedMePackages.LOGGER.info("FMP JEI takeover: displaced handler captured: {}", handler.getClass().getName());
-        }
-        displaced = handler;
-    }
     @Override public void registerVanillaCategoryExtensions(IVanillaCategoryExtensionRegistration registration) {
         // The standard extension calls assemble(), which intentionally cannot manufacture an authoritative pendant.
         registration.getSmithingCategory().addExtension(PendantSmithingRecipe.class, new ISmithingCategoryExtension<PendantSmithingRecipe>() {
