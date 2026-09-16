@@ -44,22 +44,33 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
         boolean panel = LogisticsPanel.cacheLive(), hints = ClientMaterials.active();
         if (!panel) return withoutPanel(menu, recipe, slots, player, maximum, perform);
         if (perform) return performTransfer(menu, recipe, slots, player, maximum);
-        // Preview: the grid and the player inventory are real sources too. If JEI's own transfer would work, do not grey the button.
+        // Preview. The order encodes one rule: the client does not get to veto the server.
+        // 1) JEI's own transfer already works from the grid + the player inventory: the button is simply usable.
         if (nativeTransfer(menu, recipe, slots, player, maximum, false) == null) {
             once("previewNative", "FMP JEI plus preview: grid/backpack already covers it (JEI's own transfer would succeed)");
             return null;
         }
-        if (!hints) { once("previewNoHints", "FMP JEI plus preview without hints: {}", inputs(recipe, player, panel, false, maximum)); return null; }
+        // 2) Panel live: everything else is RELEASED to the server, even when our own estimate says "missing".
+        //    The client view is only an estimate - hint counts are hints, and the grid reading carries our own
+        //    in-flight reservations - while the server arbitrates the real transfer. A preview stricter than the
+        //    click is exactly how a stocked cache ends up looking empty: the button is greyed, so the click that
+        //    would have succeeded never happens. Uncertain therefore means "allow", not "refuse".
+        if (!hints) { once("previewNoHints", "FMP JEI plus preview: no client material view; released to the server: {}", inputs(recipe, player, panel, false, maximum)); return null; }
         var checked = ClientCrafting.check(player, recipe, maximum, true);
+        // The estimate is logged (one line per reason) but never decides.
         once("preview" + menu.getClass().getSimpleName() + checked, "FMP JEI plus preview: {} checked={}", inputs(recipe, player, panel, true, maximum), checked);
-        return switch (checked) {
-            case OK -> null;
-            case UNSUPPORTED -> error("unsupported_recipe");
-            case TOO_COMPLEX -> error("too_complex");
-            case NO_SPACE -> error("no_space");
-            case MISSING -> error("missing_material");
-            case INACTIVE, STALE -> null; // Uncertain: the click still lets the server arbitrate.
-        };
+        if (provablyUnsolvable(hints, checked)) return error("missing_material");
+        once("previewReleased" + checked, "FMP JEI plus preview released to the server (client estimate {} does not decide)", checked);
+        return null;
+    }
+    /**
+     * The only case in which this client speaks for the server: the client HAS a cache view, that cache view is
+     * empty, and JEI's own transfer (grid + player inventory) already failed - so every source really is empty.
+     * Anything weaker than that is not provable: hint counts are estimates and the grid reading subtracts our own
+     * in-flight reservations, so a merely incomplete client view must be released to the server instead of greyed.
+     */
+    private static boolean provablyUnsolvable(boolean hints, CraftingService.Result checked) {
+        return hints && checked == CraftingService.Result.MISSING && ClientMaterials.craftingStacks().isEmpty();
     }
     /**
      * The panel is live, so the cache is a real source: hand the intent to the server and let it answer.
