@@ -10,7 +10,7 @@
 - keyed on the exact `CraftingMenu` class ＋ `minecraft:crafting`; **no protocol change, no save-format change, no change to server-side arbitration**;
 - if a JEI update breaks the injection, we log one warning and the patch silently does nothing — the game will not crash.
 
-**Material sources**: while the panel is live, **the crafting grid, the player inventory and the cache all count**, and the grid/inventory are spent first with the cache filling the gap — a click runs JEI's own transfer first (server arbitration unchanged) and then asks the server to top the remaining gap up from the cache; when the inventory alone covers the recipe the preview is simply normal instead of reporting missing material, and only when both fail do we show "not enough available materials in the backpack, the cache and the crafting grid".
+**Material sources**: while the panel is live, **the crafting grid, the player inventory and the cache all count**, and the grid/inventory are spent first with the cache filling the gap — a click runs JEI's own transfer first (server arbitration unchanged) and then asks the server to top the remaining gap up from the cache. **The preview now defers to the server** (a live panel no longer lets the client pre-declare "missing"), and only the provably hopeless case — an empty cache view plus a grid/inventory that already failed — shows "not enough available materials in the backpack, the cache and the crafting grid".
 
 **Compatibility**: clean packs behave exactly like 0.2.1; the "unusable with FXNT Storage" note from the previous release is **fixed in 0.2.2**. If JEI's own UI is broken for unrelated reasons, the **logistics panel** and the **vanilla recipe book** remain available as supply paths.
 
