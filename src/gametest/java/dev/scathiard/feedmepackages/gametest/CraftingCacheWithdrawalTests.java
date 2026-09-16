@@ -3,6 +3,7 @@ package dev.scathiard.feedmepackages.gametest;
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.consumption.CraftingPlanner;
 import dev.scathiard.feedmepackages.consumption.CraftingService;
+import dev.scathiard.feedmepackages.consumption.MaterialTransaction;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.network.MaterialHints;
@@ -41,6 +42,13 @@ import java.util.*;
  *       asks for the plain item - measured against the plain control, so this cause is excluded;</li>
  *   <li>the 3x3 two-phase gap (C): filling an iron-block recipe was covered, taking the result was not.</li>
  * </ul>
+ *
+ * <p>The second round (user: "scissors work, the iron block does not") adds one case per candidate for a
+ * 3x3-only failure: the demanded quantity itself (H1), stock split over cells (H2 - two cells of the same
+ * exact variant are refused outright by {@code CacheEdit.filter}, and the legal mixed-variant form fills
+ * fine), the menu/parameter differences between 2x2 and 3x3 (H3), a live crafting lease (H4) and a cursor
+ * hold (H5). H2-H5 are excluded with numbers; H1 is the truth when the demanded identity really has fewer
+ * than nine.
  */
 @GameTestHolder(FeedMePackages.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -65,9 +73,14 @@ public final class CraftingCacheWithdrawalTests {
     }
     /** The real panel/JEI entry: a live snapshot, then one FILL_RECIPE intent over the panel packet channel. */
     private static CacheActions.Result fill(ServerPlayer player, String recipeId, boolean maximum) {
+        return command(player, CacheActions.Action.FILL_RECIPE, 0, maximum ? 1 : 0, recipeId);
+    }
+    /** Any real panel action over the panel packet channel, with a live snapshot first. */
+    private static CacheActions.Result command(ServerPlayer player, CacheActions.Action action, int slot, int first, String template) {
+        player.tickCount += 8; // PanelNetwork.Budget refuses a second query within four ticks
         var window = UUID.randomUUID();
         var view = PanelNetwork.query(player, new PanelPackets.Query(window, player.containerMenu.containerId, true));
-        var intent = new CacheActions.Intent(view.session(), view.revision(), CacheActions.Action.FILL_RECIPE, 0, maximum ? 1 : 0, -1, recipeId);
+        var intent = new CacheActions.Intent(view.session(), view.revision(), action, slot, first, -1, template);
         return PanelNetwork.command(player, new PanelPackets.Command(window, 1, intent, false, "", 0)).result();
     }
     private static void table(GameTestHelper helper, ServerPlayer player) {
@@ -198,6 +211,102 @@ public final class CraftingCacheWithdrawalTests {
         player.containerMenu.clicked(0, 0, ClickType.QUICK_MOVE, player);
         helper.assertTrue(inventoryCount(player, Items.IRON_BLOCK) == 1 && stock(player, 0) == 0 && gridCount(player, Items.IRON_INGOT) == 0,
                 "The variant cell must also craft and settle exactly like the plain one: blocks=" + inventoryCount(player, Items.IRON_BLOCK) + ", cache=" + stock(player, 0));
+        helper.succeed();
+    }
+
+    /**
+     * (H1) The honest half of the user's report: eight cached ingots are genuinely not enough for an iron
+     * block, so MISSING_MATERIAL is the truth there (nine is the C1 case above, four is the control).
+     */
+    @GameTest(template = "empty")
+    public static void eightCachedIngotsAreGenuinelyMissingForAnIronBlock(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); table(helper, player);
+        seed(player, 0, new ItemStack(Items.IRON_INGOT), 8);
+        var view = MaterialTransaction.open(player).orElseThrow();
+        helper.assertTrue(view.available(new ItemStack(Items.IRON_INGOT)) == 8,
+                "Fixture must offer eight ingots to the planner: " + view.available(new ItemStack(Items.IRON_INGOT)));
+        var result = fill(player, "minecraft:iron_block", false);
+        helper.assertTrue(result == CacheActions.Result.MISSING_MATERIAL && stock(player, 0) == 8 && gridCount(player, Items.IRON_INGOT) == 0,
+                "Eight ingots must answer MISSING_MATERIAL and move nothing: result=" + result + ", cache=" + stock(player, 0));
+        helper.succeed();
+    }
+
+    /**
+     * (H2) The captain's "5 + 4 in two cells" cannot even be built: the domain refuses two cells with the
+     * same exact filter ({@code CacheEdit.filter:23-27} throws "Duplicate exact filter", which is what
+     * {@code CacheActions.Result.DUPLICATE_FILTER} reports). So the only way the user's panel can show
+     * several ingot-looking cells is cells with DIFFERENT variants - that is the fixture below.
+     */
+    @GameTest(template = "empty")
+    public static void twoCellsWithTheSameExactFilterAreRefusedByTheDomain(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); table(helper, player);
+        seed(player, 0, new ItemStack(Items.IRON_INGOT), 5);
+        String refusal = null;
+        try { seed(player, 1, new ItemStack(Items.IRON_INGOT), 4); } catch (RuntimeException refused) { refusal = String.valueOf(refused.getMessage()); }
+        helper.assertTrue(refusal != null, "A second cell with the same exact filter must be refused, otherwise H2 would be buildable");
+        helper.assertTrue(stock(player, 0) == 5 && stock(player, 1) == 0,
+                "The refusal must leave the cache as it was: cells=" + stock(player, 0) + "+" + stock(player, 1) + ", refusal=" + refusal);
+        helper.succeed();
+    }
+
+    /**
+     * (H2, legal form) Two ingot cells can only differ by variant, and then the 3x3 fill still works: the
+     * planner's ingredient test tolerates the extra component, and the take walks the grid slot by slot.
+     * Measured 5 plain + 4 named -&gt; OK with nine ingots in the grid, cells unchanged (a lease).
+     */
+    @GameTest(template = "empty")
+    public static void mixedVariantCellsStillFillAnIronBlock(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); table(helper, player);
+        seed(player, 0, new ItemStack(Items.IRON_INGOT), 5);
+        seed(player, 1, named(new ItemStack(Items.IRON_INGOT), "Requested stock"), 4);
+        var view = MaterialTransaction.open(player).orElseThrow();
+        int plain = view.available(new ItemStack(Items.IRON_INGOT));
+        var result = fill(player, "minecraft:iron_block", false);
+        helper.assertTrue(result == CacheActions.Result.OK && gridCount(player, Items.IRON_INGOT) == 9 && stock(player, 0) == 5 && stock(player, 1) == 4,
+                "A second ingot cell with a different variant must not break the 3x3 fill (it does not, measured): result=" + result + ", plain=" + plain
+                        + ", cells=" + stock(player, 0) + "+" + stock(player, 1) + ", grid=" + gridCount(player, Items.IRON_INGOT));
+        helper.succeed();
+    }
+
+    /**
+     * (H4) A live lease is the one way the hints can offer less than the panel shows (MaterialHints:71
+     * subtracts every live reservation, ClientMaterials.stacks adds the player's own back). The
+     * preparation path excludes the player's own lease, so an unfinished shears fill must not starve the
+     * iron block: measured offered=7 + own=2, block=OK with nine ingots in the grid.
+     */
+    @GameTest(template = "empty")
+    public static void anUnfinishedShearsLeaseDoesNotStarveTheIronBlock(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); table(helper, player);
+        seed(player, 0, new ItemStack(Items.IRON_INGOT), 9);
+        helper.assertTrue(fill(player, "minecraft:shears", false) == CacheActions.Result.OK, "A 2x2 recipe with nine cached ingots must fill");
+        var hints = MaterialHints.next(player);
+        helper.assertTrue(hints.amounts().get(0) == 7 && hints.ownReservations().get(0) == 2,
+                "The hint must offer free stock and the player's own lease separately: offered=" + hints.amounts().get(0)
+                        + ", own=" + hints.ownReservations().get(0));
+        var block = fill(player, "minecraft:iron_block", false);
+        helper.assertTrue(block == CacheActions.Result.OK && gridCount(player, Items.IRON_INGOT) == 9,
+                "A live lease of the player's own must not starve a nine-ingot fill: result=" + block + ", grid="
+                        + gridCount(player, Items.IRON_INGOT) + ", cache=" + stock(player, 0));
+        helper.succeed();
+    }
+
+    /**
+     * (H5) Items held on the cursor from the cache reserve stock for the hints (offered drops to four of
+     * nine) but not for crafting: the crafting action releases the hold first, so the 3x3 fill still works.
+     */
+    @GameTest(template = "empty")
+    public static void aCursorHoldDoesNotStarveTheIronBlock(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); table(helper, player);
+        seed(player, 0, new ItemStack(Items.IRON_INGOT), 9);
+        helper.assertTrue(command(player, CacheActions.Action.TAKE_CURSOR, 0, 5, "") == CacheActions.Result.OK
+                        && player.containerMenu.getCarried().getCount() == 5,
+                "A real cursor take of five ingots must succeed: carried=" + player.containerMenu.getCarried());
+        var hints = MaterialHints.next(player);
+        helper.assertTrue(hints.amounts().get(0) == 4, "The hint must exclude the five held on the cursor: offered=" + hints.amounts().get(0));
+        var block = fill(player, "minecraft:iron_block", false);
+        helper.assertTrue(block == CacheActions.Result.OK && stock(player, 0) == 9,
+                "A held cursor stack must not starve the fill (crafting releases the hold first): result=" + block + ", grid="
+                        + gridCount(player, Items.IRON_INGOT) + ", cache=" + stock(player, 0));
         helper.succeed();
     }
 }
