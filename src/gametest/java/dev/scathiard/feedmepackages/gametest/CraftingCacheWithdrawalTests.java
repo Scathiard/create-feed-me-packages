@@ -21,6 +21,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.ContainerLevelAccess;
 import net.minecraft.world.inventory.CraftingMenu;
+import net.minecraft.world.inventory.InventoryMenu;
 import net.minecraft.world.item.*;
 import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
@@ -362,6 +363,42 @@ public final class CraftingCacheWithdrawalTests {
         player.containerMenu.clicked(0, 0, ClickType.QUICK_MOVE, player);
         helper.assertTrue(inventoryCount(player, Items.IRON_BLOCK) == 1 && stock(player, 0) == 119,
                 "Exactly nine ingots must settle: blocks=" + inventoryCount(player, Items.IRON_BLOCK) + ", cache=" + stock(player, 0));
+        helper.succeed();
+    }
+
+    /**
+     * The 2x2/3x3 comparison the JEI report needs, with the actual values printed: the same cache, the
+     * same recipe set, and the same planner call the client makes - once in the player's own 2x2 grid and
+     * once in a real crafting table. All three previews answer NONE, so the client's own simulation is not
+     * where "2x2 passes, 3x3 fails" can come from; the difference has to be in the client-side inputs
+     * (hints/panel), which the new log line prints on a real click.
+     */
+    @GameTest(template = "empty")
+    public static void theTwoMenusAgreeOnGridHintsAndPreview(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
+        seed(player, 0, new ItemStack(Items.IRON_INGOT), 128);
+        player.containerMenu = new InventoryMenu(player.getInventory(), true, player);
+        var small = CraftingService.grid(player.containerMenu);
+        var smallHints = MaterialHints.next(player);
+        var smallPreview = CraftingPlanner.solve(recipe(player, "minecraft:shears"), small.getWidth(), small.getHeight(), small.getMaxStackSize(), 1, false,
+                List.of(new ItemStack(Items.IRON_INGOT, 128)), player.level());
+        boolean smallSupported = CraftingService.supported(player.containerMenu);
+        table(helper, player);
+        var large = CraftingService.grid(player.containerMenu);
+        var largeHints = MaterialHints.next(player);
+        var largeShears = CraftingPlanner.solve(recipe(player, "minecraft:shears"), large.getWidth(), large.getHeight(), large.getMaxStackSize(), 1, false,
+                List.of(new ItemStack(Items.IRON_INGOT, 128)), player.level());
+        var largeBlock = CraftingPlanner.solve(recipe(player, "minecraft:iron_block"), large.getWidth(), large.getHeight(), large.getMaxStackSize(), 1, false,
+                List.of(new ItemStack(Items.IRON_INGOT, 128)), player.level());
+        String values = " small=" + small.getWidth() + "x" + small.getHeight() + " supported=" + smallSupported + " hints=" + smallHints.amounts() + " reservedGrid="
+                + smallHints.reservedGrid().size() + " shears=" + smallPreview.error() + " | large=" + large.getWidth() + "x" + large.getHeight()
+                + " supported=" + CraftingService.supported(player.containerMenu) + " hints=" + largeHints.amounts() + " reservedGrid=" + largeHints.reservedGrid().size()
+                + " shears=" + largeShears.error() + " block=" + largeBlock.error();
+        helper.assertTrue(smallSupported && small.getWidth() == 2 && large.getWidth() == 3 && large.getHeight() == 3
+                        && smallHints.amounts().get(0) == 128 && largeHints.amounts().get(0) == 128
+                        && smallPreview.error() == CraftingPlanner.Error.NONE && largeShears.error() == CraftingPlanner.Error.NONE
+                        && largeBlock.error() == CraftingPlanner.Error.NONE,
+                "The two menus must agree on hints and on the client preview:" + values);
         helper.succeed();
     }
 }

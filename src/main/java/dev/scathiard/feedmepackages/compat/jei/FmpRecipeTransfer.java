@@ -13,6 +13,7 @@ import mezz.jei.api.recipe.transfer.*;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.*;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.*;
 import java.util.*;
 
@@ -41,11 +42,11 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
     @Override public RecipeType<RecipeHolder<CraftingRecipe>> getRecipeType() { return RecipeTypes.CRAFTING; }
     @Override public IRecipeTransferError transferRecipe(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
         boolean panel = LogisticsPanel.cacheLive(), hints = ClientMaterials.active();
-        once("entry", "FMP JEI plus used: recipe={} panelLive={} hintsActive={} perform={} maximum={}", recipe.id(), panel, hints, perform, maximum);
         if (!panel) return withoutPanel(menu, recipe, slots, player, maximum, perform);
-        if (perform) return performTransfer(recipe, maximum);
-        if (!hints) return null; // The client cannot know what the cache holds; an uncertain preview is not a failure.
+        if (perform) return performTransfer(recipe, maximum, player);
+        if (!hints) { once("previewNoHints", "FMP JEI plus preview without hints: {}", inputs(recipe, player, panel, false, maximum)); return null; }
         var checked = ClientCrafting.check(player, recipe, maximum, true);
+        once("preview" + menu.getClass().getSimpleName() + checked, "FMP JEI plus preview: {} checked={}", inputs(recipe, player, panel, true, maximum), checked);
         return switch (checked) {
             case OK -> null;
             case UNSUPPORTED -> error("unsupported_recipe");
@@ -57,13 +58,26 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
     }
     /**
      * The panel is live, so the cache is a real source: hand the intent to the server and let it answer.
-     * Returning an error here without asking was what made a stocked cache look empty to JEI.
+     * Returning an error here without asking was what made a stocked cache look empty to JEI. The log line
+     * is printed for every click - it is the one place that shows every input the client had.
      */
-    private IRecipeTransferError performTransfer(RecipeHolder<CraftingRecipe> recipe, boolean maximum) {
+    private IRecipeTransferError performTransfer(RecipeHolder<CraftingRecipe> recipe, boolean maximum, Player player) {
+        FeedMePackages.LOGGER.info("FMP JEI plus clicked: {}", inputs(recipe, player, true, ClientMaterials.active(), maximum));
         if (LogisticsPanel.fillRecipe(recipe.id(), maximum)) return null;
         boolean ready = LogisticsPanel.recipeReady();
         once("refused", "FMP JEI plus refused locally: panelReady={} unbound={}", ready, LogisticsPanel.unbound());
         return error(!ready ? "panel_not_ready" : LogisticsPanel.unbound() ? "unbound" : "inactive");
+    }
+    /** Every input the 2x2/3x3 comparison needs, in one line: menu, width, hints, cache stacks, grid. */
+    private String inputs(RecipeHolder<CraftingRecipe> recipe, Player player, boolean panel, boolean hints, boolean maximum) {
+        var menu = player.containerMenu;
+        int gridSize = menu == null || menu.slots.isEmpty() || !(menu.getSlot(1).container instanceof net.minecraft.world.inventory.CraftingContainer grid) ? -1 : grid.getItems().size();
+        int hintStacks = ClientMaterials.stacks().size(), hintTotal = ClientMaterials.stacks().stream().mapToInt(ItemStack::getCount).sum();
+        int cacheStacks = ClientMaterials.craftingStacks().size(), cacheTotal = ClientMaterials.craftingStacks().stream().mapToInt(ItemStack::getCount).sum();
+        return "recipe=" + recipe.id() + " menu=" + (menu == null ? "none" : menu.getClass().getSimpleName()) + "/" + (menu == null ? -1 : menu.containerId)
+                + " width=" + width + " panelLive=" + panel + " panelReady=" + LogisticsPanel.recipeReady() + " hintsActive=" + hints
+                + " hintStacks=" + hintStacks + " hintTotal=" + hintTotal + " cacheStacks=" + cacheStacks + " cacheTotal=" + cacheTotal
+                + " gridSlots=" + gridSize + " maximum=" + maximum;
     }
     /**
      * No live panel (unworn, disabled, or the snapshot never arrived): JEI's own transfer is the only
@@ -85,6 +99,5 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
     }
     private static void once(String key, String format, Object... arguments) {
         if (LOGGED.add(key)) FeedMePackages.LOGGER.info(format, arguments);
-    }
-    private IRecipeTransferError error(String key) { return helper.createUserErrorWithTooltip(Component.translatable("gui.create_feed_me_packages.result." + key)); }
+    }    private IRecipeTransferError error(String key) { return helper.createUserErrorWithTooltip(Component.translatable("gui.create_feed_me_packages.result." + key)); }
 }

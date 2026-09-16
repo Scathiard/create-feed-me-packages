@@ -55,6 +55,11 @@ public final class FmpJeiPlugin implements IModPlugin {
         var helper = registration.getTransferHelper();
         registration.addRecipeTransferHandler(new FmpRecipeTransfer<>(InventoryMenu.class, null, 2, helper), mezz.jei.api.constants.RecipeTypes.CRAFTING);
         registration.addRecipeTransferHandler(new FmpRecipeTransfer<>(CraftingMenu.class, MenuType.CRAFTING, 3, helper), mezz.jei.api.constants.RecipeTypes.CRAFTING);
+        // Proof for the log that JEI discovered this plugin and what the two handlers were registered as:
+        // CraftingMenu is constructed with MenuType.CRAFTING (verified in the merged Minecraft jar), so the
+        // 3x3 handler must match the crafting table's menu type.
+        FeedMePackages.LOGGER.info("FMP JEI transfer handlers registered: 2x2={} menuType=null width=2, 3x3={} menuType={} width=3",
+                InventoryMenu.class.getSimpleName(), CraftingMenu.class.getSimpleName(), MenuType.CRAFTING);
     }
     @Override public void registerGuiHandlers(IGuiHandlerRegistration registration) {
         register(registration, InventoryScreen.class); register(registration, CraftingScreen.class); register(registration, CreativeModeInventoryScreen.class);
