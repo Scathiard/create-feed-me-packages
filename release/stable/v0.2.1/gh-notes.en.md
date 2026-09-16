@@ -4,4 +4,4 @@
 
 ## Known issue
 
-- In the **Mechanomania** modpack, JEI's recipe-transfer "+" does not take cached items into account, and our transfer handler is never called. The root cause is still undetermined; JEI version differences and our handler registration being overridden have both been ruled out. The vanilla recipe book and panel withdrawal are unaffected - this release's fix does not depend on the JEI path.
+- **With "Create: Storage" (`fxntstorage`) installed**, JEI's recipe-transfer "+" does not use items from the cache. The cause is now known: that mod unconditionally takes the single "crafting-table recipe transfer" registration slot (JEI allows one handler per slot, and the last registration wins), and it only looks at the backpack you are wearing - so the "+" on a crafting-table recipe stays **grey** with JEI's own "Missing Items" tooltip. **This is not caused by this mod, and it is not limited to it** - any mod that registers that slot earlier gets overridden. **Workaround:** the logistics panel and the vanilla recipe book still work (cached materials are still used).
