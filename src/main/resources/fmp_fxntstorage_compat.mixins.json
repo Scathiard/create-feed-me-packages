@@ -1,0 +1,9 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.scathiard.feedmepackages.compat.fxntstorage.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["TransferRecipePacketMixin", "ServerPayloadHandlerMixin"],
+  "client": ["JeiCraftingTransferHandlerMixin"],
+  "injectors": {"defaultRequire": 0}
+}

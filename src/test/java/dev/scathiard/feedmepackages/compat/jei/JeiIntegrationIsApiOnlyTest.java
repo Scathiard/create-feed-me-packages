@@ -43,13 +43,30 @@ class JeiIntegrationIsApiOnlyTest {
         return found;
     }
 
-    @Test void theModCarriesExactlyOneMixinConfigAndItIsOurs() {
+    @Test void theModCarriesOnlyItsOwnMixinConfigs() {
         String toml = resource("/META-INF/neoforge.mods.toml");
         assertNotNull(toml, "neoforge.mods.toml must be on the classpath");
-        assertEquals(List.of("create_feed_me_packages.mixins.json"), matches(toml, "config\\s*=\\s*\"([^\"]+)\""),
-                "exactly one [[mixins]] config, and it is our own");
+        assertEquals(List.of("create_feed_me_packages.mixins.json", "fmp_fxntstorage_compat.mixins.json"),
+                matches(toml, "config\\s*=\\s*\"([^\"]+)\""), "our own mixins plus the optional Create: Storage compat");
         assertFalse(toml.contains("mezz.jei"), "no mixin config may point at JEI");
         assertFalse(toml.contains("fmp_jei_takeover"), "the takeover config was removed by user decision");
+    }
+
+    @Test void theCreateStorageCompatIsSoftAndNeverTouchesJei() {
+        String compat = resource("/fmp_fxntstorage_compat.mixins.json");
+        assertNotNull(compat, "the Create: Storage compat config must ship");
+        assertEquals(List.of("dev.scathiard.feedmepackages.compat.fxntstorage.mixin"),
+                matches(compat, "\"package\"\\s*:\\s*\"([^\"]+)\""), "helpers must live outside the mixin package");
+        assertTrue(compat.contains("\"required\": false"), "a soft config: with their mod absent it must not hard-fail");
+        assertTrue(compat.contains("\"defaultRequire\": 0"), "every injector must be allowed to miss");
+        assertFalse(compat.contains("mezz.jei"), "the compat layer must not touch JEI at all");
+        for (String mixin : List.of("JeiCraftingTransferHandlerMixin", "TransferRecipePacketMixin", "ServerPayloadHandlerMixin")) {
+            assertTrue(compat.contains(mixin), mixin + " must be listed");
+            String bytes = classBytes("/dev/scathiard/feedmepackages/compat/fxntstorage/mixin/" + mixin + ".class");
+            assertNotNull(bytes, mixin + " must be compiled");
+            assertTrue(bytes.contains("net.fxnt.fxntstorage"), mixin + " must name the other mod's class");
+            assertTrue(bytes.contains("Pseudo"), mixin + " must be @Pseudo so an absent target is harmless");
+        }
     }
 
     @Test void neitherTheTakeoverNorTheJeiHelperLayerShips() {

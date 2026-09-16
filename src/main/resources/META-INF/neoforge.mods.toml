@@ -41,3 +41,7 @@ type="required"
 versionRange="[9.5.1,10.0.0)"
 ordering="AFTER"
 side="BOTH"
+
+# Soft, optional compat with Create: Storage (fxntstorage): no-op when that mod is absent or changed shape.
+[[mixins]]
+config="fmp_fxntstorage_compat.mixins.json"
