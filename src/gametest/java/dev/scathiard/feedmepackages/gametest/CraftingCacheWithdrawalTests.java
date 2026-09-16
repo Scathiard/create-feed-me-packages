@@ -16,6 +16,7 @@ import dev.scathiard.feedmepackages.storage.CacheLedger;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.*;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -487,6 +488,40 @@ public final class CraftingCacheWithdrawalTests {
         catch (RuntimeException refused) { changeRefusal = refused.getMessage(); }
         helper.assertTrue(stateRefusal != null && changeRefusal != null,
                 "An unfiltered cell with stock and a filter change on a stocked cell must both be refused: state=" + stateRefusal + ", change=" + changeRefusal);
+        helper.succeed();
+    }
+
+    /**
+     * The real root cause, pinned end to end with real calls: a ledger written by a newer version (the
+     * user's world is schema 10) is refused by this baseline and comes back LOCKED, which turns
+     * AccessGate into STORAGE_LOCKED (AccessGate:52-53) and leaves the client with no material view at
+     * all (MaterialHints.next's active=false) - the state that made JEI silently fall back to the vanilla
+     * transfer for every cache-supplied recipe while the recipe book kept working. The locked ledger is
+     * installed into the world's data storage for the assertions and swapped back afterwards; a locked
+     * ledger cannot even be saved (CacheLedger.writable refuses), so nothing is overwritten.
+     */
+    @GameTest(template = "empty")
+    public static void aHigherSchemaLedgerLocksTheCacheAndTheMaterialView(GameTestHelper helper) {
+        helper.assertTrue(CacheLedger.SCHEMA == 8, "This baseline is expected to be schema 8, not " + CacheLedger.SCHEMA);
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
+        var server = helper.getLevel().getServer();
+        var storage = server.overworld().getDataStorage();
+        var healthy = CacheLedger.get(server);
+        var fromNewer = new CompoundTag(); fromNewer.putInt("schema", 10);
+        var locked = CacheLedger.load(fromNewer, helper.getLevel().registryAccess());
+        boolean refused = !locked.problem().isEmpty();
+        String status; boolean hinted; boolean empty;
+        try {
+            storage.set(CacheLedger.NAME, locked);
+            status = AccessGate.resolve(player).status().name();
+            var message = MaterialHints.next(player);
+            hinted = message.active(); empty = message.templates().isEmpty() && message.amounts().isEmpty();
+        } finally { storage.set(CacheLedger.NAME, healthy); }
+        helper.assertTrue(refused && status.equals("STORAGE_LOCKED") && !hinted && empty,
+                "A schema-10 ledger must lock the cache and leave the client without a material view: refused=" + refused
+                        + ", status=" + status + ", hintsActive=" + hinted + ", empty=" + empty);
+        helper.assertTrue(AccessGate.resolve(player).status() == AccessGate.Status.ACTIVE && MaterialHints.next(player).active(),
+                "Swapping the healthy ledger back must restore the cache (otherwise this test poisons the world)");
         helper.succeed();
     }
 }

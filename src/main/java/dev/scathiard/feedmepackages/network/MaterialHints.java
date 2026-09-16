@@ -7,6 +7,7 @@ import dev.scathiard.feedmepackages.service.AccessGate;
 import dev.scathiard.feedmepackages.storage.CacheHandle;
 import dev.scathiard.feedmepackages.storage.CacheLedger;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
@@ -75,7 +76,18 @@ public final class MaterialHints {
     public static void forget(ServerPlayer player) { LAST.remove(player); }
     public static void tick(ServerPlayer player) {
         if (player.tickCount % 4 != 0) return;
+        // ★ A locked ledger used to exist only in a server log: the player saw "missing materials" for
+        // every cache-supplied recipe with nothing to read. Say it in their own language, on the action
+        // bar, about once every five seconds for as long as the lock lasts (translatable, so it is CN or
+        // EN by the client's own locale and needs no new protocol field).
+        if (player.tickCount % 100 == 0 && AccessGate.resolve(player).status() == AccessGate.Status.STORAGE_LOCKED) noticeLocked(player);
         var packet = next(player); if (packet != null) PacketDistributor.sendToPlayer(player, packet);
+    }
+    private static final Set<UUID> TOLD_LOCKED = new HashSet<>();
+    private static void noticeLocked(ServerPlayer player) {
+        if (TOLD_LOCKED.add(player.getUUID()))
+            FeedMePackages.LOGGER.warn("FMP cache ledger locked; telling {} why, in their own language", player.getGameProfile().getName());
+        player.displayClientMessage(Component.translatable("gui.create_feed_me_packages.status.storage_locked.detail", CacheLedger.SCHEMA), true);
     }
     public static Message next(ServerPlayer player) {
         var access = AccessGate.resolve(player); boolean active = access.active() && !player.isSpectator();

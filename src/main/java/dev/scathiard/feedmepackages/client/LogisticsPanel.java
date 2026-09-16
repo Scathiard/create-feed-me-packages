@@ -622,7 +622,13 @@ public final class LogisticsPanel {
         if (!LogisticsPanel.active() || !snapshot.bound()) {
             LogisticsPanel.text(g, "!", x + 10, y + 20, -9352640);
             if (new PanelLayout.Rect(x + 10, y + 20, 6, 9).contains(mouseX, mouseY)) {
-                tooltip = List.of(LogisticsPanel.tr((String)(LogisticsPanel.active() ? "unbound" : "status." + snapshot.status().name().toLowerCase(Locale.ROOT)), new Object[0]));
+                var statusKey = LogisticsPanel.active() ? "unbound" : "status." + snapshot.status().name().toLowerCase(Locale.ROOT);
+                // A locked cache has to explain itself here too, not only in the server log: this is the
+                // state that made every cache-supplied recipe look like "missing materials".
+                tooltip = snapshot.status() == dev.scathiard.feedmepackages.service.AccessGate.Status.STORAGE_LOCKED
+                        ? List.of(LogisticsPanel.tr(statusKey, new Object[0]),
+                                LogisticsPanel.tr("status.storage_locked.detail", new Object[] { dev.scathiard.feedmepackages.storage.CacheLedger.SCHEMA }))
+                        : List.of(LogisticsPanel.tr(statusKey, new Object[0]));
             }
         }
         if (LogisticsPanel.active()) {

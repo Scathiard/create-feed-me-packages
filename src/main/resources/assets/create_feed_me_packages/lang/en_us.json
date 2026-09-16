@@ -19,6 +19,7 @@
   "gui.create_feed_me_packages.status.cache_conflict": "Multiple caches: disable a pendant",
   "gui.create_feed_me_packages.status.invalid_identity": "Invalid pendant identity or too many terminals",
   "gui.create_feed_me_packages.status.storage_locked": "Storage validation failed; operations are locked",
+  "gui.create_feed_me_packages.status.storage_locked.detail": "This world's cache data was written by a newer version and this build only supports schema %s: the cache is locked to protect your data (nothing was lost). Open the world with the matching newer version, or back it up before continuing.",
   "gui.create_feed_me_packages.capacity": "%s cells · %s items per cell",
   "gui.create_feed_me_packages.bound": "Bound to a Create network",
   "gui.create_feed_me_packages.unbound": "Unbound: local access available; no new requests",
