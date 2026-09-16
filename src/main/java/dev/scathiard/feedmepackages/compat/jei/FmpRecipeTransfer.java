@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.compat.jei;
 
+import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.client.ClientMaterials;
 import dev.scathiard.feedmepackages.client.ClientCrafting;
 import dev.scathiard.feedmepackages.client.LogisticsPanel;
@@ -15,8 +16,16 @@ import net.minecraft.world.inventory.*;
 import net.minecraft.world.item.crafting.*;
 import java.util.*;
 
-/** Public JEI extension. Unworn users delegate to JEI's own unregistered basic handler. */
+/**
+ * Public JEI extension. The cache is a real source, so this handler never decides "not enough material"
+ * from a guess: with a live logistics panel the SERVER arbitrates through the same {@code FILL_RECIPE}
+ * intent the panel uses - even when the client's material hints have not arrived - and every refusal
+ * names its own reason. Only a player without a live panel falls back to JEI's own transfer, and that
+ * fallback is now announced in the log instead of being silent.
+ */
 final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecipeTransferHandler<C, RecipeHolder<CraftingRecipe>> {
+    /** One log line per reason, so a single user run explains the whole path without spam. */
+    private static final Set<String> LOGGED = Collections.synchronizedSet(new HashSet<>());
     private final Class<C> type;
     private final MenuType<C> menuType;
     private final int width;
@@ -31,31 +40,38 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
     @Override public Optional<MenuType<C>> getMenuType() { return Optional.ofNullable(menuType); }
     @Override public RecipeType<RecipeHolder<CraftingRecipe>> getRecipeType() { return RecipeTypes.CRAFTING; }
     @Override public IRecipeTransferError transferRecipe(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
-        if (!ClientMaterials.active()) return withoutMaterialHints(menu, recipe, slots, player, maximum, perform);
-        if (!LogisticsPanel.recipeReady()) return error("panel_not_ready");
+        boolean panel = LogisticsPanel.cacheLive(), hints = ClientMaterials.active();
+        once("entry", "FMP JEI plus used: recipe={} panelLive={} hintsActive={} perform={} maximum={}", recipe.id(), panel, hints, perform, maximum);
+        if (!panel) return withoutPanel(menu, recipe, slots, player, maximum, perform);
+        if (perform) return performTransfer(recipe, maximum);
+        if (!hints) return null; // The client cannot know what the cache holds; an uncertain preview is not a failure.
         var checked = ClientCrafting.check(player, recipe, maximum, true);
-        if (checked != CraftingService.Result.OK) return error(switch (checked) {
-            case UNSUPPORTED -> "unsupported_recipe";
-            case TOO_COMPLEX -> "too_complex";
-            case NO_SPACE -> "no_space";
-            case MISSING -> "missing_material";
-            case INACTIVE -> "inactive";
-            case STALE -> "stale";
-            case OK -> "stale";
-        });
-        if (perform && !LogisticsPanel.fillRecipe(recipe.id(), maximum)) return error("stale");
-        return null;
+        return switch (checked) {
+            case OK -> null;
+            case UNSUPPORTED -> error("unsupported_recipe");
+            case TOO_COMPLEX -> error("too_complex");
+            case NO_SPACE -> error("no_space");
+            case MISSING -> error("missing_material");
+            case INACTIVE, STALE -> null; // Uncertain: the click still lets the server arbitrate.
+        };
     }
     /**
-     * The client has no cache material view, so this handler cannot serve the cache. JEI's own transfer
-     * still runs - backpack materials keep working - but when it fails while the logistics panel reports a
-     * live cache, "missing materials" would be a lie: the cache was never consulted. Say which of the two
-     * reasons applies instead (unbound pendant / hints not active), so the player sees the real cause.
+     * The panel is live, so the cache is a real source: hand the intent to the server and let it answer.
+     * Returning an error here without asking was what made a stocked cache look empty to JEI.
      */
-    private IRecipeTransferError withoutMaterialHints(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
-        var plain = nativeTransfer(menu, recipe, slots, player, maximum, perform);
-        if (plain == null || !LogisticsPanel.cacheLive()) return plain;
-        return error(LogisticsPanel.unbound() ? "unbound" : "inactive");
+    private IRecipeTransferError performTransfer(RecipeHolder<CraftingRecipe> recipe, boolean maximum) {
+        if (LogisticsPanel.fillRecipe(recipe.id(), maximum)) return null;
+        boolean ready = LogisticsPanel.recipeReady();
+        once("refused", "FMP JEI plus refused locally: panelReady={} unbound={}", ready, LogisticsPanel.unbound());
+        return error(!ready ? "panel_not_ready" : LogisticsPanel.unbound() ? "unbound" : "inactive");
+    }
+    /**
+     * No live panel (unworn, disabled, or the snapshot never arrived): JEI's own transfer is the only
+     * option, so the backpack keeps working - but the cache was not consulted, and the log says so.
+     */
+    private IRecipeTransferError withoutPanel(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
+        once("withoutPanel", "FMP JEI plus delegated to JEI's own transfer: no live logistics panel, the cache was not consulted");
+        return nativeTransfer(menu, recipe, slots, player, maximum, perform);
     }
     private IRecipeTransferError nativeTransfer(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
         if (width == 3) return fallback.transferRecipe(menu, recipe, slots, player, maximum, perform);
@@ -66,6 +82,9 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
             else if (!input.get(index).isEmpty()) return helper.createUserErrorWithTooltip(Component.translatable("jei.tooltip.error.recipe.transfer.too.large.player.inventory"));
         }
         return fallback.transferRecipe(menu, recipe, helper.createRecipeSlotsView(mapped), player, maximum, perform);
+    }
+    private static void once(String key, String format, Object... arguments) {
+        if (LOGGED.add(key)) FeedMePackages.LOGGER.info(format, arguments);
     }
     private IRecipeTransferError error(String key) { return helper.createUserErrorWithTooltip(Component.translatable("gui.create_feed_me_packages.result." + key)); }
 }

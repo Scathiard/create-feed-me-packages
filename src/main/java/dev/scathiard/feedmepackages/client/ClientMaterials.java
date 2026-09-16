@@ -18,6 +18,7 @@ public final class ClientMaterials {
     private static UUID generation;
     private static long serial;
     private static boolean active, first;
+    private static final Set<String> NOTED = new HashSet<>();
     private static List<ItemStack> prototypes = List.of();
     private static List<Integer> counts = List.of();
     private static List<Integer> ownReservations = List.of(), reservedGrid = List.of();
@@ -51,8 +52,10 @@ public final class ClientMaterials {
     }
     private static void accept(MaterialHints.Message packet) {
         var player = Minecraft.getInstance().player;
-        if (player == null || (packet.generation().equals(generation) && packet.serial() <= serial)
-                || (!packet.full() && !packet.generation().equals(generation))) return;
+        if (player == null) return;
+        if (packet.generation().equals(generation) && packet.serial() <= serial) { note("duplicate"); return; }
+        // An increment for a generation this client never saw leaves the material view empty; say so once.
+        if (!packet.full() && !packet.generation().equals(generation)) { note("unknownGeneration"); return; }
         try {
             if (packet.full()) {
                 var decoded = new ArrayList<ItemStack>();
@@ -64,6 +67,14 @@ public final class ClientMaterials {
             counts = packet.amounts(); first = false; active = packet.active(); serial = packet.serial();
             ownReservations = packet.ownReservations(); reservedGrid = packet.reservedGrid(); menu = packet.menu();
         } catch (IllegalArgumentException invalid) { clear(); FeedMePackages.LOGGER.warn("Rejected invalid material hints: {}", invalid.getMessage()); }
+    }
+    /**
+     * One line per reason per session. The dangerous branch (an increment for an unknown generation) used
+     * to drop the packet in silence, which left "the cache is invisible to JEI" without any trace.
+     */
+    private static void note(String reason) {
+        if (!NOTED.add(reason)) return;
+        FeedMePackages.LOGGER.info("FMP material hints: dropped a packet ({}) - the client's material view stays {}", reason, active() ? "active" : "inactive");
     }
     private static ItemStack ammo(Player player, ItemStack weapon, ItemStack vanilla) {
         if (!active() || (!first && !vanilla.isEmpty() && !player.hasInfiniteMaterials())) return vanilla;

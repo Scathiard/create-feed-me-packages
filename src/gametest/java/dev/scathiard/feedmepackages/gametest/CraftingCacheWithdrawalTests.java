@@ -309,4 +309,59 @@ public final class CraftingCacheWithdrawalTests {
                         + gridCount(player, Items.IRON_INGOT) + ", cache=" + stock(player, 0));
         helper.succeed();
     }
+
+    /**
+     * The discriminating evidence for the JEI report: the user's own simplest recipe, from a cache-only
+     * cell with 128 logs, over the same real panel entry JEI's plus uses. If this works here, the server
+     * side (which the vanilla recipe book also uses) is not what fails in their session.
+     */
+    @GameTest(template = "empty")
+    public static void thePanelEntryFillsPlanksFromACachedLog(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); table(helper, player);
+        seed(player, 0, new ItemStack(Items.OAK_LOG), 128);
+        var result = fill(player, "minecraft:oak_planks", false);
+        helper.assertTrue(result == CacheActions.Result.OK && gridCount(player, Items.OAK_LOG) == 1 && stock(player, 0) == 128,
+                "One cached log must fill the simplest recipe: result=" + result + ", grid=" + gridCount(player, Items.OAK_LOG)
+                        + ", cache=" + stock(player, 0));
+        player.containerMenu.clicked(0, 0, ClickType.QUICK_MOVE, player);
+        helper.assertTrue(inventoryCount(player, Items.OAK_PLANKS) == 4 && stock(player, 0) == 127,
+                "One log must settle into exactly four planks: planks=" + inventoryCount(player, Items.OAK_PLANKS) + ", cache=" + stock(player, 0));
+        helper.succeed();
+    }
+
+    /**
+     * The other entry the user says works: the NATIVE recipe book. It goes through
+     * {@code CraftingService.fromRecipeBook -> place(...)} with no client hint channel involved, so its
+     * success in their session proves the server fill/lease/settle chain is sound.
+     */
+    @GameTest(template = "empty")
+    public static void theRecipeBookEntryFillsFromTheSameCache(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); table(helper, player);
+        seed(player, 0, new ItemStack(Items.OAK_LOG), 128);
+        var planks = recipe(player, "minecraft:oak_planks");
+        // The vanilla recipe book only places recipes the player knows (CraftingService.simulate:51).
+        if (!player.getRecipeBook().contains(planks)) player.getRecipeBook().add(planks);
+        helper.assertTrue(player.getRecipeBook().contains(planks), "The fixture must know the recipe");
+        var accepted = CraftingService.fromRecipeBook(player, planks, false);
+        helper.assertTrue(accepted && gridCount(player, Items.OAK_LOG) == 1 && stock(player, 0) == 128,
+                "The native recipe book entry must fill from the cache: accepted=" + accepted + ", grid=" + gridCount(player, Items.OAK_LOG)
+                        + ", cache=" + stock(player, 0));
+        player.containerMenu.clicked(0, 0, ClickType.QUICK_MOVE, player);
+        helper.assertTrue(inventoryCount(player, Items.OAK_PLANKS) == 4 && stock(player, 0) == 127,
+                "The recipe book path must settle exactly one log: planks=" + inventoryCount(player, Items.OAK_PLANKS) + ", cache=" + stock(player, 0));
+        helper.succeed();
+    }
+
+    /** The user's own cell contents: 128 ingots must fill a nine-slot recipe and settle exactly nine. */
+    @GameTest(template = "empty")
+    public static void aHundredAndTwentyEightIngotsFillAnIronBlock(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); table(helper, player);
+        seed(player, 0, new ItemStack(Items.IRON_INGOT), 128);
+        helper.assertTrue(fill(player, "minecraft:iron_block", false) == CacheActions.Result.OK && gridCount(player, Items.IRON_INGOT) == 9,
+                "128 cached ingots must fill a 3x3 block: grid=" + gridCount(player, Items.IRON_INGOT) + ", cache=" + stock(player, 0));
+        player.containerMenu.clicked(0, 0, ClickType.QUICK_MOVE, player);
+        helper.assertTrue(inventoryCount(player, Items.IRON_BLOCK) == 1 && stock(player, 0) == 119,
+                "Exactly nine ingots must settle: blocks=" + inventoryCount(player, Items.IRON_BLOCK) + ", cache=" + stock(player, 0));
+        helper.succeed();
+    }
 }
