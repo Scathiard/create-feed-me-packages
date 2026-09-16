@@ -1,0 +1,8 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.scathiard.feedmepackages.compat.jei.takeover",
+  "compatibilityLevel": "JAVA_21",
+  "client": ["TakeoverRecipeTransferManagerMixin"],
+  "injectors": {"defaultRequire": 0}
+}

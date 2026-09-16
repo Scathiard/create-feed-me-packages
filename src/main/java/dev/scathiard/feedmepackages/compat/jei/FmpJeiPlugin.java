@@ -24,6 +24,7 @@ import java.util.*;
 @JeiPlugin
 public final class FmpJeiPlugin implements IModPlugin {
     private static IJeiRuntime runtime;
+    private static FmpRecipeTransfer<CraftingMenu> craftingHandler;
     @Override public ResourceLocation getPluginUid() { return ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "jei"); }
     @Override public void onRuntimeAvailable(IJeiRuntime value) {
         runtime = value; LogisticsPanel.recipeOverlay(candidate -> candidate == runtime.getRecipesGui());
@@ -34,6 +35,7 @@ public final class FmpJeiPlugin implements IModPlugin {
         runtime = null; LogisticsPanel.recipeOverlay(candidate -> false); LogisticsPanel.overlayBottomInset(0);
     }
     public static Optional<IJeiRuntime> runtime() { return Optional.ofNullable(runtime); }
+    public static Optional<mezz.jei.api.recipe.transfer.IRecipeTransferHandler<?, ?>> craftingHandler() { return Optional.ofNullable(craftingHandler); }
     @Override public void registerVanillaCategoryExtensions(IVanillaCategoryExtensionRegistration registration) {
         // The standard extension calls assemble(), which intentionally cannot manufacture an authoritative pendant.
         registration.getSmithingCategory().addExtension(PendantSmithingRecipe.class, new ISmithingCategoryExtension<PendantSmithingRecipe>() {
@@ -54,7 +56,9 @@ public final class FmpJeiPlugin implements IModPlugin {
     @Override public void registerRecipeTransferHandlers(IRecipeTransferRegistration registration) {
         var helper = registration.getTransferHelper();
         registration.addRecipeTransferHandler(new FmpRecipeTransfer<>(InventoryMenu.class, null, 2, helper), mezz.jei.api.constants.RecipeTypes.CRAFTING);
-        registration.addRecipeTransferHandler(new FmpRecipeTransfer<>(CraftingMenu.class, MenuType.CRAFTING, 3, helper), mezz.jei.api.constants.RecipeTypes.CRAFTING);
+        var large = new FmpRecipeTransfer<>(CraftingMenu.class, MenuType.CRAFTING, 3, helper);
+        registration.addRecipeTransferHandler(large, mezz.jei.api.constants.RecipeTypes.CRAFTING);
+        craftingHandler = large;
         // Proof for the log that JEI discovered this plugin and what the two handlers were registered as:
         // CraftingMenu is constructed with MenuType.CRAFTING (verified in the merged Minecraft jar), so the
         // 3x3 handler must match the crafting table's menu type.
