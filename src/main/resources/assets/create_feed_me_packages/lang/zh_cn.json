@@ -64,6 +64,8 @@
   "gui.create_feed_me_packages.result.no_space": "没有可移动的物资，或目标光标／背包没有空间",
   "gui.create_feed_me_packages.result.invalid_request": "操作参数无效，本次操作未执行",
   "gui.create_feed_me_packages.result.missing_material": "背包、缓存与合成格里的可用材料不足，未转移任何物资",
+  "gui.create_feed_me_packages.result.missing_entry": "%s ×%s",
+  "gui.create_feed_me_packages.result.missing_detail": "缺：%s",
   "gui.create_feed_me_packages.result.panel_not_ready": "物流面板未就绪，本次没有从缓存转移任何物品；请先打开一次面板再试",
   "gui.create_feed_me_packages.result.inactive": "缓存材料提示未生效（客户端没有拿到缓存材料视图），本次没有从缓存转移任何物品；请重开界面或重戴坠子后重试",
   "gui.create_feed_me_packages.result.unbound": "坠子未绑定网络：面板可用但客户端材料提示未生效，本次没有从缓存转移任何物品；请重开界面或重戴坠子后重试",

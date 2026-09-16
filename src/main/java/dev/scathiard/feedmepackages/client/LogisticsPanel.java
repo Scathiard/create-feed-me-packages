@@ -370,6 +370,7 @@ public final class LogisticsPanel {
             waiting = 0;
             predict = null;   // Timeout is an unknown result: drop the display prediction only, and refresh.
             LogisticsPanel.notice("timeout");
+            LogisticsPanel.speakViewerTimeout();
         }
         if (tick - lastQuery >= 10) {
             lastQuery = tick;
@@ -462,6 +463,8 @@ public final class LogisticsPanel {
         tooltip = List.of();
         ICONS.clear();
         feedback = null;
+        viewerWaiting = false;
+        viewerMissing = List.of();
     }
 
     private static void receive(PanelPackets.Snapshot incoming) {
@@ -476,6 +479,8 @@ public final class LogisticsPanel {
         if (incoming.acknowledged() != 0 && incoming.acknowledged() == waiting) {
             waiting = 0;
             predict = null;
+            // A viewer-initiated transfer gets its verdict on the action bar (success stays silent).
+            LogisticsPanel.speakViewerResult(incoming.result());
             if (incoming.result() != CacheActions.Result.OK) {
                 notice("result." + incoming.result().name().toLowerCase(Locale.ROOT));
                 if (LogisticsPanel.pendingReturnMatches(incoming)) {
@@ -1346,6 +1351,40 @@ public final class LogisticsPanel {
 
     public static boolean fillRecipe(ResourceLocation recipe, boolean maximum) {
         return LogisticsPanel.recipeReady() && LogisticsPanel.send(CacheActions.Action.FILL_RECIPE, 0, maximum ? 1 : 0, -1, recipe.toString());
+    }
+
+    /** Set while a recipe-viewer (JEI) FILL_RECIPE is waiting for the server's verdict. */
+    private static boolean viewerWaiting;
+    private static List<Component> viewerMissing = List.of();
+
+    /**
+     * A recipe-viewer transfer. Its verdict is ALSO spoken on the action bar, because the panel is only
+     * rendered for its own screen (`current(...)`) and a JEI recipe page covers that screen - so the panel's
+     * own notice would be invisible exactly when the viewer asked for the transfer. `missing` is explanatory
+     * only (what this client believes it lacks); the server still decides.
+     */
+    public static boolean fillRecipeForViewer(ResourceLocation recipe, boolean maximum, List<Component> missing) {
+        viewerMissing = missing == null ? List.of() : List.copyOf(missing);
+        viewerWaiting = LogisticsPanel.fillRecipe(recipe, maximum);
+        if (!viewerWaiting) viewerMissing = List.of();
+        return viewerWaiting;
+    }
+
+    /** Speak a viewer verdict once: a success says nothing (the materials appearing is the message). */
+    private static void speakViewerResult(CacheActions.Result result) {
+        if (!viewerWaiting) return;
+        List<Component> missing = viewerMissing;
+        viewerWaiting = false; viewerMissing = List.of();
+        if (result == CacheActions.Result.OK) return;
+        ClientNotice.speak(result == null ? null : result.name().toLowerCase(Locale.ROOT), missing);
+    }
+
+    /** The ack never came: say so, because a silent no-answer is the failure mode we are fixing. */
+    private static void speakViewerTimeout() {
+        if (!viewerWaiting) return;
+        List<Component> missing = viewerMissing;
+        viewerWaiting = false; viewerMissing = List.of();
+        ClientNotice.speakKey("gui.create_feed_me_packages.timeout", missing);
     }
 
     public static List<PanelLayout.CellBox> visibleCells(Screen candidate) {

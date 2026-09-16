@@ -26,14 +26,20 @@ public abstract class TakeoverRecipeTransferManagerMixin {
         FeedMePackages.LOGGER.info("FMP JEI takeover: mixin class loaded");
     }
 
-    @Inject(method = "getRecipeTransferHandler", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "getRecipeTransferHandler", at = @At("RETURN"), cancellable = true)
     private void fmp$takeover(AbstractContainerMenu menu, IRecipeCategory<?> category, CallbackInfoReturnable<Optional<?>> cir) {
         try {
             if (menu == null || category == null) return;
             if (menu.getClass() != CraftingMenu.class) return;
             if (category.getRecipeType() != (Object) mezz.jei.api.constants.RecipeTypes.CRAFTING) return;
             var handler = FmpJeiPlugin.craftingHandler().orElse(null);
-            boolean serve = LogisticsPanel.cacheLive() && handler != null;
+            if (handler == null) return;
+            // At RETURN we can see what JEI itself would have answered: that is the handler we displaced, and it
+            // is the one that may know extra sources (e.g. a worn backpack). Keep it so our handler can consult
+            // it FIRST and only top up the shortfall from the cache.
+            Object answer = cir.getReturnValue() instanceof Optional<?> optional ? optional.orElse(null) : null;
+            FmpJeiPlugin.rememberDisplaced(answer);
+            boolean serve = LogisticsPanel.cacheLive();
             if (serve) cir.setReturnValue(Optional.of(handler));
             if (serve != fmp$lastServed) {
                 fmp$lastServed = serve;
