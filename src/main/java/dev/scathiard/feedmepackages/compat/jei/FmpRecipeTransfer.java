@@ -54,31 +54,43 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
         boolean panel = LogisticsPanel.cacheLive(), hints = ClientMaterials.active();
         if (!panel) return withoutPanel(menu, recipe, slots, player, maximum, perform);
         if (perform) return performTransfer(menu, recipe, slots, player, maximum);
-        // Preview. The order encodes one rule: the client does not get to veto the server.
-        // 1) Whoever answers natively (the displaced handler, or JEI's generic one) succeeds -> the button is usable.
+        // Preview, rule v3 (see PreviewPolicy): "clickable means it will work; if it cannot work, grey it and
+        // say what is missing". This REPLACES the always-allow round, whose premise was wrong: the grey button
+        // at 02:03 was judged correctly (that client had no iron plates anywhere), so releasing everything made
+        // the button lie. The one safety valve kept: a miss we cannot name is released, never refused.
+        // 1) Whoever answers natively (the displaced handler, or JEI's generic one) can do this click -> usable.
         var nativePreview = nativeTransfer(menu, recipe, slots, player, maximum, false);
         lastPreview = type(nativePreview);
         if (nativePreview == null) {
-            once("previewNative", "FMP JEI plus preview: {} answered OK (grid/backpack already covers it)", via(menu));
+            once("previewNative", "FMP JEI plus preview: {} via={} native=ok checked=n/a decision={} missing=[]", inputs(recipe, player, panel, hints, maximum), via(menu), PreviewPolicy.Decision.ALLOW_NATIVE);
             return null;
         }
-        // 2) Panel live: everything else is RELEASED to the server, even when our own estimate says "missing".
-        //    The client view is only an estimate - hint counts are hints, and the grid reading carries our own
-        //    in-flight reservations - while the server arbitrates the real transfer. A preview stricter than the
-        //    click is exactly how a stocked cache ends up looking empty: the button is greyed, so the click that
-        //    would have succeeded never happens. Uncertain therefore means "allow", not "refuse".
-        if (!hints) { once("previewNoHints", "FMP JEI plus preview: no client material view; released to the server: {}", inputs(recipe, player, panel, false, maximum)); return null; }
+        // 2) No client material view: the cache cannot be judged here at all, so release (as before).
+        if (!hints) {
+            once("previewNoHints", "FMP JEI plus preview: {} via={} native={} checked=n/a decision={} missing=[] (no client material view)", inputs(recipe, player, panel, false, maximum), via(menu), type(nativePreview), PreviewPolicy.Decision.ALLOW_UNPROVABLE);
+            return null;
+        }
+        // 3) Our own estimate - the same planner the server's fill uses (grid + player slots + cache view).
         var estimate = ClientCrafting.estimate(player, recipe, maximum, true);
-        // The estimate is logged (one line per reason) but never decides.
-        once("preview" + menu.getClass().getSimpleName() + estimate.result(), "FMP JEI plus preview: {} via={} native={} checked={}", inputs(recipe, player, panel, true, maximum), via(menu), type(nativePreview), estimate.result());
-        if (PreviewPolicy.provablyUnsolvable(hints, estimate.result() == CraftingService.Result.MISSING, ClientMaterials.craftingStacks().isEmpty())) return error("missing_material");
-        once("previewReleased" + estimate.result(), "FMP JEI plus preview released to the server (client estimate {} does not decide)", estimate.result());
-        return null;
+        var missing = missing(estimate.missing());
+        var verdict = verdict(estimate.result());
+        var decision = PreviewPolicy.decide(false, verdict, !missing.components().isEmpty());
+        once("preview" + decision + verdict + missing.log(), "FMP JEI plus preview: {} via={} native={} checked={} decision={} missing=[{}]", inputs(recipe, player, panel, true, maximum), via(menu), type(nativePreview), estimate.result(), decision, missing.log());
+        if (decision != PreviewPolicy.Decision.REFUSE) return null;
+        return error(PreviewPolicy.reason(decision, verdict), missing);
     }
-    /**
-     * The only case in which this client speaks for the server is {@link PreviewPolicy#provablyUnsolvable}:
-     * a cache view that exists, is empty, and agrees with our own miss. Anything weaker is released.
-     */
+    /** Map the crafting-service result onto the preview policy's axes. */
+    private static PreviewPolicy.Estimate verdict(CraftingService.Result result) {
+        if (result == null) return PreviewPolicy.Estimate.INACTIVE;
+        return switch (result) {
+            case OK -> PreviewPolicy.Estimate.OK;
+            case MISSING -> PreviewPolicy.Estimate.MISSING;
+            case NO_SPACE -> PreviewPolicy.Estimate.NO_SPACE;
+            case UNSUPPORTED -> PreviewPolicy.Estimate.UNSUPPORTED;
+            case TOO_COMPLEX -> PreviewPolicy.Estimate.TOO_COMPLEX;
+            case INACTIVE, STALE -> PreviewPolicy.Estimate.INACTIVE;
+        };
+    }
     /**
      * The panel is live, so the cache is a real source: hand the intent to the server and let it answer.
      * Returning an error here without asking was what made a stocked cache look empty to JEI. The log line
@@ -110,20 +122,28 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
     /** The best-effort sentence material: rendered entries for the player, plain text for the log. */
     private record Missing(List<Component> components, String log) {}
     /**
-     * Best-effort naming of what this client could not cover, for the sentence shown to the player. Purely
-     * explanatory: it never decides whether a transfer may be attempted, and a failure here never breaks it.
+     * Naming what this client could not cover, from an estimate the caller already has. It never decides
+     * whether a refusal is allowed - {@link PreviewPolicy} decides, using "could we name it at all".
      */
-    private static Missing missing(Player player, RecipeHolder<CraftingRecipe> recipe, boolean maximum) {
+    private static Missing missing(List<ItemStack> shortfall) {
         try {
             var components = new ArrayList<Component>();
             var names = new ArrayList<String>();
-            for (var stack : ClientCrafting.shortfall(player, recipe, maximum, true)) {
+            for (var stack : shortfall == null ? List.<ItemStack>of() : shortfall) {
                 if (components.size() >= 6) break;
                 var name = stack.getHoverName();
                 components.add(ClientNotice.entry(name, stack.getCount()));
                 names.add(NoticeText.entryText(name.getString(), stack.getCount()));
             }
             return new Missing(List.copyOf(components), NoticeText.join(names));
+        } catch (Throwable t) {
+            return new Missing(List.of(), "");
+        }
+    }
+    /** Same, computing the estimate here (the click path: one solve, then the sentence). */
+    private static Missing missing(Player player, RecipeHolder<CraftingRecipe> recipe, boolean maximum) {
+        try {
+            return missing(ClientCrafting.shortfall(player, recipe, maximum, true));
         } catch (Throwable t) {
             return new Missing(List.of(), "");
         }
@@ -195,5 +215,20 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
     }
     private static void once(String key, String format, Object... arguments) {
         if (LOGGED.add(key)) FeedMePackages.LOGGER.info(format, arguments);
-    }    private IRecipeTransferError error(String key) { return helper.createUserErrorWithTooltip(Component.translatable("gui.create_feed_me_packages.result." + key)); }
+    }
+    private IRecipeTransferError error(String key) { return helper.createUserErrorWithTooltip(Component.translatable("gui.create_feed_me_packages.result." + key)); }
+    /**
+     * A refusal the player can act on: our reason, plus what is missing when this client could name it,
+     * plus - only when a displaced handler exists - the note that this estimate never looked at any worn
+     * backpack, so the player does not think we checked it.
+     */
+    private IRecipeTransferError error(String key, Missing missing) {
+        var text = Component.empty().append(Component.translatable("gui.create_feed_me_packages.result." + key));
+        var detail = ClientNotice.detail(missing == null ? List.of() : missing.components());
+        if (detail != null) {
+            text.append(detail);
+            if (FmpJeiPlugin.displacedHandler().isPresent()) text.append(Component.translatable("gui.create_feed_me_packages.result.missing_scope"));
+        }
+        return helper.createUserErrorWithTooltip(text);
+    }
 }

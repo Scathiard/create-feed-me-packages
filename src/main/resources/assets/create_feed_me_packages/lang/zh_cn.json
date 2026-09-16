@@ -66,6 +66,7 @@
   "gui.create_feed_me_packages.result.missing_material": "背包、缓存与合成格里的可用材料不足，未转移任何物资",
   "gui.create_feed_me_packages.result.missing_entry": "%s ×%s",
   "gui.create_feed_me_packages.result.missing_detail": "缺：%s",
+  "gui.create_feed_me_packages.result.missing_scope": "（仅按缓存与随身格估算，未含外装背包）",
   "gui.create_feed_me_packages.result.panel_not_ready": "物流面板未就绪，本次没有从缓存转移任何物品；请先打开一次面板再试",
   "gui.create_feed_me_packages.result.inactive": "缓存材料提示未生效（客户端没有拿到缓存材料视图），本次没有从缓存转移任何物品；请重开界面或重戴坠子后重试",
   "gui.create_feed_me_packages.result.unbound": "坠子未绑定网络：面板可用但客户端材料提示未生效，本次没有从缓存转移任何物品；请重开界面或重戴坠子后重试",

@@ -3,30 +3,23 @@ package dev.scathiard.feedmepackages.compat.jei;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static dev.scathiard.feedmepackages.compat.jei.PreviewPolicy.Decision.*;
+import static dev.scathiard.feedmepackages.compat.jei.PreviewPolicy.Estimate.*;
 
 /**
- * The preview releases everything to the server except the one provable case. That boundary is the fix for
- * "a stocked cache looked empty and the button was greyed", so it is pinned here.
+ * The successor of the v2 "provably unsolvable" boundary. v3 narrows it to a rule the player can read off the
+ * screen: a miss that can be named refuses, a miss that cannot be named is released, and everything we can
+ * prove here and now refuses. Kept as its own file because the safety valve ("cannot name it, cannot refuse
+ * it") must survive any future re-tuning of the preview.
  */
 class ProvablyUnsolvableTest {
-    @Test void onlyAnEmptyCacheViewWithAnAgreeingMissIsProvable() {
-        assertTrue(PreviewPolicy.provablyUnsolvable(true, true, true));
-        // No cache view: this client cannot speak for the cache.
-        assertFalse(PreviewPolicy.provablyUnsolvable(false, true, true));
-        // A cache view that still holds something is never "provable".
-        assertFalse(PreviewPolicy.provablyUnsolvable(true, true, false));
+    @Test void aMissThatCannotBeNamedIsNeverRefused() {
+        assertEquals(ALLOW_UNPROVABLE, PreviewPolicy.decide(false, MISSING, false));
+        assertNull(PreviewPolicy.reason(ALLOW_UNPROVABLE, MISSING));
     }
 
-    @Test void everyOtherCombinationIsReleased() {
-        for (boolean hasCacheView : new boolean[]{true, false}) {
-            for (boolean estimateMissed : new boolean[]{true, false}) {
-                for (boolean cacheViewEmpty : new boolean[]{true, false}) {
-                    boolean provable = hasCacheView && estimateMissed && cacheViewEmpty;
-                    assertEquals(provable, PreviewPolicy.provablyUnsolvable(hasCacheView, estimateMissed, cacheViewEmpty));
-                }
-            }
-            // An estimate that did not miss is never provable, even with an empty cache view.
-            assertFalse(PreviewPolicy.provablyUnsolvable(hasCacheView, false, true));
-        }
+    @Test void aMissThatCanBeNamedIsRefusedWithASentence() {
+        assertEquals(REFUSE, PreviewPolicy.decide(false, MISSING, true));
+        assertEquals("missing_material", PreviewPolicy.reason(REFUSE, MISSING));
     }
 }
