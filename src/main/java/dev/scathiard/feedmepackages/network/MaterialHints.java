@@ -2,6 +2,7 @@ package dev.scathiard.feedmepackages.network;
 
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.consumption.CraftingReservations;
+import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.service.AccessGate;
 import dev.scathiard.feedmepackages.storage.CacheHandle;
 import dev.scathiard.feedmepackages.storage.CacheLedger;
@@ -52,6 +53,20 @@ public final class MaterialHints {
     }
     private record Sent(CacheHandle handle, Message message) {}
     private static final Map<ServerPlayer, Sent> LAST = new WeakHashMap<>();
+    private static final Set<String> NOTED = new HashSet<>();
+    private static final Map<String, Boolean> NAMABLE = new LinkedHashMap<>();
+    /** The client decodes templates with {@link ItemVariantKey}; anything else must not be advertised. */
+    private static boolean clientCanName(String encoded, ServerPlayer player) {
+        var known = NAMABLE.get(encoded); if (known != null) return known;
+        boolean ok;
+        try { ok = ItemVariantKey.decode(encoded, player.registryAccess()) != null; } catch (RuntimeException notAnItem) { ok = false; }
+        if (NAMABLE.size() > 4096) NAMABLE.clear();
+        NAMABLE.put(encoded, ok);
+        return ok;
+    }
+    private static void once(String key, String format, Object... arguments) {
+        if (NOTED.add(key)) FeedMePackages.LOGGER.info(format, arguments);
+    }
     private static Consumer<Message> clientReceiver = packet -> {};
     public static void receiveOnClient(Consumer<Message> consumer) { clientReceiver = Objects.requireNonNull(consumer); }
     public static void register(RegisterPayloadHandlersEvent event) {
@@ -66,13 +81,31 @@ public final class MaterialHints {
         var access = AccessGate.resolve(player); boolean active = access.active() && !player.isSpectator();
         var handle = active ? access.handle() : null; var ledger = CacheLedger.get(player.getServer());
         var templates = new ArrayList<String>(); var amounts = new ArrayList<Integer>();
+        int nameless = 0;
         if (active) for (var cell : ledger.find(handle.cacheId()).state().cells()) {
-            templates.add(cell.filter() == null ? "" : cell.filter().encoded());
-            amounts.add(Math.max(0, cell.amount() - CraftingReservations.reservedCache(handle.cacheId(), amounts.size(), null)));
+            // ★ Only stock the client can name may be advertised. The client decodes templates with
+            // ItemVariantKey, so a cell whose template is not an item (a fluid cell - which also cannot
+            // serve crafting - or an unknown id) must never carry a positive amount: it used to throw
+            // inside the client's accept() and clear the whole material view, which is how "every recipe
+            // is missing materials" happened. The lists stay index-aligned with the cache cells because
+            // the reservation lists below are read positionally.
+            var filter = cell.filter();
+            boolean named = filter != null && clientCanName(filter.encoded(), player);
+            if (!named && cell.amount() > 0) nameless++;
+            templates.add(named ? filter.encoded() : "");
+            amounts.add(named ? Math.max(0, cell.amount() - CraftingReservations.reservedCache(handle.cacheId(), amounts.size(), null)) : 0);
         }
         int menu = player.containerMenu.containerId;
         var own = active ? CraftingReservations.cacheAmounts(player, amounts.size()) : List.<Integer>of();
         var grid = active ? CraftingReservations.gridAmounts(player) : List.<Integer>of();
+        if (nameless > 0) {
+            // A nameless cell has no prototype to add a lease back to; leaving its own amount in place
+            // would make the client build a stack for a cell it cannot name.
+            var adjusted = new ArrayList<Integer>(own);
+            for (int i = 0; i < templates.size(); i++) if (templates.get(i).isEmpty()) adjusted.set(i, 0);
+            own = adjusted;
+            once("namelessCells", "FMP material hints: {} cache cell(s) cannot be named by an item template; kept out of the material view", nameless);
+        }
         boolean first = active && ledger.cacheFirst(player.getUUID()); var last = LAST.get(player);
         if (last != null && Objects.equals(last.handle, handle) && last.message.templates.equals(templates)
                 && last.message.amounts.equals(amounts) && last.message.cacheFirst == first && last.message.menu == menu

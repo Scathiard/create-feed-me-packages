@@ -4,6 +4,7 @@ import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.consumption.CraftingPlanner;
 import dev.scathiard.feedmepackages.consumption.CraftingService;
 import dev.scathiard.feedmepackages.consumption.MaterialTransaction;
+import dev.scathiard.feedmepackages.domain.Cell;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.network.MaterialHints;
@@ -399,6 +400,93 @@ public final class CraftingCacheWithdrawalTests {
                         && smallPreview.error() == CraftingPlanner.Error.NONE && largeShears.error() == CraftingPlanner.Error.NONE
                         && largeBlock.error() == CraftingPlanner.Error.NONE,
                 "The two menus must agree on hints and on the client preview:" + values);
+        helper.succeed();
+    }
+
+    /** (t62-2) The player's own 2x2 grid is a real entry too: two cached ingots must become scissors. */
+    @GameTest(template = "empty")
+    public static void theInventoryGridWithdrawsScissorsFromTheCache(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
+        player.containerMenu = new InventoryMenu(player.getInventory(), true, player);
+        seed(player, 0, new ItemStack(Items.IRON_INGOT), 2);
+        var result = fill(player, "minecraft:shears", false);
+        helper.assertTrue(result == CacheActions.Result.OK && gridCount(player, Items.IRON_INGOT) == 2 && stock(player, 0) == 2,
+                "Two cached ingots must fill the 2x2 inventory grid: result=" + result + ", grid=" + gridCount(player, Items.IRON_INGOT)
+                        + ", cache=" + stock(player, 0));
+        player.containerMenu.clicked(0, 0, ClickType.QUICK_MOVE, player);
+        helper.assertTrue(inventoryCount(player, Items.SHEARS) == 1 && stock(player, 0) == 0,
+                "One take must settle both leased ingots into one shears: shears=" + inventoryCount(player, Items.SHEARS) + ", cache=" + stock(player, 0));
+        helper.succeed();
+    }
+
+    /** (t62-3) The contrast the user reported: the same recipe, the same cache, both menus. */
+    @GameTest(template = "empty")
+    public static void theSameRecipeFillsInBothMenus(GameTestHelper helper) {
+        var small = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
+        small.containerMenu = new InventoryMenu(small.getInventory(), true, small);
+        seed(small, 0, new ItemStack(Items.IRON_INGOT), 2);
+        var smallResult = fill(small, "minecraft:shears", false);
+        var large = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); table(helper, large);
+        seed(large, 0, new ItemStack(Items.IRON_INGOT), 2);
+        var largeResult = fill(large, "minecraft:shears", false);
+        helper.assertTrue(smallResult == CacheActions.Result.OK && largeResult == CacheActions.Result.OK
+                        && gridCount(small, Items.IRON_INGOT) == 2 && gridCount(large, Items.IRON_INGOT) == 2,
+                "2x2 and 3x3 must agree for the same recipe and cache: inventory=" + smallResult + ", table=" + largeResult);
+        helper.succeed();
+    }
+
+    /**
+     * (t62-1) The server must not need the client's material view at all: the 3x3 fill has to work and
+     * settle with no client state present. This dedicated-server test JVM literally has none -
+     * {@code ClientMaterials} cannot even be loaded here (invalid dist) - so a real panel fill plus a
+     * real take in this test is the "client view cleared" case; the client-side {@code clear()} path is
+     * covered by the handler and the new log lines instead.
+     */
+    @GameTest(template = "empty")
+    public static void theBlockFillsEvenWithNoClientMaterialView(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); table(helper, player);
+        seed(player, 0, new ItemStack(Items.IRON_INGOT), 9);
+        var result = fill(player, "minecraft:iron_block", false);
+        helper.assertTrue(result == CacheActions.Result.OK && gridCount(player, Items.IRON_INGOT) == 9,
+                "A missing client view must not block the server fill (this JVM has no client state): result=" + result + ", grid="
+                        + gridCount(player, Items.IRON_INGOT));
+        player.containerMenu.clicked(0, 0, ClickType.QUICK_MOVE, player);
+        helper.assertTrue(inventoryCount(player, Items.IRON_BLOCK) == 1 && stock(player, 0) == 0,
+                "The take must settle with no client view: blocks=" + inventoryCount(player, Items.IRON_BLOCK) + ", cache=" + stock(player, 0));
+        helper.succeed();
+    }
+
+    /**
+     * (H6-a) Every advertised template must be one the client can NAME, or empty with zero stock: the
+     * client decodes with ItemVariantKey, and one nameless cell used to clear its whole material view.
+     */
+    @GameTest(template = "empty")
+    public static void everyAdvertisedHintTemplateCanBeNamedByTheClient(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
+        seed(player, 0, new ItemStack(Items.IRON_INGOT), 128);
+        var message = MaterialHints.next(player);
+        int namelessWithStock = 0;
+        for (int i = 0; i < message.templates().size(); i++) {
+            var template = message.templates().get(i);
+            if (template.isEmpty()) { if (message.amounts().get(i) > 0) namelessWithStock++; continue; }
+            var decoded = ItemVariantKey.decode(template, player.registryAccess()).stack(player.registryAccess(), 1);
+            helper.assertTrue(!decoded.isEmpty(), "Advertised template " + i + " must decode to a real item: " + decoded);
+        }
+        helper.assertTrue(namelessWithStock == 0,
+                "No hinted cell may carry stock without a name the client can decode (the client clears its whole view on that): " + namelessWithStock);
+        helper.succeed();
+    }
+
+    /** (H6-b) The invariant behind that: an unfiltered cell cannot hold stock, and a filter change needs an empty cell. */
+    @GameTest(template = "empty")
+    public static void anUnfilteredCellCannotHoldStock(GameTestHelper helper) {
+        String stateRefusal = null, changeRefusal = null;
+        try { new Cell<ItemVariantKey>(null, 5, -1, -1, 0); } catch (RuntimeException refused) { stateRefusal = refused.getMessage(); }
+        var ingot = Cell.empty().configure(ItemVariantKey.of(new ItemStack(Items.IRON_INGOT), helper.getLevel().registryAccess())).withAmount(5);
+        try { ingot.configure(ItemVariantKey.of(new ItemStack(Items.STICK), helper.getLevel().registryAccess())); }
+        catch (RuntimeException refused) { changeRefusal = refused.getMessage(); }
+        helper.assertTrue(stateRefusal != null && changeRefusal != null,
+                "An unfiltered cell with stock and a filter change on a stocked cell must both be refused: state=" + stateRefusal + ", change=" + changeRefusal);
         helper.succeed();
     }
 }

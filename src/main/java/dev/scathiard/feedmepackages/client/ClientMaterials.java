@@ -59,14 +59,39 @@ public final class ClientMaterials {
         try {
             if (packet.full()) {
                 var decoded = new ArrayList<ItemStack>();
-                for (var template : packet.templates()) decoded.add(template.isEmpty() ? ItemStack.EMPTY : ItemVariantKey.decode(template, player.registryAccess()).stack(player.registryAccess(), 1));
+                for (var template : packet.templates()) decoded.add(template.isEmpty() ? ItemStack.EMPTY : decodeTemplate(template, player));
                 prototypes = decoded; generation = packet.generation();
             }
             if (prototypes.size() != packet.amounts().size()) throw new IllegalArgumentException("Mismatched material delta");
-            for (int i = 0; i < prototypes.size(); i++) if (prototypes.get(i).isEmpty() && packet.amounts().get(i) > 0) throw new IllegalArgumentException("Empty material with positive count");
-            counts = packet.amounts(); first = false; active = packet.active(); serial = packet.serial();
-            ownReservations = packet.ownReservations(); reservedGrid = packet.reservedGrid(); menu = packet.menu();
+            // A cell this client cannot name must not wipe the whole view: a fluid cell (0.3), an unknown
+            // item id or a template with data this build does not know used to throw here and clear()
+            // everything, which left JEI with no cache view at all and a silent fallback to the vanilla
+            // transfer ("any recipe is missing materials"). Skip the entry, keep the rest, say it once.
+            var nextCounts = new ArrayList<Integer>(packet.amounts());
+            var nextOwn = new ArrayList<Integer>(packet.ownReservations());
+            int nameless = 0;
+            for (int i = 0; i < prototypes.size(); i++) {
+                if (!prototypes.get(i).isEmpty() || (nextCounts.get(i) == 0 && nextOwn.get(i) == 0)) continue;
+                if (nextCounts.get(i) > 0) nameless++;
+                nextCounts.set(i, 0); nextOwn.set(i, 0);
+            }
+            if (nameless > 0) skip("namelessCellWithStock", nameless + " hinted cell(s) carry stock but no name this client can decode; they stay out of the material view");
+            counts = nextCounts; first = false; active = packet.active(); serial = packet.serial();
+            ownReservations = nextOwn; reservedGrid = packet.reservedGrid(); menu = packet.menu();
         } catch (IllegalArgumentException invalid) { clear(); FeedMePackages.LOGGER.warn("Rejected invalid material hints: {}", invalid.getMessage()); }
+    }
+    /** One undecodable template must not cost the player the whole cache view. */
+    private static ItemStack decodeTemplate(String template, Player player) {
+        try { return ItemVariantKey.decode(template, player.registryAccess()).stack(player.registryAccess(), 1); }
+        catch (RuntimeException undecodable) {
+            skip("undecodableTemplate", "a hinted template is not an item this build can name: " + undecodable.getMessage());
+            return ItemStack.EMPTY;
+        }
+    }
+    /** One line per reason per session: a diagnostic the next report can read instead of guessing. */
+    private static void skip(String reason, String detail) {
+        if (!NOTED.add(reason)) return;
+        FeedMePackages.LOGGER.info("FMP material hints: skipped entries ({}) - {}", reason, detail);
     }
     /**
      * One line per reason per session. The dangerous branch (an increment for an unknown generation) used
