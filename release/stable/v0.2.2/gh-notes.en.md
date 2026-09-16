@@ -21,3 +21,12 @@ The user's ruling: **"JEI does not pop up a sentence for you to read when ingred
 **The cost**: **in any pack, this mod no longer makes JEI's "+" use the cache** - the "+" is answered by JEI itself (or by whoever owns that slot in the pack). The cache is reached through **our own logistics panel** and the **vanilla recipe book**, both unchanged in capability.
 
 **What stays**: the logistics panel (cache withdrawal + panel fill), the vanilla recipe book (it shows a recipe as craftable and the click really does take from the cache), the `MaterialHints` / `ClientMaterials` cache view, and the three JEI-plugin jobs that only make JEI work with our own screens (panel session, exclusion area, showing our smithing recipe). The guard test now also pins that this layer must not come back.
+## Same-day follow-up: Create: Storage compatibility - their "+" can use our cache too
+
+**The problem**: with Create: Storage (`fxntstorage`) installed, JEI's crafting "+" is answered by **them** (they register later and take the single `(CraftingMenu, CRAFTING)` slot), so **our cache cannot be used through the "+"**.
+
+**What we do (no takeover, no replacement - we simply become a third source for their own code)**: two pinpoint injections inside **their own** JEI client preview and **their own** server transfer path replace, for the duration of that one call, the local variable holding the backpack item handler with a wrapper: their occupied slot => their stack, untouched; their **empty item slot** => a **copy of a cache stack**; on their write-back the amount actually taken (`presented - remaining`) is **debited from our real cache** through the existing ledger path - **their container is never written**. Deciding, placing and displaying all stay in **their** code: no JEI registration, no extra text, no button changes.
+
+**Soft and degradable**: its own config with `required:false` + `defaultRequire:0` and three `@Pseudo` mixins. **With the mod absent there is zero impact**; if they move their internals it quietly degrades (one log line `FMP compat: degraded (...)`) - no crash, no free items. Evidence line: `FMP compat: exposed=<n> cache stacks to <their class>; served=<m> items`.
+
+**Cost / fragility**: this compatibility depends on their internal shape, so **an update on their side can disable it** (in which case we fall back to today's behaviour).

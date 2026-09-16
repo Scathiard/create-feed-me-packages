@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-16T20:05:14" hostname="BASELINE" time="0.006">
+<testsuite name="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-16T21:15:28" hostname="BASELINE" time="0.008">
   <properties/>
-  <testcase name="dispatchEvidenceDoesNotReviveAfterViewingAnotherContext()" classname="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" time="0.005"/>
+  <testcase name="dispatchEvidenceDoesNotReviveAfterViewingAnotherContext()" classname="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" time="0.006"/>
   <testcase name="dispatchEvidenceExpiresWhenTheCellConfigurationChanges()" classname="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" time="0.0"/>
   <testcase name="invalidCellConfigurationClearsPreviousDispatchEvidence()" classname="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" time="0.0"/>
-  <testcase name="dispatchEvidenceSurvivesWhenDispatchRecordsTheCurrentContext()" classname="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" time="0.0"/>
+  <testcase name="dispatchEvidenceSurvivesWhenDispatchRecordsTheCurrentContext()" classname="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" time="0.001"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>
