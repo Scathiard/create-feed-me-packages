@@ -30,3 +30,6 @@
 **软与可退化**：独立配置 `required:false`＋`defaultRequire:0`，三个 `@Pseudo` mixin。**没装他们时零影响**；他们改内部形状时**安静退化**（日志一行 `FMP compat: degraded (…)`），不崩、不给假货。证据日志：`FMP compat: exposed=<n> cache stacks to <他们的类名>; served=<m> items`。
 
 **代价/脆弱性**：这条兼容依赖他们的内部形状，**他们改内部就可能失效**（届时退化为今天的行为）。
+## 追加更正（F-1）：注入点类型错了，已按 LVT 改正并在本机自证
+
+上一包的问题：我们按 `ItemStackHandler` 声明注入处理器，而他们的局部/参数类型实际是 **`IItemHandlerModifiable`（客户端预览与摆料）／`IItemHandler`（最大次数统计）**，于是 Mixin 类型不匹配、**静默跳过**——日志里一条 `FMP compat:` 都没有。现在按 `javap -l` 的 LVT 定点改正（服务端只打**参数** `argsOnly`，客户端打局部 STORE），并加了逐点自证：命中即打 `FMP compat: hooked <方法>(<类型>)`，每条静默分支也留 `pass-through …`／`degraded …`。**本机已用他们的 1.3.4 jar（复制进临时 dev run 目录、跑完移除）验到**两行 `hooked` ＋ Mixin 应用行，两种环境下都是 **161/161 通过**。
