@@ -12,15 +12,26 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * RED LINE (user decision 2026-09-17): hijacking JEI's "+" is forbidden. JEI is integrated through the
- * official API only - no mixin, no reflection, no writes into JEI's registry, and nothing that replaces or
- * vetoes a handler somebody else registered. These assertions read the shipped resources, so a takeover
- * cannot come back in through a mixin config or a stray dependency without failing the build.
+ * RED LINE (user decision 2026-09-17): this mod does not take part in JEI recipe transfer at all.
+ *
+ * <p>Two rounds of the same decision are pinned here: (1) hijacking JEI's "+" is forbidden - JEI is reached
+ * through its official plugin API only, and (2) there must be no "do JEI's job for it" layer either - no
+ * recipe transfer handler, no preview policy, no action-bar authoring on JEI's behalf. JEI marks missing
+ * ingredients red and decides its own "+"; our cache is reached through our own logistics panel and the
+ * vanilla recipe book. These assertions read the shipped resources and the compiled plugin, so either layer
+ * coming back fails the build.
  */
 class JeiIntegrationIsApiOnlyTest {
     private static String resource(String path) {
         try (InputStream in = JeiIntegrationIsApiOnlyTest.class.getResourceAsStream(path)) {
             return in == null ? null : new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (Exception failure) {
+            return null;
+        }
+    }
+    private static String classBytes(String path) {
+        try (InputStream in = JeiIntegrationIsApiOnlyTest.class.getResourceAsStream(path)) {
+            return in == null ? null : new String(in.readAllBytes(), StandardCharsets.ISO_8859_1);
         } catch (Exception failure) {
             return null;
         }
@@ -41,8 +52,38 @@ class JeiIntegrationIsApiOnlyTest {
         assertFalse(toml.contains("fmp_jei_takeover"), "the takeover config was removed by user decision");
     }
 
-    @Test void theTakeoverConfigIsGone() {
+    @Test void neitherTheTakeoverNorTheJeiHelperLayerShips() {
         assertNull(resource("/fmp_jei_takeover.mixins.json"), "the JEI takeover mixin config must not ship");
+        for (String gone : List.of(
+                "/dev/scathiard/feedmepackages/compat/jei/FmpRecipeTransfer.class",
+                "/dev/scathiard/feedmepackages/compat/jei/PreviewPolicy.class",
+                "/dev/scathiard/feedmepackages/client/ClientNotice.class",
+                "/dev/scathiard/feedmepackages/client/NoticeText.class")) {
+            assertNull(resource(gone), gone + " must not be compiled into this mod any more");
+        }
+    }
+
+    @Test void thePluginRegistersNoRecipeTransferHandlerAndNeverTalksToJeiTransferApi() {
+        String plugin = classBytes("/dev/scathiard/feedmepackages/compat/jei/FmpJeiPlugin.class");
+        assertNotNull(plugin, "our JEI plugin must be on the classpath");
+        assertFalse(plugin.contains("registerRecipeTransferHandlers"), "the plugin must not register transfer handlers");
+        assertFalse(plugin.contains("craftingHandler"), "the plugin must not keep a crafting handler");
+        assertFalse(plugin.contains("mezz/jei/api/recipe/transfer"), "the plugin must not touch JEI's transfer API");
+        // What it may still do: our panel session/exclusions and showing our own smithing category.
+        assertTrue(plugin.contains("recipeOverlay"), "the panel session integration must stay");
+        assertTrue(plugin.contains("registerVanillaCategoryExtensions"), "showing our recipe must stay");
+        assertTrue(plugin.contains("registerGuiHandlers"), "our exclusion area must stay");
+    }
+
+    @Test void theSentencesWrittenForJeiAreGone() {
+        for (String lang : List.of("/assets/create_feed_me_packages/lang/zh_cn.json", "/assets/create_feed_me_packages/lang/en_us.json")) {
+            String text = resource(lang);
+            assertNotNull(text, lang);
+            assertFalse(text.contains("missing_entry"), lang);
+            assertFalse(text.contains("missing_detail"), lang);
+            assertFalse(text.contains("missing_scope"), lang);
+            assertTrue(text.contains("result.panel_not_ready"), "the panel's own messages must stay: " + lang);
+        }
     }
 
     @Test void ourOwnMixinConfigNeverTargetsJei() {
