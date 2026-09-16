@@ -13,3 +13,11 @@
 **The cost (stated plainly, now that the hijack is gone)**: in such a pack, JEI's "+" **is answered by that other mod, not by us** ⇒ **cache supply does not go through the "+"**. Use **our logistics panel** or the **vanilla recipe book** instead (cached materials are still used there).
 
 **Verification**: JUnit 40/40 (including 3 guard tests for "JEI integration is official-API only"), GameTest 155/155 (`-PwithMobile`), packaged smoke `developmentOutputs=0` with `0.2.2` in the mod list.
+
+## Same-day second cut: the whole "do JEI's job for it" layer is gone
+
+The user's ruling: **"JEI does not pop up a sentence for you to read when ingredients are missing - it marks the missing ones red. There should not be a layer that does JEI's job for it."** So the entire layer is deleted: this mod **no longer registers any JEI recipe transfer handler** (`FmpRecipeTransfer` is gone, along with the plugin's registration method and field), together with the preview policy (`PreviewPolicy`) and the action-bar authoring layer (`ClientNotice` / `NoticeText`) and the three lang keys written only for them.
+
+**The cost**: **in any pack, this mod no longer makes JEI's "+" use the cache** - the "+" is answered by JEI itself (or by whoever owns that slot in the pack). The cache is reached through **our own logistics panel** and the **vanilla recipe book**, both unchanged in capability.
+
+**What stays**: the logistics panel (cache withdrawal + panel fill), the vanilla recipe book (it shows a recipe as craftable and the click really does take from the cache), the `MaterialHints` / `ClientMaterials` cache view, and the three JEI-plugin jobs that only make JEI work with our own screens (panel session, exclusion area, showing our smithing recipe). The guard test now also pins that this layer must not come back.
