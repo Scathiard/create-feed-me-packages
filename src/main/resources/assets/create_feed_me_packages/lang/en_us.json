@@ -63,7 +63,7 @@
   "gui.create_feed_me_packages.result.filter_occupied": "Empty this cell before changing or clearing its filter",
   "gui.create_feed_me_packages.result.no_space": "Nothing to move, or destination cursor/inventory has no space",
   "gui.create_feed_me_packages.result.invalid_request": "Invalid action; nothing was changed",
-  "gui.create_feed_me_packages.result.missing_material": "Not enough available materials in backpack and cache; nothing was moved",
+  "gui.create_feed_me_packages.result.missing_material": "Not enough available materials in the backpack, the cache and the crafting grid; nothing was moved",
   "gui.create_feed_me_packages.result.panel_not_ready": "The logistics panel is not ready; nothing was moved from the cache. Open the panel once and retry",
   "gui.create_feed_me_packages.result.inactive": "Cache material hints are not active (the client has no cache material view); nothing was moved from the cache. Reopen the screen or re-equip the pendant and retry",
   "gui.create_feed_me_packages.result.unbound": "The pendant is not bound to a network: the panel works but the client's material hints are inactive, so nothing was moved from the cache. Reopen the screen or re-equip the pendant and retry",

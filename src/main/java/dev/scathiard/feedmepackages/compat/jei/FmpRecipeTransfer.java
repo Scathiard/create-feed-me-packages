@@ -43,7 +43,12 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
     @Override public IRecipeTransferError transferRecipe(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
         boolean panel = LogisticsPanel.cacheLive(), hints = ClientMaterials.active();
         if (!panel) return withoutPanel(menu, recipe, slots, player, maximum, perform);
-        if (perform) return performTransfer(recipe, maximum, player);
+        if (perform) return performTransfer(menu, recipe, slots, player, maximum);
+        // Preview: the grid and the player inventory are real sources too. If JEI's own transfer would work, do not grey the button.
+        if (nativeTransfer(menu, recipe, slots, player, maximum, false) == null) {
+            once("previewNative", "FMP JEI plus preview: grid/backpack already covers it (JEI's own transfer would succeed)");
+            return null;
+        }
         if (!hints) { once("previewNoHints", "FMP JEI plus preview without hints: {}", inputs(recipe, player, panel, false, maximum)); return null; }
         var checked = ClientCrafting.check(player, recipe, maximum, true);
         once("preview" + menu.getClass().getSimpleName() + checked, "FMP JEI plus preview: {} checked={}", inputs(recipe, player, panel, true, maximum), checked);
@@ -61,9 +66,13 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
      * Returning an error here without asking was what made a stocked cache look empty to JEI. The log line
      * is printed for every click - it is the one place that shows every input the client had.
      */
-    private IRecipeTransferError performTransfer(RecipeHolder<CraftingRecipe> recipe, boolean maximum, Player player) {
+    private IRecipeTransferError performTransfer(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum) {
         FeedMePackages.LOGGER.info("FMP JEI plus clicked: {}", inputs(recipe, player, true, ClientMaterials.active(), maximum));
+        // 1) Grid and player inventory first, exactly as JEI would do it without us (native transfer, server rules unchanged).
+        var nativeResult = nativeTransfer(menu, recipe, slots, player, maximum, true);
+        // 2) Then let the server top up the remaining grid gap from the cache (FILL_RECIPE as before).
         if (LogisticsPanel.fillRecipe(recipe.id(), maximum)) return null;
+        if (nativeResult == null) return null; // The backpack/grid alone already satisfied the click.
         boolean ready = LogisticsPanel.recipeReady();
         once("refused", "FMP JEI plus refused locally: panelReady={} unbound={}", ready, LogisticsPanel.unbound());
         return error(!ready ? "panel_not_ready" : LogisticsPanel.unbound() ? "unbound" : "inactive");
