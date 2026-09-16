@@ -31,14 +31,31 @@ final class FmpRecipeTransfer<C extends AbstractContainerMenu> implements IRecip
     @Override public Optional<MenuType<C>> getMenuType() { return Optional.ofNullable(menuType); }
     @Override public RecipeType<RecipeHolder<CraftingRecipe>> getRecipeType() { return RecipeTypes.CRAFTING; }
     @Override public IRecipeTransferError transferRecipe(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
-        if (!ClientMaterials.active()) return nativeTransfer(menu, recipe, slots, player, maximum, perform);
-        if (!LogisticsPanel.recipeReady()) return error("not_active");
+        if (!ClientMaterials.active()) return withoutMaterialHints(menu, recipe, slots, player, maximum, perform);
+        if (!LogisticsPanel.recipeReady()) return error("panel_not_ready");
         var checked = ClientCrafting.check(player, recipe, maximum, true);
         if (checked != CraftingService.Result.OK) return error(switch (checked) {
-            case UNSUPPORTED -> "unsupported_recipe"; case TOO_COMPLEX -> "too_complex"; case NO_SPACE -> "no_space"; default -> "missing_material";
+            case UNSUPPORTED -> "unsupported_recipe";
+            case TOO_COMPLEX -> "too_complex";
+            case NO_SPACE -> "no_space";
+            case MISSING -> "missing_material";
+            case INACTIVE -> "inactive";
+            case STALE -> "stale";
+            case OK -> "stale";
         });
         if (perform && !LogisticsPanel.fillRecipe(recipe.id(), maximum)) return error("stale");
         return null;
+    }
+    /**
+     * The client has no cache material view, so this handler cannot serve the cache. JEI's own transfer
+     * still runs - backpack materials keep working - but when it fails while the logistics panel reports a
+     * live cache, "missing materials" would be a lie: the cache was never consulted. Say which of the two
+     * reasons applies instead (unbound pendant / hints not active), so the player sees the real cause.
+     */
+    private IRecipeTransferError withoutMaterialHints(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
+        var plain = nativeTransfer(menu, recipe, slots, player, maximum, perform);
+        if (plain == null || !LogisticsPanel.cacheLive()) return plain;
+        return error(LogisticsPanel.unbound() ? "unbound" : "inactive");
     }
     private IRecipeTransferError nativeTransfer(C menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots, Player player, boolean maximum, boolean perform) {
         if (width == 3) return fallback.transferRecipe(menu, recipe, slots, player, maximum, perform);

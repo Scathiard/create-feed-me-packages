@@ -340,6 +340,11 @@ public final class LogisticsPanel {
         return snapshot != null && snapshot.status() == AccessGate.Status.ACTIVE && snapshot.session() != null;
     }
 
+    /** Read-only state for the JEI transfer handler, which must not invent its own panel bookkeeping. */
+    public static boolean cacheLive() { return active(); }
+    /** A live panel whose pendant carries no network binding: it serves the cache but cannot restock. */
+    public static boolean unbound() { return snapshot != null && !snapshot.bound(); }
+
     private static boolean bookOpen() {
         RecipeUpdateListener listener;
         AbstractContainerScreen<?> abstractContainerScreen = screen;
