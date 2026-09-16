@@ -187,8 +187,8 @@ public final class ConsumptionTests {
                 "Preparation dirtied the cache or requested extra stock");
         player.containerMenu.clicked(0, 0, ClickType.PICKUP, player);
         helper.assertTrue(stock(player, 0) == 63 && ledger.find(handle.cacheId()).state().requestable(0) == 1
-                && player.containerMenu.getCarried().getCount() == 4 && CraftingService.grid(player.containerMenu).getItem(0).getCount() == 1,
-                "Refilling the preview charged a second recipe");
+                && player.containerMenu.getCarried().getCount() == 4 && CraftingService.grid(player.containerMenu).getItem(0).isEmpty(),
+                "Taking the result settled more than one log or silently put material back into the grid");
         player.closeContainer();
         helper.assertTrue(stock(player, 0) == 63 && inventoryCount(player, Items.OAK_LOG) == 0 && inventoryCount(player, Items.OAK_PLANKS) == 4,
                 "Closing after a real craft moved an unused source"); helper.succeed();
@@ -303,7 +303,7 @@ public final class ConsumptionTests {
         player.containerMenu = new CraftingMenu(37, player.getInventory(), ContainerLevelAccess.create(helper.getLevel(), pos));
     }
     @GameTest(template = "empty")
-    public static void recipeBookTransfersMixedSourcesAndManualCraftRefills(GameTestHelper helper) {
+    public static void recipeBookTransfersMixedSourcesAndManualCraft(GameTestHelper helper) {
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); seed(player, 0, new ItemStack(Items.OAK_PLANKS), 7);
         player.getInventory().setItem(0, new ItemStack(Items.OAK_PLANKS)); var recipe = recipe(player, "minecraft:stick"); player.awardRecipes(List.of(recipe));
         helper.assertTrue(CraftingService.place(player, recipe, false, true, false) == CraftingService.Result.OK && stock(player, 0) == 7
@@ -317,11 +317,13 @@ public final class ConsumptionTests {
         helper.assertTrue(inventoryCount(player, Items.OAK_PLANKS) == 0 && stock(player, 0) == 6, "Closing grid materialized unused preparation"); helper.succeed();
     }
     @GameTest(template = "empty")
-    public static void continuousCraftingHasConservationAndPerClickBound(GameTestHelper helper) {
+    public static void shiftClickCraftingIsBoundedByTheGridsOwnMaterial(GameTestHelper helper) {
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); seed(player, 0, new ItemStack(Items.OAK_LOG), 128);
         helper.assertTrue(CraftingService.place(player, recipe(player, "minecraft:oak_planks"), false, false, true) == CraftingService.Result.OK, "Initial crafting fill failed");
         player.containerMenu.clicked(0, 0, ClickType.QUICK_MOVE, player);
-        helper.assertTrue(inventoryCount(player, Items.OAK_PLANKS) == 256 && stock(player, 0) == 64 && CraftingService.grid(player.containerMenu).isEmpty(), "Continuous craft was unbounded or not conserved"); helper.succeed();
+        int planks = inventoryCount(player, Items.OAK_PLANKS);
+        int left = stock(player, 0) + CraftingService.grid(player.containerMenu).getItems().stream().filter(s -> s.is(Items.OAK_LOG)).mapToInt(ItemStack::getCount).sum();
+        helper.assertTrue(planks == 4 && left == 127, "One shift-click must craft once from the grid's real material and conserve the rest: planks=" + planks + ", logs left=" + left); helper.succeed();
     }
     @GameTest(template = "empty")
     public static void fullAndPartiallyFullResultDestinationStopsBeforeConsumption(GameTestHelper helper) {

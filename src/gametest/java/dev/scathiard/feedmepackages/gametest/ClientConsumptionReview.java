@@ -76,7 +76,7 @@ final class ClientConsumptionReview {
             }
             case 7 -> {
                 if (!waited(20)) break;
-                server(p -> require(ConsumptionTests.stock(p, 0) == 11 && p.containerMenu.getCarried().getCount() == 4 && CraftingService.grid(p.containerMenu).getItem(0).is(Items.OAK_LOG), "Client crafting click or preview refill charged extra stock"));
+                server(p -> require(ConsumptionTests.stock(p, 0) == 11 && p.containerMenu.getCarried().getCount() == 4 && CraftingService.grid(p.containerMenu).isEmpty(), "Client crafting click charged extra stock or left a silently refilled cell"));
                 mc.player.closeContainer(); next();
             }
             case 8 -> {

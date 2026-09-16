@@ -10,7 +10,14 @@ import net.minecraft.world.item.crafting.*;
 import net.minecraft.world.level.GameRules;
 import java.util.*;
 
-/** Backed reservations in the native grid; the native result and remainder path still executes. */
+/**
+ * Backed reservations in the native grid; the native result and remainder path still executes.
+ *
+ * <p>There is no automatic refill: taking a result never puts material back into the grid
+ * (specs/05 "网格填好后，玩家 Shift 点击结果能连续合成的次数由原版当前网格真实材料决定；本模组不会在每次结果取出后暗中续填").
+ * The only ways cache material enters the grid are the JEI transfer and the native recipe book, both of
+ * which go through {@link #place} / {@link #fromRecipeBook} and leave a menu-local lease behind.
+ */
 public final class CraftingService {
     private CraftingService() {}
     public enum Result { OK, INACTIVE, UNSUPPORTED, MISSING, NO_SPACE, STALE, TOO_COMPLEX }
@@ -75,41 +82,5 @@ public final class CraftingService {
         var result = place(player, (RecipeHolder<CraftingRecipe>)recipe, maximum, true, true);
         if (result == Result.MISSING) player.connection.send(new ClientboundPlaceGhostRecipePacket(player.containerMenu.containerId, recipe));
         return true;
-    }
-    public record Refill(List<ItemStack> before, RecipeHolder<CraftingRecipe> recipe, ItemStack expectedOutput, AbstractContainerMenu menu) {}
-    public static Refill beforeCraft(ServerPlayer player) {
-        if (!supported(player.containerMenu) || !AccessGate.resolve(player).active()) return null;
-        var grid = grid(player.containerMenu); var input = grid.asCraftInput();
-        var recipe = player.level().getRecipeManager().getRecipeFor(RecipeType.CRAFTING, input, player.level()).orElse(null);
-        return recipe == null ? null : new Refill(MaterialTransaction.copies(grid.getItems()), recipe,
-                recipe.value().assemble(input, player.registryAccess()).copy(), player.containerMenu);
-    }
-    private static final ThreadLocal<Integer> CRAFTS = new ThreadLocal<>();
-    public static Integer beginClick() { var old = CRAFTS.get(); CRAFTS.set(0); return old; }
-    public static void endClick(Integer prior) { if (prior == null) CRAFTS.remove(); else CRAFTS.set(prior); }
-    public static void afterCraft(ServerPlayer player, Refill refill) {
-        if (refill == null || player.containerMenu != refill.menu || !supported(player.containerMenu) || !CraftingReservations.operating(player)) return;
-        CraftingReservations.reconcile(player);
-        int count = CRAFTS.get() == null ? 1 : CRAFTS.get() + 1;
-        if (CRAFTS.get() != null) CRAFTS.set(count);
-        if (count >= 64) return; // A native input stack's worth per click; no unbounded automatic shift loop.
-        var materials = MaterialTransaction.open(player).orElse(null); if (materials == null) return;
-        var grid = grid(player.containerMenu); var current = MaterialTransaction.copies(grid.getItems()); var after = MaterialTransaction.copies(current);
-        boolean changed = false;
-        for (int i = 0; i < refill.before.size(); i++) {
-            var old = refill.before.get(i); var now = current.get(i);
-            if (old.isEmpty()) { if (!now.isEmpty()) return; continue; }
-            if (!now.isEmpty()) { if (!ItemStack.isSameItemSameComponents(old, now) || now.getCount() != old.getCount() - 1) return; continue; }
-            if (old.getCount() != 1 || !materials.takeForGrid(old, 1, i)) return;
-            after.set(i, old.copyWithCount(1)); changed = true;
-        }
-        if (!changed) return;
-        var input = CraftingInput.of(grid.getWidth(), grid.getHeight(), after);
-        if (!refill.recipe.value().matches(input, player.level()) || !ItemStack.matches(refill.expectedOutput, refill.recipe.value().assemble(input, player.registryAccess()))) return;
-        if (!materials.valid() || !MaterialTransaction.matches(current, grid.getItems()) || !materials.commit()) return;
-        var raw = ((CraftingItemsAccess)grid).fmp$items();
-        for (int i = 0; i < raw.size(); i++) raw.set(i, after.get(i).copy());
-        CraftingReservations.appendDebits(player, materials.allocations());
-        player.containerMenu.slotsChanged(grid); player.containerMenu.broadcastChanges();
     }
 }

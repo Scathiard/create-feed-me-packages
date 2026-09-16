@@ -124,15 +124,11 @@ public final class CraftingReservations {
     }
     public static final class Scope implements AutoCloseable {
         private final ServerPlayer player; private final Session session;
-        private final Integer prior;
         private boolean closed;
-        private Scope(ServerPlayer player, Session session) {
-            this.player = player; this.session = session; prior = session == null ? null : CraftingService.beginClick();
-        }
+        private Scope(ServerPlayer player, Session session) { this.player = player; this.session = session; }
         @Override public void close() {
             if (closed || session == null) return; closed = true;
-            try { if (SESSIONS.get(player) == session && session.materialized) finish(player, session); }
-            finally { CraftingService.endClick(prior); }
+            if (SESSIONS.get(player) == session && session.materialized) finish(player, session);
         }
     }
     public static Scope begin(ServerPlayer player, AbstractContainerMenu menu, int slot, int button, ClickType click) {
@@ -163,7 +159,7 @@ public final class CraftingReservations {
         session.materialized = true; SESSIONS.put(player, session); epoch++;
         return new Scope(player, session);
     }
-    /** Observe a complete native take before adding the next refill. Real manual inputs are used first. */
+    /** Observe a complete native take so a lease only follows the material the click really spent. */
     public static void reconcile(ServerPlayer player) {
         var session = SESSIONS.get(player); if (session == null || !session.materialized || session.menu.get() == null) return;
         var current = CraftingService.grid(session.menu.get()).getItems();
@@ -180,11 +176,6 @@ public final class CraftingReservations {
             }
         }
         session.sources = remaining; session.display = MaterialTransaction.copies(current);
-    }
-    static void appendDebits(ServerPlayer player, List<Source> sources) {
-        var session = SESSIONS.get(player);
-        if (session == null || !session.materialized) throw new IllegalStateException("Refill outside a native operation");
-        session.sources.addAll(sources); session.display = MaterialTransaction.copies(CraftingService.grid(session.menu.get()).getItems());
     }
     private static List<Source> afterOneCraft(Session session) {
         var result = new ArrayList<Source>(); var usedSlots = new HashSet<Integer>();
