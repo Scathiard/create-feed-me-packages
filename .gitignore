@@ -1,4 +1,4 @@
-﻿.gradle/
+.gradle/
 build/
 run/
 out/
@@ -18,6 +18,10 @@ logs/
 
 # Build artifacts (regenerable) — keep the release/*.md records, ignore the jars
 release/**/*.jar
+# Snapshot archives and one-off release tooling/logs stay in the working tree, not in git
+release/**/*.zip
+release/**/make-snapshot.py
+release/**/smoke_packaged_client.py
 *.mp4
 *.out
 compile-out.txt
