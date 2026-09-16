@@ -6,6 +6,7 @@ import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.service.AccessGate;
 import dev.scathiard.feedmepackages.storage.CacheHandle;
 import dev.scathiard.feedmepackages.storage.CacheLedger;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.StreamCodec;
@@ -87,7 +88,21 @@ public final class MaterialHints {
     private static void noticeLocked(ServerPlayer player) {
         if (TOLD_LOCKED.add(player.getUUID()))
             FeedMePackages.LOGGER.warn("FMP cache ledger locked; telling {} why, in their own language", player.getGameProfile().getName());
-        player.displayClientMessage(Component.translatable("gui.create_feed_me_packages.status.storage_locked.detail", CacheLedger.SCHEMA), true);
+        player.displayClientMessage(lockMessage(player), true);
+    }
+    /**
+     * Name both numbers when we can: a locked ledger is refused but never forgotten - its save() returns
+     * the original tag verbatim (CacheLedger:233), so the schema the newer version wrote is readable here
+     * without any new field. If it cannot be read, say what we do know.
+     */
+    private static Component lockMessage(ServerPlayer player) {
+        try {
+            var preserved = CacheLedger.get(player.getServer()).save(new CompoundTag(), player.registryAccess());
+            if (preserved.contains("schema"))
+                return Component.translatable("gui.create_feed_me_packages.status.storage_locked.detail",
+                        preserved.getInt("schema"), CacheLedger.SCHEMA);
+        } catch (RuntimeException unreadable) { /* fall through: still say the part we know */ }
+        return Component.translatable("gui.create_feed_me_packages.status.storage_locked.detail.unknown", CacheLedger.SCHEMA);
     }
     public static Message next(ServerPlayer player) {
         var access = AccessGate.resolve(player); boolean active = access.active() && !player.isSpectator();

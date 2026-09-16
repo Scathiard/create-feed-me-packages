@@ -510,6 +510,10 @@ public final class CraftingCacheWithdrawalTests {
         var fromNewer = new CompoundTag(); fromNewer.putInt("schema", 10);
         var locked = CacheLedger.load(fromNewer, helper.getLevel().registryAccess());
         boolean refused = !locked.problem().isEmpty();
+        // The message can name the refused file's own schema, and the lock re-writes the original data
+        // verbatim on save: both come from the same public call.
+        var preserved = locked.save(new CompoundTag(), helper.getLevel().registryAccess());
+        int sourceSchema = preserved.contains("schema") ? preserved.getInt("schema") : -1;
         String status; boolean hinted; boolean empty;
         try {
             storage.set(CacheLedger.NAME, locked);
@@ -517,9 +521,9 @@ public final class CraftingCacheWithdrawalTests {
             var message = MaterialHints.next(player);
             hinted = message.active(); empty = message.templates().isEmpty() && message.amounts().isEmpty();
         } finally { storage.set(CacheLedger.NAME, healthy); }
-        helper.assertTrue(refused && status.equals("STORAGE_LOCKED") && !hinted && empty,
+        helper.assertTrue(refused && status.equals("STORAGE_LOCKED") && !hinted && empty && sourceSchema == 10,
                 "A schema-10 ledger must lock the cache and leave the client without a material view: refused=" + refused
-                        + ", status=" + status + ", hintsActive=" + hinted + ", empty=" + empty);
+                        + ", status=" + status + ", hintsActive=" + hinted + ", empty=" + empty + ", sourceSchema=" + sourceSchema);
         helper.assertTrue(AccessGate.resolve(player).status() == AccessGate.Status.ACTIVE && MaterialHints.next(player).active(),
                 "Swapping the healthy ledger back must restore the cache (otherwise this test poisons the world)");
         helper.succeed();
