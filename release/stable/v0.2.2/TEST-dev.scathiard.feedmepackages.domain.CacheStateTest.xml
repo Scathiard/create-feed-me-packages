@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="dev.scathiard.feedmepackages.domain.CacheStateTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:24:57" hostname="BASELINE" time="0.167">
+<testsuite name="dev.scathiard.feedmepackages.domain.CacheStateTest" tests="13" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:30:14" hostname="BASELINE" time="0.138">
   <properties/>
-  <testcase name="mergeRefusesOverflowConflictingConfigurationAndSelfMergeWithoutChangingEitherInput()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.017"/>
+  <testcase name="mergeRefusesOverflowConflictingConfigurationAndSelfMergeWithoutChangingEitherInput()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.015"/>
   <testcase name="identityRevisionAndUniqueFilterCannotBeBypassed()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.001"/>
-  <testcase name="groupCountingUsesUniformGroupCapacity()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.002"/>
-  <testcase name="templatesAndSimulationDoNotCreateStock()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.0"/>
-  <testcase name="randomTransfersConserveAndStayWithinCapacity()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.032"/>
+  <testcase name="groupCountingUsesUniformGroupCapacity()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.003"/>
+  <testcase name="templatesAndSimulationDoNotCreateStock()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.001"/>
+  <testcase name="randomTransfersConserveAndStayWithinCapacity()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.03"/>
   <testcase name="arrowReflectsActualShortageWithoutErasingTheOrder()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.001"/>
   <testcase name="mergePreservesPaidLevelExactStockOrdersAndRouteLifetimesWithoutCommitting()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.008"/>
-  <testcase name="upgradesRetCyanStockFiltersAndOrdersAndOnlyAddEmptyCells()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.003"/>
+  <testcase name="upgradesRetCyanStockFiltersAndOrdersAndOnlyAddEmptyCells()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.001"/>
   <testcase name="dispatchConfirmationDoesNotResurrectEarlyArrivalOrReset()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.001"/>
-  <testcase name="movingFilterToAnotherCellCannotReuseAnOldParcelRevision()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.001"/>
+  <testcase name="movingFilterToAnotherCellCannotReuseAnOldParcelRevision()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.0"/>
   <testcase name="mergeDoesNotDiscardZeroStockFiltersOrAmbiguousOrders()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.001"/>
-  <testcase name="randomMergeSimulationsConserveEveryExactVariantOrRejectWholeState()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.094"/>
-  <testcase name="partialOrdersAndArrivalCannotOverreserveOrGoNegative()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.002"/>
+  <testcase name="randomMergeSimulationsConserveEveryExactVariantOrRejectWholeState()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.071"/>
+  <testcase name="partialOrdersAndArrivalCannotOverreserveOrGoNegative()" classname="dev.scathiard.feedmepackages.domain.CacheStateTest" time="0.001"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>
