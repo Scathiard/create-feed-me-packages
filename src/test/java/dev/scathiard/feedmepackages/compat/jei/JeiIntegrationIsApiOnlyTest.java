@@ -111,6 +111,14 @@ class JeiIntegrationIsApiOnlyTest {
         assertNull(resource("/dev/scathiard/feedmepackages/compat/fxntstorage/CachePresentingHandler.class"), "the old handler seam must be gone");
         assertNull(resource("/net/fxnt/fxntstorage/backpack/main/IBackpackContainer.class"), "no third-party classes may be shipped");
     }
+    @Test void theResyncNeverRewritesAnotherContainer() {
+        String resync = classBytes("/dev/scathiard/feedmepackages/compat/fxntstorage/FxntResync.class");
+        assertNotNull(resync, "the resync helper must be compiled");
+        assertFalse(resync.contains("setStackInSlot"), "the re-sync must never write any slot");
+        assertFalse(resync.contains("curios"), "F-8 revert: the Curios branch must be gone from our code");
+        assertFalse(resync.contains("CuriosApi"), "F-8 revert: CuriosApi must not be referenced");
+        assertTrue(resync.contains("broadcastChanges"), "the menu broadcast must stay (F-7 behaviour)");
+    }
     @Test void ourOwnMixinConfigNeverTargetsJei() {
         String ours = resource("/create_feed_me_packages.mixins.json");
         assertNotNull(ours, "our mixin config must be on the classpath");
