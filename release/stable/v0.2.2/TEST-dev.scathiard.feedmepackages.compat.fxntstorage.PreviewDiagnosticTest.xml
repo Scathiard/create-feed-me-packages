@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnosticTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:35:00" hostname="BASELINE" time="0.004">
+<testsuite name="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnosticTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:43:12" hostname="BASELINE" time="0.013">
   <properties/>
-  <testcase name="aChangedReadingAlwaysPrints()" classname="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnosticTest" time="0.002"/>
+  <testcase name="aChangedReadingAlwaysPrints()" classname="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnosticTest" time="0.009"/>
   <testcase name="anIdenticalReadingIsThrottledButNotSilenced()" classname="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnosticTest" time="0.0"/>
-  <testcase name="theirVerdictLineNamesTheAnswerReadOnly()" classname="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnosticTest" time="0.002"/>
+  <testcase name="theirVerdictLineNamesTheAnswerReadOnly()" classname="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnosticTest" time="0.003"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>
