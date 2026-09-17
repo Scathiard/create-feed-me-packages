@@ -8,6 +8,31 @@ gameplay milestone.
 本文件记录本项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号沿用 `MAJOR.MINOR.PATCH`，其中 `MINOR` 对应一次玩法里程碑。
 
+## [0.2.2] — 2026-09-17
+
+**Compatibility with Create: Storage, plus a cache-cell fix.**
+**兼容「机械动力：存储」，并修复缓存格的问题。**
+
+### Added / 新增
+
+- **Create: Storage compatibility / 兼容机械动力：存储**: with that mod installed, crafting can take materials
+  from your own inventory and from its worn backpack at the same time.
+  装了它的时候，合成可以同时从你自己的背包和它背着的背包抓取材料。
+
+### Fixed / 修复
+
+- **A cache cell holding more than one stack could not be used for crafting / 缓存物品数量大于一组时无法参与合成**:
+  a cell holding more than 64 items (say 65 iron ingots) was unusable; it now works up to the normal stack size.
+  某一格超过一组（比如 65 个铁锭）时无法参与合成；现在按单堆上限正常工作。
+
+### Known issue / 已知问题
+
+- With Create: Storage installed, when items from its worn backpack take part in crafting and run out, JEI's state
+  does not refresh — open its backpack screen again. This is not this mod's problem; please do not file an issue
+  for it.
+  机械动力：存储中的背包物品参与合成且被耗尽时，JEI 状态不会刷新，需要重新开关背包。这不是本模组的问题，请不要为此提 issue。
+- Create: Storage 1.1.x is not supported yet (verified on 1.3.4 only). / Create: Storage 1.1.x 暂不支持（只在 1.3.4 上验证过）。
+
 ## [0.2.1] — 2026-09-16
 
 This is a **patch release on the 0.2 line**: no new gameplay, only fixes that were verified by hand

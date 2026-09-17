@@ -4,6 +4,8 @@
 
 [![CurseForge](https://img.shields.io/badge/CurseForge-%E4%B8%8B%E8%BD%BD-F16436?logo=curseforge&logoColor=white)](https://www.curseforge.com/minecraft/mc-mods/create-feed-me-packages) [![Modrinth](https://img.shields.io/badge/Modrinth-%E4%B8%8B%E8%BD%BD-00AF5C?logo=modrinth&logoColor=white)](https://modrinth.com/mod/create-feed-me-packages)
 
+**当前版本：0.2.2** · [更新说明](https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.2)
+
 ## 项目介绍
 
 工厂已经能自动生产建材了，出门盖房子却还得一趟趟回去搬。**机械动力：喂我发包！** 想省掉的就是这段路。
@@ -11,6 +13,21 @@
 戴上供应链坠，连好工厂的物流网络，告诉它你想常备哪些物资。用掉一部分，坠子就向工厂请求补货。打包机装箱，纸飞机或运输蜂送来，包裹里的材料自动收进背包左侧的随身缓存。临时要合成东西，也能直接从里面取料。
 
 这套玩法借鉴了《戴森球计划》的随身物流。放到 Minecraft 里，我们希望补给也能成为你那套机械动力工厂的一部分。模组适用于 **Minecraft 1.21.1 / NeoForge**，需要 **Create** 和 **Curios**。
+
+## 0.2.2 更新
+
+- **现已兼容「机械动力：存储」（Create: Storage）**：装了它的时候，合成可以同时从两边抓取材料。
+- **修复**：缓存里某一格的数量**超过一组**时（比如 65 个铁锭）没法参与合成；现在按单堆上限正常工作。
+
+## 安装
+
+把 jar 放进 `mods/`。需要 **Minecraft 1.21.1**、**NeoForge 21.1.219 及以上**、**Create 6.0.10**（6.0 线）与 **Curios 9.5.1 及以上**；**JEI 可选**——想要配方转移的「+」入口就装上它。
+
+## 已知问题
+
+机械动力：存储中的背包物品参与合成且被耗尽时，JEI 状态不会刷新，需要重新开关背包。**这不是本模组的问题，请不要为此提 issue。**
+
+Create: Storage 1.1.x 暂不支持（只在 1.3.4 上验证过）。
 
 ## 使用场景
 
