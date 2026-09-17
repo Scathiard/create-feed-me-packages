@@ -1,68 +1,48 @@
 package dev.scathiard.feedmepackages.compat.fxntstorage;
 
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.items.ItemStackHandler;
+import net.minecraft.world.item.component.ItemContainerContents;
 
 import java.lang.reflect.Method;
-import java.util.Map;
-import java.util.WeakHashMap;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Reflective access to Create: Storage's worn-backpack handler. Reflection (not a compile dependency) is
- * deliberate: this mod must build and run without that mod present, and their internals may move - when they
- * do, every lookup here returns null and the compat layer quietly does nothing.
+ * F-11, READ-ONLY: the contents of the worn backpack, for the diagnostic line only.
  *
- * <p>Both known shapes are attempted: 1.3.x ({@code BackpackContainer$Cache.getOrCreateWornBackpack}) and
- * 1.1.x ({@code new BackpackContainer(ItemStack, Player)}).
+ * <p>Nothing of the other mod's state is taken, constructed, reloaded or written. The single contact is their
+ * pure static getter that names the worn stack ({@code BackpackHelper.getEquippedBackpackStack}); the contents
+ * are then read from THAT ITEM's own {@code DataComponents.CONTAINER} component with vanilla API, which is the
+ * authority anyway. Their container object is never touched: no {@code getOrCreateWornBackpack} (it hands back
+ * the cached instance after {@code setContext}, and client-side may replace the attachment), no constructor, no
+ * {@code getItemHandler}, no {@code loadItemsFromStack}, no slot write.
+ *
+ * <p>This is the F-11 rollback: F-10's "align their cached container with the authority" is gone for good - the
+ * user's run showed it makes their own refresh worse ("更坏了，原本开关背包还能刷新的，现在都刷新不了了").
  */
 final class FxntBackpack {
-    private static final Map<Object, ItemStackHandler> BY_PLAYER = new WeakHashMap<>();
-    private static final Class<?>[] NONE = new Class<?>[0];
     private FxntBackpack() {}
 
-    /** The backpack item handler of a player, or null when they wear none / the shapes changed. */
-    static synchronized ItemStackHandler handlerOf(Player player) {
-        if (player == null) return null;
-        if (BY_PLAYER.containsKey(player)) return BY_PLAYER.get(player);
-        ItemStackHandler handler = resolve(player);
-        BY_PLAYER.put(player, handler);
-        return handler;
-    }
-
-    private static ItemStackHandler resolve(Player player) {
+    /** The worn backpack's contents as the item itself declares them; empty when they wear none. */
+    static List<ItemStack> wornContents(Player player) {
+        var contents = new ArrayList<ItemStack>();
         try {
             ItemStack worn = equipped(player);
-            if (worn == null || worn.isEmpty()) return null;
-            try {   // 1.3.x
-                Object container = call("net.fxnt.fxntstorage.backpack.inventory.BackpackContainer$Cache",
-                        "getOrCreateWornBackpack", new Class<?>[]{Player.class, ItemStack.class}, player, worn);
-                return handlerOf(container);
-            } catch (Throwable newer) { /* fall through to the older shape */ }
-            Object container = construct("net.fxnt.fxntstorage.backpack.main.BackpackContainer",
-                    new Class<?>[]{ItemStack.class, Player.class}, worn, player);
-            return handlerOf(container);
+            if (worn == null || worn.isEmpty()) return contents;
+            ItemContainerContents component = worn.getOrDefault(DataComponents.CONTAINER, ItemContainerContents.EMPTY);
+            for (int index = 0; index < component.getSlots(); index++) contents.add(component.getStackInSlot(index));
         } catch (Throwable shape) {
-            CompatLog.once("handler-" + shape.getClass().getName(),
+            CompatLog.once("worn-contents-" + shape.getClass().getName(),
                     "FMP compat: degraded ({}), their transfer stays untouched", shape.getClass().getName());
-            return null;
         }
+        return contents;
     }
 
     private static ItemStack equipped(Player player) throws Exception {
         Class<?> helper = Class.forName("net.fxnt.fxntstorage.backpack.util.BackpackHelper");
         Method method = helper.getMethod("getEquippedBackpackStack", net.minecraft.world.entity.LivingEntity.class);
         return (ItemStack) method.invoke(null, player);
-    }
-    private static ItemStackHandler handlerOf(Object container) throws Exception {
-        if (container == null) return null;
-        Object handler = container.getClass().getMethod("getItemHandler").invoke(container);
-        return handler instanceof ItemStackHandler stackHandler ? stackHandler : null;
-    }
-    private static Object call(String className, String method, Class<?>[] types, Object... args) throws Exception {
-        return Class.forName(className).getMethod(method, types).invoke(null, args);
-    }
-    private static Object construct(String className, Class<?>[] types, Object... args) throws Exception {
-        return Class.forName(className).getConstructor(types).newInstance(args);
     }
 }

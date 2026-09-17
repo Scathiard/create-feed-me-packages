@@ -29,7 +29,6 @@ public abstract class JeiCraftingTransferHandlerMixin {
     private void fmp$recordRecipeMaterials(CraftingMenu menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots,
                                            Player player, boolean maximum, boolean perform, CallbackInfoReturnable<IRecipeTransferError> info) {
         if (recipe != null && recipe.value() != null) {
-            dev.scathiard.feedmepackages.compat.fxntstorage.FxntContainerProbe.inspectAndRefresh(player);
             FxntContext.materials(recipe.value().getIngredients());
             dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnostic.report(player, recipe);
         }

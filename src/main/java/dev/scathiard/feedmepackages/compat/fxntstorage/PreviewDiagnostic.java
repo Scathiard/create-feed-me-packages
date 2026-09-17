@@ -26,10 +26,9 @@ public final class PreviewDiagnostic {
         try {
             if (player == null || recipe == null || recipe.value() == null) return;
             var inventory = new ArrayList<ItemStack>(player.getInventory().items);
-            // Their own client path reads the WORN backpack stack; handlerOf(...) resolves exactly that stack.
-            var backpack = new ArrayList<ItemStack>();
-            var worn = FxntBackpack.handlerOf(player);
-            if (worn != null) for (int index = 0; index < worn.getSlots(); index++) backpack.add(worn.getStackInSlot(index));
+            // F-11: read-only. The backpack column now comes from the WORN STACK's own CONTAINER component (the
+            // item itself, vanilla API) - their container object is never touched and never reloaded.
+            var backpack = new ArrayList<ItemStack>(FxntBackpack.wornContents(player));
             var lent = new ArrayList<ItemStack>();
             for (var entry : new ClientCacheSupply().available()) lent.add(entry.stack());
 
@@ -78,8 +77,7 @@ public final class PreviewDiagnostic {
     public static boolean covered(Player player, Ingredient ingredient) {
         try {
             for (ItemStack stack : player.getInventory().items) if (ingredient.test(stack)) return true;
-            var worn = FxntBackpack.handlerOf(player);
-            if (worn != null) for (int index = 0; index < worn.getSlots(); index++) if (ingredient.test(worn.getStackInSlot(index))) return true;
+            for (ItemStack stack : FxntBackpack.wornContents(player)) if (ingredient.test(stack)) return true;
             for (var entry : new ClientCacheSupply().available()) if (ingredient.test(entry.stack())) return true;
             return false;
         } catch (Throwable unavailable) {

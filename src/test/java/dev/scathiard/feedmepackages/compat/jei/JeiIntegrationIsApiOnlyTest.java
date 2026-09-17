@@ -119,23 +119,33 @@ class JeiIntegrationIsApiOnlyTest {
         assertFalse(resync.contains("CuriosApi"), "F-8 revert: CuriosApi must not be referenced");
         assertTrue(resync.contains("broadcastChanges"), "the menu broadcast must stay (F-7 behaviour)");
     }
-    @Test void theContainerProbeReloadsThroughTheirApiAndNeverRewritesSlots() {
-        String probe = classBytes("/dev/scathiard/feedmepackages/compat/fxntstorage/FxntContainerProbe.class");
-        assertNotNull(probe, "the container probe must be compiled");
-        assertFalse(probe.contains("setStackInSlot"), "the probe must never write a slot (F-8 prohibition)");
-        assertTrue(probe.contains("loadItemsFromStack"), "the refresh must use THEIR own reload method");
-        assertTrue(probe.contains("fresh"), "the freshness evidence line must exist");
+    @Test void theContainerProbeIsGoneForGood() {
+        // F-11: F-10's "align their cached container" is void - the user's run got WORSE with it.
+        assertNull(classBytes("/dev/scathiard/feedmepackages/compat/fxntstorage/FxntContainerProbe.class"),
+                "the F-10 container probe must not exist any more");
     }
-    @Test void theProbeReadsTheirContainerWithoutCreatingOrRecontextingIt() {
-        String probe = classBytes("/dev/scathiard/feedmepackages/compat/fxntstorage/FxntContainerProbe.class");
-        assertNotNull(probe, "the container probe must be compiled");
-        assertFalse(probe.contains("getOrCreateWornBackpack"),
-                "their cache accessor returns the cached instance and calls setContext on it -> it can never be the"
-                        + " 'fresh' side of the comparison, and using it would touch their state");
-        assertTrue(probe.contains("WORN_BACKPACK_CONTAINER"),
-                "the cached container must be read straight from their attachment (read-only)");
-        assertTrue(probe.contains("BackpackContainer"),
-                "the fresh side must be built by their own container type");
+    @Test void ourCompatClassesNeverReloadOrRebuildTheirState() {
+        // Gate (F-11): the only contact left with the other mod is pure reading. Their state is never reloaded.
+        List<String> forbidden = List.of("loadItemsFromStack", "getOrCreateWornBackpack", "invalidateWornBackpack",
+                "setStackInSlot", "getItemHandler", "backpack/inventory/BackpackContainer", "backpack/main/BackpackContainer");
+        for (String name : List.of("CachePresentingInventory", "CacheSupply", "ServerCacheSupply", "ClientCacheSupply",
+                "ReadOnlyCacheSupply", "CacheBorrow", "FxntContext", "FxntCompat", "FxntBackpack", "CompatLog",
+                "PreviewCounts", "PreviewDiagnostic", "FxntResync", "mixin/TransferRecipePacketMixin",
+                "mixin/JeiCraftingTransferHandlerMixin")) {
+            String bytes = classBytes("/dev/scathiard/feedmepackages/compat/fxntstorage/" + name + ".class");
+            assertNotNull(bytes, "the compat class must be compiled: " + name);
+            for (String symbol : forbidden) {
+                assertFalse(bytes.contains(symbol), name + " must not touch their state through " + symbol);
+            }
+        }
+    }
+    @Test void theWornBackpackDiagnosticReadsTheItemsOwnComponent() {
+        // Gate (F-11): the worn-backpack column is read from the item's own CONTAINER component, not from their object.
+        String helper = classBytes("/dev/scathiard/feedmepackages/compat/fxntstorage/FxntBackpack.class");
+        assertNotNull(helper, "the read-only helper must be compiled");
+        assertTrue(helper.contains("ItemContainerContents"), "the contents must come from the item's own component");
+        assertTrue(helper.contains("getEquippedBackpackStack"), "only their pure getter may name the worn stack");
+        assertFalse(helper.contains("WORN_BACKPACK_CONTAINER"), "their attachment must not be read any more (F-11)");
     }
     @Test void ourOwnMixinConfigNeverTargetsJei() {
         String ours = resource("/create_feed_me_packages.mixins.json");
