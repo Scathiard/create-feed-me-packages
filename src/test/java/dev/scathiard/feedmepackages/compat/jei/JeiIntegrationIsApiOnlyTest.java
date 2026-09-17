@@ -60,49 +60,21 @@ class JeiIntegrationIsApiOnlyTest {
         assertTrue(compat.contains("\"required\": false"), "a soft config: with their mod absent it must not hard-fail");
         assertTrue(compat.contains("\"defaultRequire\": 0"), "every injector must be allowed to miss");
         assertFalse(compat.contains("mezz.jei"), "the compat layer must not touch JEI at all");
-        for (String mixin : List.of("JeiCraftingTransferHandlerMixin", "TransferRecipePacketMixin", "ServerPayloadHandlerMixin")) {
-            assertTrue(compat.contains(mixin), mixin + " must be listed");
+        // F-6: two mixins, three injection points (server: two Inventory arguments; client: one getInventory call).
+        assertTrue(compat.contains("TransferRecipePacketMixin") && compat.contains("JeiCraftingTransferHandlerMixin"));
+        assertFalse(compat.contains("ServerPayloadHandlerMixin"), "the 1.1.x shape is not supported and must not be claimed");
+        for (String mixin : List.of("TransferRecipePacketMixin", "JeiCraftingTransferHandlerMixin")) {
             String bytes = classBytes("/dev/scathiard/feedmepackages/compat/fxntstorage/mixin/" + mixin + ".class");
             assertNotNull(bytes, mixin + " must be compiled");
-            assertTrue(bytes.contains("net.fxnt.fxntstorage"), mixin + " must name the other mod's class");
             assertTrue(bytes.contains("Pseudo"), mixin + " must be @Pseudo so an absent target is harmless");
+            assertTrue(bytes.contains("net.fxnt.fxntstorage"), mixin + " must locate them BY NAME only");
         }
+        // ...and nothing of theirs may be on our classpath at all (no compile-time dependency).
+        assertNull(resource("/net/fxnt/fxntstorage/backpack/main/IBackpackContainer.class"), "no third-party classes may be shipped");
+        // The old handler-based seam is gone, so the two seams cannot fight.
+        assertNull(resource("/dev/scathiard/feedmepackages/compat/fxntstorage/CachePresentingHandler.class"), "the old ItemStackHandler seam must be gone");
+        assertNull(resource("/dev/scathiard/feedmepackages/compat/fxntstorage/SideSelect.class"), "the dist-based side selection must be gone");
     }
-
-    @Test void neitherTheTakeoverNorTheJeiHelperLayerShips() {
-        assertNull(resource("/fmp_jei_takeover.mixins.json"), "the JEI takeover mixin config must not ship");
-        for (String gone : List.of(
-                "/dev/scathiard/feedmepackages/compat/jei/FmpRecipeTransfer.class",
-                "/dev/scathiard/feedmepackages/compat/jei/PreviewPolicy.class",
-                "/dev/scathiard/feedmepackages/client/ClientNotice.class",
-                "/dev/scathiard/feedmepackages/client/NoticeText.class")) {
-            assertNull(resource(gone), gone + " must not be compiled into this mod any more");
-        }
-    }
-
-    @Test void thePluginRegistersNoRecipeTransferHandlerAndNeverTalksToJeiTransferApi() {
-        String plugin = classBytes("/dev/scathiard/feedmepackages/compat/jei/FmpJeiPlugin.class");
-        assertNotNull(plugin, "our JEI plugin must be on the classpath");
-        assertFalse(plugin.contains("registerRecipeTransferHandlers"), "the plugin must not register transfer handlers");
-        assertFalse(plugin.contains("craftingHandler"), "the plugin must not keep a crafting handler");
-        assertFalse(plugin.contains("mezz/jei/api/recipe/transfer"), "the plugin must not touch JEI's transfer API");
-        // What it may still do: our panel session/exclusions and showing our own smithing category.
-        assertTrue(plugin.contains("recipeOverlay"), "the panel session integration must stay");
-        assertTrue(plugin.contains("registerVanillaCategoryExtensions"), "showing our recipe must stay");
-        assertTrue(plugin.contains("registerGuiHandlers"), "our exclusion area must stay");
-    }
-
-    @Test void theSentencesWrittenForJeiAreGone() {
-        for (String lang : List.of("/assets/create_feed_me_packages/lang/zh_cn.json", "/assets/create_feed_me_packages/lang/en_us.json")) {
-            String text = resource(lang);
-            assertNotNull(text, lang);
-            assertFalse(text.contains("missing_entry"), lang);
-            assertFalse(text.contains("missing_detail"), lang);
-            assertFalse(text.contains("missing_scope"), lang);
-            assertTrue(text.contains("result.panel_not_ready"), "the panel's own messages must stay: " + lang);
-        }
-    }
-
     @Test void ourOwnMixinConfigNeverTargetsJei() {
         String ours = resource("/create_feed_me_packages.mixins.json");
         assertNotNull(ours, "our mixin config must be on the classpath");

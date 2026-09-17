@@ -3,27 +3,24 @@ package dev.scathiard.feedmepackages.compat.fxntstorage.mixin;
 import dev.scathiard.feedmepackages.compat.fxntstorage.CompatLog;
 import dev.scathiard.feedmepackages.compat.fxntstorage.FxntCompat;
 import dev.scathiard.feedmepackages.compat.fxntstorage.FxntContext;
-import dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnostic;
 import mezz.jei.api.gui.ingredient.IRecipeSlotsView;
 import mezz.jei.api.recipe.transfer.IRecipeTransferError;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.CraftingMenu;
 import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
-import net.neoforged.neoforge.items.IItemHandlerModifiable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.ModifyVariable;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Create: Storage's JEI crafting transfer, CLIENT side. Their preview knows the RECIPE, so we first record its
- * materials as this call's borrow filter (HEAD), then wrap the handler local their own code reads (its LVT
- * type is IItemHandlerModifiable), and clear the filter when the call ends. Callback signatures are the exact
- * target descriptors on purpose - a widened parameter type would silently never match (the F-1 failure).
+ * F-6, CLIENT side: the same rule, applied at the one call their preview makes to {@code Player.getInventory()}.
+ * The presenter is read-only: it can present our cache, it can never debit and it writes nothing.
  */
 @Pseudo
 @Mixin(remap = false, targets = "net.fxnt.fxntstorage.compat.jei.JEICraftingTransferHandler")
@@ -31,16 +28,13 @@ public abstract class JeiCraftingTransferHandlerMixin {
     @Inject(method = "transferRecipe", at = @At("HEAD"))
     private void fmp$recordRecipeMaterials(CraftingMenu menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots,
                                            Player player, boolean maximum, boolean perform, CallbackInfoReturnable<IRecipeTransferError> info) {
-        if (recipe != null && recipe.value() != null) {
-            FxntContext.materials(recipe.value().getIngredients());
-            PreviewDiagnostic.report(player, recipe);
-        }
+        if (recipe != null && recipe.value() != null) FxntContext.materials(recipe.value().getIngredients());
     }
 
-    @ModifyVariable(method = "transferRecipe", at = @At("STORE"), ordinal = 0)
-    private IItemHandlerModifiable fmp$presentCacheToTheirPreview(IItemHandlerModifiable itemHandler) {
-        CompatLog.once("hooked:transferRecipe", "FMP compat: hooked transferRecipe (IItemHandlerModifiable)");
-        return FxntCompat.presentModifiable(itemHandler, "fxntstorage:JEICraftingTransferHandler#transferRecipe");
+    @Redirect(method = "transferRecipe", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Player;getInventory()Lnet/minecraft/world/entity/player/Inventory;"))
+    private Inventory fmp$presentCacheToTheirPreview(Player player) {
+        CompatLog.once("hooked:transferRecipe", "FMP compat: hooked transferRecipe (Player.getInventory -> read-only presenter)");
+        return FxntCompat.presentInventoryReadOnly(player.getInventory(), "fxntstorage:JEICraftingTransferHandler#transferRecipe");
     }
 
     @Inject(method = "transferRecipe", at = @At("RETURN"))

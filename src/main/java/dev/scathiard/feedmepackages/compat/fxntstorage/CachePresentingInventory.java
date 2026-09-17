@@ -9,34 +9,31 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * F-6 narrow seam: their server-side placement takes the player's real {@link Inventory} as a parameter, so
- * we present a SUBCLASS of it instead of guessing who the handler belongs to. No instance identity, no dist
- * check, no thread check: {@code this.player} (the public final field of Inventory) is the owner, so
- * {@code AccessGate.resolve(player)} can no longer "not match" and silently degrade to a view that never
- * debits.
- *
- * <p>Rules: their occupied slot =&gt; their stack; an empty slot we lent =&gt; a copy of a cache cell the call's
- * materials accept; a write-back on a lent slot debits exactly that cell and never touches the real
- * inventory; everything else delegates to the player's real inventory.
+ * F-6 narrow seam: presented through the vanilla {@link Inventory} the call already carries, so the owner is
+ * the parameter itself (its public final {@code player}) and nothing has to be matched. Server side it debits
+ * the real cache; the client side is the same rule with {@code readOnly} set, where any write is refused out
+ * loud and nothing is written anywhere.
  */
 public final class CachePresentingInventory extends Inventory {
     private final CacheSupply supply;
     private final List<CacheSupply.Entry> entries;
     private final String owner;
+    private final boolean readOnly;
     private final CacheBorrow borrow = new CacheBorrow();
     private int served;
     private int debited;
 
-    public CachePresentingInventory(Player player, CacheSupply supply, List<CacheSupply.Entry> entries, List<Ingredient> materials, String owner) {
+    public CachePresentingInventory(Player player, CacheSupply supply, List<CacheSupply.Entry> entries, List<Ingredient> materials, String owner, boolean readOnly) {
         super(player);
         this.supply = supply;
         this.entries = List.copyOf(entries);
         this.owner = owner;
+        this.readOnly = readOnly;
         plan(materials);
     }
 
-    /** The owner comes straight from the vanilla parameter - nothing to match. */
     public Player owner() { return this.player; }
+    public boolean readOnly() { return readOnly; }
 
     private void plan(List<Ingredient> materials) {
         if (materials == null || materials.isEmpty()) {
@@ -50,7 +47,6 @@ public final class CachePresentingInventory extends Inventory {
             supplies.add(new CacheBorrow.Supply(key, entries.get(key).cell(), stack.getCount(), stack.getMaxStackSize()));
         }
         if (supplies.isEmpty()) return;
-        // Vanilla Inventory is a Container, not an IItemHandler: scan its own slots for the empty ones.
         var empty = new ArrayList<Integer>();
         for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
             if (player.getInventory().getItem(slot).isEmpty()) empty.add(slot);
@@ -88,13 +84,20 @@ public final class CachePresentingInventory extends Inventory {
     }
 
     @Override public void setItem(int slot, ItemStack stack) {
-        if (borrow.lend(slot) == null) { player.getInventory().setItem(slot, stack); return; }
+        if (borrow.lend(slot) == null) {
+            if (readOnly) { CompatLog.once("debit-refused:readonly", "FMP compat: debit refused (read-only client presenter)"); return; }
+            player.getInventory().setItem(slot, stack);
+            return;
+        }
         account(borrow.settle(slot, stack.getCount()));
     }
 
     @Override public ItemStack removeItem(int slot, int amount) {
         var lend = borrow.lend(slot);
-        if (lend == null) return player.getInventory().removeItem(slot, amount);
+        if (lend == null) {
+            if (readOnly) { CompatLog.once("debit-refused:readonly", "FMP compat: debit refused (read-only client presenter)"); return ItemStack.EMPTY; }
+            return player.getInventory().removeItem(slot, amount);
+        }
         int give = Math.min(amount, lend.presented());
         if (give <= 0) return ItemStack.EMPTY;
         ItemStack taken = presented(slot).copyWithCount(give);
