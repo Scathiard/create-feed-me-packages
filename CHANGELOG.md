@@ -67,11 +67,13 @@ package — the only difference is the version number.
 
 - **JEI transfer in a heavy modpack / 重度整合包里的 JEI 转移**: in large packs the JEI "+" button
   can stay greyed out for crafting-table recipes and the transfer handler is never asked. The cause is
-  still open — it has been ruled out that this is a JEI version difference (19.39.0.369 and 19.51 are
-  byte-for-byte equivalent along the transfer chain) or a handler-registration collision. The vanilla
-  recipe book and the panel's own taking are unaffected.
+  still open — a JEI version difference has been ruled out **by a static check only** (19.51 was
+  compared class by class along the transfer chain against 19.39.0.369; the two instances actually
+  played both ran **19.39.0.369**, so this is not a comparison of two in-game runs), as has a
+  handler-registration collision. The vanilla recipe book and the panel's own taking are unaffected.
   **重度整合包里 JEI「+」可能对工作台配方一直是灰的、处理器不会被询问**；原因尚未定论——已排除
-  **JEI 版本差异**（19.39.0.369 与 19.51 在该链上逐类同构）与**处理器注册被覆盖**。原版配方书与
+  **JEI 版本差异**，但**只凭静态核对**（19.51 是对转移链逐类比对的；**现场两个实例实测加载的都是
+  `19.39.0.369`**，所以这不是两次实机运行的对照），也排除了**处理器注册被覆盖**。原版配方书与
   面板取物不受影响。
 
 ### Compatibility / 兼容
@@ -139,6 +141,8 @@ package — the only difference is the version number.
   drawing, five-level growth and owner-locked personal caches.
   首个本地可玩版本：坠子绑定缓存、真实 Create 补货请求、含残包的收件、合成／JEI／标准投射物取料、五级成长与物主锁定的个人缓存。
 
+[0.2.2]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.2
+[0.2.1]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.0
 [0.1.1]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.1.1
 [0.1.0]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.1.0
