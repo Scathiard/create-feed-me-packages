@@ -33,3 +33,21 @@ The user's ruling: **"JEI does not pop up a sentence for you to read when ingred
 ## Follow-up fix (F-1): the injection type was wrong - corrected against their LVT and proven locally
 
 The previous build declared its hook parameter as `ItemStackHandler`, while their real local/argument types are **`IItemHandlerModifiable`** (their preview and their placement) and **`IItemHandler`** (their max-count helper) - so Mixin matched nothing and silently skipped: not a single `FMP compat:` line appeared. The injection points are now pinned to what `javap -l` shows (server side injects on the **arguments** with `argsOnly`, client side on the local's STORE), and every point self-reports: `FMP compat: hooked <method>(<type>)` when it fires, plus `pass-through …` / `degraded …` for each silent branch. **Proven locally** with their 1.3.4 jar (copied into a temp dev run dir, removed afterwards): the Mixin apply line plus both `hooked` lines, and **161/161 tests green in both environments**.
+## Follow-up ruling (2026-09-17): the mechanism may be stated from decompiled evidence - the known issue, as published
+
+**Ruling**: the previous restriction is lifted. The mechanism **may** be claimed, but the wording must say **"per decompilation: ..."** and must also carry the user's control experiment. What still stands: **comparing our probe's two client-side copies can never decide which side is stale**.
+
+### Known issue: with Create: Storage installed, the "+" state may lag
+
+- **Symptom (the provable claim)**: with Create: Storage (`fxntstorage`) installed, JEI's crafting "+" **may lag** and needs **one UI toggle** to update; **disabling this mod entirely reproduces it, so it is unrelated to this mod**.
+- **Attribution (their bug - Create: Storage's client-side view has no refresh path while the backpack is worn)**: **per decompilation** of their **1.3.4** (all **439** classes walked with `javap -p -c`):
+  1. **No automatic invalidation point exists while the backpack is worn** - `invalidateWornBackpack` has exactly **two** call sites: `EventHandler.onPlayerTick` (**and only when no backpack is worn**) and `BackpackContainer.setChanged()` (whose only caller is the **server-side** `UpgradeHelper.toggleWornUpgrade`).
+  2. **Reusing the cached container never re-reads its contents on the client** - the reuse branch only calls `setContext`, which **returns immediately when `level().isClientSide`** (only the server calls `readInventory`).
+  3. **The only caller of `loadItemsFromStack` is their own constructor.**
+  4. Their inner handler (`BackpackContainer$1`) **does not override `onContentsChanged`**, so container changes trigger no invalidation either.
+  => That client-side view is refreshed **only by opening their backpack screen once** (menu slot sync), and it is exactly the view their JEI preview reads (`getEquippedBackpackStack` -> `getOrCreateWornBackpack` -> `getItemHandler`).
+- **Citable evidence**: (1) the **user's control run** - **disabling this mod entirely reproduces it** (that run's `create-feed-me-packages-0.2.2.jar.disabled` is **byte-identical** to this build: 391,975 B / `dd61204f57f4cea439e1404da2b527db978433af8f8376042c87b5955552e177`); (2) our log line `FMP compat: their preview returned=null missing=0`; (3) our probe sampling `their container fresh=true stale=0 slots=156` **51**/54 (`stale=1` **3**/54) - **only to show that two client-side copies cannot reveal the problem, not as attribution evidence**.
+- **Workaround**: **toggle their backpack screen once**; **prefer our logistics panel or the vanilla recipe book** - both read authoritative data and are **unaffected** by that bug.
+- **Our boundaries**: we never refresh their state for them (the F-11 ban), and no new entity is added; the F-10 probe has been removed entirely.
+
+**Same version, same bytes**: this is a wording addition made before publication; the jar is **untouched** (391,975 B / `dd61204f57f4cea439e1404da2b527db978433af8f8376042c87b5955552e177`).
