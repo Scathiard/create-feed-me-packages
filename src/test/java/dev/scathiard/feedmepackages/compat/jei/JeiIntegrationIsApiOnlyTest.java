@@ -126,6 +126,17 @@ class JeiIntegrationIsApiOnlyTest {
         assertTrue(probe.contains("loadItemsFromStack"), "the refresh must use THEIR own reload method");
         assertTrue(probe.contains("fresh"), "the freshness evidence line must exist");
     }
+    @Test void theProbeReadsTheirContainerWithoutCreatingOrRecontextingIt() {
+        String probe = classBytes("/dev/scathiard/feedmepackages/compat/fxntstorage/FxntContainerProbe.class");
+        assertNotNull(probe, "the container probe must be compiled");
+        assertFalse(probe.contains("getOrCreateWornBackpack"),
+                "their cache accessor returns the cached instance and calls setContext on it -> it can never be the"
+                        + " 'fresh' side of the comparison, and using it would touch their state");
+        assertTrue(probe.contains("WORN_BACKPACK_CONTAINER"),
+                "the cached container must be read straight from their attachment (read-only)");
+        assertTrue(probe.contains("BackpackContainer"),
+                "the fresh side must be built by their own container type");
+    }
     @Test void ourOwnMixinConfigNeverTargetsJei() {
         String ours = resource("/create_feed_me_packages.mixins.json");
         assertNotNull(ours, "our mixin config must be on the classpath");
