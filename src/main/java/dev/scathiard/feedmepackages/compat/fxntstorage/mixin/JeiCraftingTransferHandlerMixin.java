@@ -28,12 +28,16 @@ public abstract class JeiCraftingTransferHandlerMixin {
     @Inject(method = "transferRecipe", at = @At("HEAD"))
     private void fmp$recordRecipeMaterials(CraftingMenu menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots,
                                            Player player, boolean maximum, boolean perform, CallbackInfoReturnable<IRecipeTransferError> info) {
-        if (recipe != null && recipe.value() != null) FxntContext.materials(recipe.value().getIngredients());
+        if (recipe != null && recipe.value() != null) {
+            FxntContext.materials(recipe.value().getIngredients());
+            dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnostic.report(player, recipe);
+        }
     }
 
     @Redirect(method = "transferRecipe", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Player;getInventory()Lnet/minecraft/world/entity/player/Inventory;"))
     private Inventory fmp$presentCacheToTheirPreview(Player player) {
         CompatLog.once("hooked:transferRecipe", "FMP compat: hooked transferRecipe (Player.getInventory -> read-only presenter)");
+        CompatLog.once("readonly-installed", "FMP compat: read-only presenter installed (client)");
         return FxntCompat.presentInventoryReadOnly(player.getInventory(), "fxntstorage:JEICraftingTransferHandler#transferRecipe");
     }
 

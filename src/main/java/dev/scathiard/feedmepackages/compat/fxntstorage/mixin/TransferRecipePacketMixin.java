@@ -3,7 +3,9 @@ package dev.scathiard.feedmepackages.compat.fxntstorage.mixin;
 import dev.scathiard.feedmepackages.compat.fxntstorage.CompatLog;
 import dev.scathiard.feedmepackages.compat.fxntstorage.FxntCompat;
 import dev.scathiard.feedmepackages.compat.fxntstorage.FxntContext;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.neoforged.neoforge.items.IItemHandler;
@@ -59,5 +61,12 @@ public abstract class TransferRecipePacketMixin {
     @Inject(method = "getMaxCraftableItems", at = @At("RETURN"))
     private void fmp$clearIngredients(List<Ingredient> ingredients, Inventory inventory, IItemHandler backpack, CallbackInfoReturnable<Integer> info) {
         FxntContext.clear();
+    }
+    /** F-7 (approved): after their packet finished, re-sync what the client is looking at. Broadcasts only. */
+    @Inject(method = "handle", at = @At("TAIL"))
+    private void fmp$resyncAfterTheirPlacement(IPayloadContext context, CallbackInfo info) {
+        if (context.player() instanceof ServerPlayer player) {
+            dev.scathiard.feedmepackages.compat.fxntstorage.FxntResync.afterPlacement(player);
+        }
     }
 }

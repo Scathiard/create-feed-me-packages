@@ -7,23 +7,24 @@ import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.RecipeHolder;
 
 import java.util.ArrayList;
-import java.util.List;
 
 /**
- * F-5 diagnostic, CLIENT preview path only: for each material of the recipe this call is about, say how much
- * the player inventory, their worn backpack and our lent cache each hold. The point is to name the source that
- * is lying when the button promises something the server cannot deliver. Rate limited by content: the same
- * recipe with the same numbers logs once.
+ * F-5/F-7 diagnostic, CLIENT preview path: for each material of this recipe, say how much the player
+ * inventory, their worn backpack and our lent cache each hold, so the log NAMES the source that is lying.
+ * It is evaluated on every entry into the presenter and printed only when the numbers change, at most once
+ * every two seconds (a per-tick preview cannot flood the log but a real change always shows).
  */
 public final class PreviewDiagnostic {
+    private static String lastLine;
+    private static long lastPrintedAt;
+
     private PreviewDiagnostic() {}
 
     public static void report(Player player, RecipeHolder<CraftingRecipe> recipe) {
         try {
             if (player == null || recipe == null || recipe.value() == null) return;
             var inventory = new ArrayList<ItemStack>(player.getInventory().items);
-            // Their own client path reads the WORN backpack stack (BackpackHelper.getEquippedBackpackStack), and
-            // handlerOf(...) resolves exactly that stack, so this is the same container their preview sees.
+            // Their own client path reads the WORN backpack stack; handlerOf(...) resolves exactly that stack.
             var backpack = new ArrayList<ItemStack>();
             var worn = FxntBackpack.handlerOf(player);
             if (worn != null) for (int index = 0; index < worn.getSlots(); index++) backpack.add(worn.getStackInSlot(index));
@@ -37,10 +38,20 @@ public final class PreviewDiagnostic {
                         .append(" backpack=").append(PreviewCounts.sum(backpack, ingredient::test, ItemStack::getCount))
                         .append(" lent=").append(PreviewCounts.sum(lent, ingredient::test, ItemStack::getCount));
             }
-            CompatLog.once("preview:" + text, "%s", text);
+            String line = text.toString();
+            long now = System.currentTimeMillis();
+            if (!shouldPrint(line, now, lastLine, lastPrintedAt)) return;   // unchanged: stay quiet
+            lastLine = line; lastPrintedAt = now;
+            CompatLog.compat(line);
         } catch (Throwable ignored) {
             // Diagnostics must never disturb their preview.
         }
+    }
+
+    /** Pure: a changed content always prints; identical content is throttled to once every two seconds. */
+    static boolean shouldPrint(String line, long now, String previous, long previousAt) {
+        if (previous == null || !previous.equals(line)) return true;
+        return now - previousAt >= 2000;
     }
 
     private static String name(Ingredient ingredient) {
