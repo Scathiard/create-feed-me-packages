@@ -1,84 +1,84 @@
-# Create: Feed Me Packages!
+[English](readme.en.md) | 简体中文
 
-English | [简体中文](readme.zh.md)
+# 机械动力：喂我发包！
 
-[![CurseForge](https://img.shields.io/badge/CurseForge-Download-F16436?logo=curseforge&logoColor=white)](https://www.curseforge.com/minecraft/mc-mods/create-feed-me-packages) [![Modrinth](https://img.shields.io/badge/Modrinth-Download-00AF5C?logo=modrinth&logoColor=white)](https://modrinth.com/mod/create-feed-me-packages)
+[![CurseForge](https://img.shields.io/badge/CurseForge-%E4%B8%8B%E8%BD%BD-F16436?logo=curseforge&logoColor=white)](https://www.curseforge.com/minecraft/mc-mods/create-feed-me-packages) [![Modrinth](https://img.shields.io/badge/Modrinth-%E4%B8%8B%E8%BD%BD-00AF5C?logo=modrinth&logoColor=white)](https://modrinth.com/mod/create-feed-me-packages)
 
-## About
+## 项目介绍
 
-Your factory can produce building supplies automatically, but you still have to run home to collect them. **Create: Feed Me Packages!** is about saving that trip.
+工厂已经能自动生产建材了，出门盖房子却还得一趟趟回去搬。**机械动力：喂我发包！** 想省掉的就是这段路。
 
-Wear a Supply Chain Pendant, connect it to your factory's logistics network, and choose what to keep stocked. As you use supplies, the pendant requests replacements. Your packagers box them up, paper planes or robo-bees bring them over, and the contents go into a cache beside your inventory. You can also draw from it to craft what you need on the spot.
+戴上供应链坠，连好工厂的物流网络，告诉它你想常备哪些物资。用掉一部分，坠子就向工厂请求补货。打包机装箱，纸飞机或运输蜂送来，包裹里的材料自动收进背包左侧的随身缓存。临时要合成东西，也能直接从里面取料。
 
-The idea comes from personal logistics in *Dyson Sphere Program*. Here, we want keeping yourself supplied to be another job for the Create factory you've built. The mod runs on **Minecraft 1.21.1 / NeoForge** and requires **Create** and **Curios**.
+这套玩法借鉴了《戴森球计划》的随身物流。放到 Minecraft 里，我们希望补给也能成为你那套机械动力工厂的一部分。模组适用于 **Minecraft 1.21.1 / NeoForge**，需要 **Create** 和 **Curios**。
 
-## Where it helps
+## 使用场景
 
-- Keep common blocks and machines on your restocking list when building away from base, with fewer trips back to storage.
-- Use cached ingredients while expanding your factory, without sending a manual request through a portable terminal.
-- Keep arrows and other consumables in the cache and let your factory replenish them, leaving inventory space for things you find along the way.
-- Hand a pendant and its supplies to a friend, or make a personal pendant to keep your own stock.
+- 出门建造，把常用方块和机器列进补货清单，少跑几趟仓库。
+- 扩建工厂，临时缺了合成材料，可以直接用缓存里的存货，不必用便携终端请求。
+- 带上常用箭矢等消耗品，让工厂自动补充缓存，把普通背包的位置留给路上捡到的东西。
+- 和朋友一起玩，可以连同物资把坠子交给对方，也可以做一枚私人定坠，保留自己的那份库存。
 
-## Features
+## 功能能力
 
-### Two Supply Chain Pendants
+### 两种供应链坠
 
-Who keeps the supplies depends on which pendant you wear.
+坠子里的物资归谁，取决于你戴的是哪一种。
 
-| Item | Cache ownership |
-| --- | --- |
-| **Supply Chain Pendant** | Supplies and settings travel with the pendant. Give it to a friend and they can pick up where you left off. Destroying it removes access to that cache. |
-| **Supply Chain Pendant: Made to Order** | Personalize an ordinary pendant to move its contents into the crafter's personal cache. All personal pendants belonging to that player share stock, settings, and level. |
+| 物品            | 缓存归属                                            |
+| ------------- | ----------------------------------------------- |
+| **供应链坠**      | 物资和设置跟着坠子走。交给朋友，对方就能接着用；坠子毁坏，也就失去了这份库存          |
+| **供应链坠·私人定坠** | 将普通坠子私人化，原有物资会转入锻造者的个人缓存。同一个人的私人定坠共用一份库存、设置和等级。 |
 
-A Made to Order pendant belongs to a specific player. If someone else wears yours, it becomes a fresh ordinary pendant; your personal stock stays yours. An ownerless personal pendant belongs to the first player who equips it.
+私人定坠认物主。别人戴上你的私人定坠，它会变成一枚新的普通坠子，你的个人库存不会跟过去。无主的私人定坠则归第一个戴上它的人。
 
-You can wear one pendant at a time. Taking it off stops cache access, restocking, receiving, and automatic material use. Your stock and settings stay there for when you put it back on.
+每人最多戴一件。摘下后，存取、补货、收件和自动取料都会停下，库存与设置留着，重新戴上再用。
 
-### A separate cache with automatic restocking
+### 独立缓存与自动补货
 
-Equip a pendant and cache cells appear to the left of your inventory, in both Survival and Creative. Put an item into an empty cell to choose what goes there, then click the small dot in the corner to set how much to keep stocked.
+戴上坠子，背包左侧就会多出缓存格，生存和创造模式都能用。把物品放进空格，就定下了这一格要存什么；点格子角落的小点，设置希望常备多少。
 
-For example, set a minimum of two stacks of logs. Whenever the cache falls below that amount, the pendant requests the difference from your network. Only cached stock counts toward this minimum, not items in your normal inventory.
+比如你想常备两组原木，就把补货下限设为两组。缓存低于这个数量时，坠子会向网络请求差额。它只看缓存里的存货，不把普通背包里的物品算进去。
 
-Delivered packages are unpacked straight into the cache. You don't have to empty them into your inventory first, and a dedicated receiving entry still works when that inventory is full. Anything that won't fit in the cache stays in a residual package until there's room. There's a limit to those leftovers, too, so they aren't an infinite warehouse.
+包裹送到后直接拆进缓存，不用先往普通背包里倒一遍。背包塞满了也有专门的收件入口；缓存暂时装不下的材料留在残包里，等腾出位置再继续收。残包能暂存的数量也有限，不能拿来当无限仓库。
 
-Stored items keep data such as enchantments, with different variants kept in separate cells. Items that can't be saved safely are rejected, not silently turned into plain versions.
+能存入的物品会保留附魔等数据，同名但数据不同的物品分格存放。无法安全保存的物品会被拒绝，不会偷偷变成普通版本。
 
-### Automatic returns
+### 自动退货
 
-When you've finished building, put the spare materials back in the cache. Set how much you want to keep and a return address, and the surplus gets packed for a paper plane or robo-bee to carry back.
+建完房子，多拿出来的材料还可以放回缓存。设置想留下的最高数量和返回地址，超出的部分就打成包裹，交给纸飞机或运输蜂送回去。
 
-Each return consumes paper-plane parts or a robo-bee. Without a suitable carrier, or if dispatch cannot start, the materials stay in the cache without being deducted.
+退货会消耗纸飞机零件或运输蜂。没有合适的载具，或运输无法出发时，材料会留在缓存里，不会出发。
 
-### Five levels of capacity
+### 容量成长
 
-Your factory has a part in upgrades, too. Make Upgrade Links through Create sequenced assembly, then upgrade the pendant at a smithing table to carry more kinds of supplies and more of each.
+扩容也要用上工厂。通过 Create 序列组装做出扩容链节，再到锻造台升级坠子，就能装下更多种类、更多数量的物资。
 
-| Level | Cache cells | Capacity per cell |
+| 等级 | 缓存格数 | 单格容量 |
 | --- | --- | --- |
-| 1 | 9 | 2 stacks |
-| 2 | 16 | 4 stacks |
-| 3 | 24 | 8 stacks |
-| 4 | 30 | 16 stacks |
-| 5 | 36 | 32 stacks |
+| 1 | 9 | 2 组 |
+| 2 | 16 | 4 组 |
+| 3 | 24 | 8 组 |
+| 4 | 30 | 16 组 |
+| 5 | 36 | 32 组 |
 
-Stacks follow the item's own stack limit. A level 1 cell holds 128 logs, 32 ender pearls, or 2 milk buckets.
+这里的一组按物品原本的堆叠上限算。一级的一个格子，可以放 128 个原木、32 颗末影珍珠，或 2 桶牛奶。
 
-### Crafting and ammunition
+### 合成与弹药取用
 
-You don't need to rummage through the cache whenever a recipe is short on ingredients. Vanilla 2×2 inventory crafting, 3×3 workbench crafting, the recipe book, and JEI recipe transfer can all use cached materials when your inventory doesn't have enough. Vanilla bows and crossbows can keep using cached arrows after your inventory runs out.
+合成缺料时，不必把缓存翻一遍。原版背包的 2×2 合成、工作台的 3×3 合成、配方书和 JEI 配方填充，都能在背包原料不足时从缓存补齐。原版弓/弩也能在背包缺箭时接着用缓存里的箭。
 
-Your inventory is used first, and the cache supplies the shortfall. Support includes the standard projectile consumption path shared by vanilla bows and crossbows, but it doesn't extend to every modded gun, machine, or backpack. To place blocks or use an item directly by hand, you'll still need to take it out first.
+取料顺序固定为背包优先，缺多少再从缓存拿多少。支持范围包括原版弓弩共用的标准投射物消费流程，但不代表所有模组的枪械、机器或背包都能读取缓存。要拿方块盖房子，或直接手持使用物品，仍需先把它取出来。
 
-## Mod integrations
+## 模组联动
 
-| Mod | Requirement | Integration |
-| --- | --- | --- |
-| **Create** | Required | Supplies the goods. The pendant binds to a logistics network, checks stock, and requests materials for your packagers to box up. Sequenced assembly also produces Upgrade Links. |
-| **Curios API** | Required | Provides the equipment slot for the pendant. |
-| **JEI** | Optional | View recipes and transfer ingredients, drawing missing materials from the cache. Dragging JEI item templates into cache filters isn't supported. |
-| **Create More: Package Couriers** | Optional | Uses its existing paper-plane delivery to bring restocking packages to you, ready for this mod to receive into the cache. |
-| **Create: Mobile Packages** | Optional | Uses its existing robo-bee delivery to bring packages over, with their contents received into the cache on arrival. |
-| **Create: Storage** | Optional | With its backpack worn, crafting can draw from both inventories at the same time. |
+| 模组                                | 是否必需 | 联动内容                                                |
+| --------------------------------- | ---- | --------------------------------------------------- |
+| **Create／机械动力**                   | 必需   | 工厂供货。坠子绑定物流网络、查询库存并请求补货，由打包机把材料装成包裹；扩容链节也通过序列组装制造。  |
+| **Curios API**                    | 必需   | 提供供应链坠的佩戴槽位。                                        |
+| **JEI**                           | 可选   | 查看配方、填充合成材料，背包缺的部分可以从缓存取。目前不能把 JEI 里的物品模板拖进缓存来设置过滤。 |
+| **Create More: Package Couriers** | 可选   | 用纸飞机原有的配送方式，把补货包裹送到你身边，再由本模组收进缓存。                   |
+| **Create: Mobile Packages**       | 可选   | 用运输蜂原有的配送方式完成送货，包裹抵达后自动收进缓存。                        |
+| **Create: Storage**               | 可选   | 装载背包时，合成取料可以同时访问两边的库存                               |
 
-Your factory needs stock, and the packages need a way to reach you. Paper planes and robo-bees still need their own infrastructure, addresses, and delivery conditions. The pendant won't build those for you or teleport materials out of storage. Without these optional mods, you can still use the cache and core features, and receive dedicated restocking packages obtained through other means. Or maybe you'd like to consider becoming a courier yourself?
+工厂里得有货，包裹也得有办法送到你手里。纸飞机和运输蜂需要各自的设施、地址与配送条件，坠子不会替你搭好这些，也不会隔空从仓库取走材料。不装这些可选模组，仍能使用缓存和基础功能，通过其他方式取得专用补货包裹后也能收件。或许，你们可以考虑当个快递员？
