@@ -30,6 +30,10 @@ gt-out.txt
 release/v*-test.*/
 release/testing/
 
+# The release/ folder stays on this machine only. Published artifacts live on GitHub Releases,
+# and the historical evidence stays in the git history. Untracked on purpose (2026-09-17).
+release/
+
 # Internal project documents / collaboration rules (not for the public repo)
 docs/
 AGENTS.md

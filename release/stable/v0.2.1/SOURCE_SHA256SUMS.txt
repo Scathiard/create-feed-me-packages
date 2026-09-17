@@ -1,1 +1,0 @@
-ff013128a2fa1a6d5bef60b32ddb3cf28db3d2202dcc80fb50e1d2f9d60303ff  v0.2.1-source.zip (in this directory; source snapshot of commit B - only the two checksum files differ from the final HEAD)
