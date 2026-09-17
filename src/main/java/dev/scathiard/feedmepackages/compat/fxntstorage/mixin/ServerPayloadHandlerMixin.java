@@ -10,17 +10,10 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
 
 /**
- * Create: Storage 1.1.x, SERVER side: there the transfer body lives in the payload handler class
- * ({@code ServerPayloadHandler.handleTransferRecipePacket} enqueues the work, the body is a lambda). LVT
- * ({@code javap -l}) gives both points:
- * <ul>
- *   <li>{@code lambda$handleTransferRecipePacket$9(IPayloadContext, TransferRecipePacket)} - local slot 8,
- *       name {@code itemHandler}, type {@code IItemHandlerModifiable}: this is the handler their inline
- *       placement reads and writes back. Targeted by the local's TYPE with {@code method = "*"} so the
- *       compiler-generated lambda name does not matter;</li>
- *   <li>{@code getMaxCraftableItems(List, Inventory, IItemHandler)} - LVT: parameter slot 3, name
- *       {@code backpack}, type {@code IItemHandler} (same shape as in 1.3.x).</li>
- * </ul>
+ * Create: Storage 1.1.x, SERVER side: there the transfer body is a compiler-generated lambda, so the handler
+ * local is targeted by TYPE with method = "*" (LVT: local slot 8 {@code itemHandler IItemHandlerModifiable}),
+ * and the count helper takes the whole ingredient list as its third argument (LVT: parameter 3
+ * {@code backpack IItemHandler}).
  */
 @Pseudo
 @Mixin(remap = false, targets = "net.fxnt.fxntstorage.network.handler.ServerPayloadHandler")
@@ -31,7 +24,7 @@ public abstract class ServerPayloadHandlerMixin {
         return FxntCompat.presentModifiable(itemHandler, "fxntstorage:ServerPayloadHandler#transfer");
     }
 
-    @ModifyVariable(method = "getMaxCraftableItems", at = @At("HEAD"), argsOnly = true)   // the only IItemHandler argument
+    @ModifyVariable(method = "getMaxCraftableItems", at = @At("HEAD"), argsOnly = true)
     private IItemHandler fmp$presentCacheToTheirCount(IItemHandler backpack) {
         CompatLog.once("hooked:getMaxCraftableItems", "FMP compat: hooked getMaxCraftableItems (IItemHandler)");
         return FxntCompat.presentSlots(backpack, "fxntstorage:ServerPayloadHandler#getMaxCraftableItems");

@@ -1,7 +1,7 @@
 package dev.scathiard.feedmepackages.compat.fxntstorage;
 
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.Ingredient;
 import net.neoforged.fml.ModList;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.items.IItemHandler;
@@ -12,17 +12,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The seam between Create: Storage's own transfer calls and our cache.
- *
- * <p>Unlike the mixins (which live in a separate package, because Mixin must never load our helpers from the
- * declared mixin package), this class is ordinary code. It is called for the duration of ONE of their
- * transfer calls and returns a wrapper that exists only in that call's local variable or argument:
- * <ul>
- *   <li>nothing is registered, replaced or vetoed in JEI or in their mod;</li>
- *   <li>their real container is never written - only their EMPTY item slots are lent;</li>
- *   <li>the wrapper is never stored in a field, a static or a cache;</li>
- *   <li>when they are absent, or their shape moved, we hand their handler straight back (and say so once).</li>
- * </ul>
+ * The seam between Create: Storage's own transfer calls and our cache. Ordinary code (the mixins live in
+ * their own package, because Mixin must never load helpers from the declared mixin package). It is called for
+ * ONE of their calls and returns a wrapper that exists only in that call's local/argument.
  */
 public final class FxntCompat {
     private static final String FXNT = "fxntstorage";
@@ -41,7 +33,6 @@ public final class FxntCompat {
         return wrapper == null ? original : wrapper;
     }
 
-    /** The one place the decision "do we expose our cache here" is made; null means plain pass-through. */
     private static CachePresentingHandler wrap(IItemHandler original, String owner) {
         try {
             if (original == null) {
@@ -62,12 +53,12 @@ public final class FxntCompat {
                 CompatLog.once("no-owner", "FMP compat: degraded (no cache view: unknown owner)");
                 return null;
             }
-            List<ItemStack> available = supply.available();
-            if (available.isEmpty()) {
+            List<CacheSupply.Entry> entries = supply.available();
+            if (entries.isEmpty()) {
                 CompatLog.once("no-cache-" + supply.side(), "FMP compat: degraded (no cache view: nothing available)");
                 return null;
             }
-            return new CachePresentingHandler(original, supply, available, range[0], range[1], owner);
+            return new CachePresentingHandler(original, supply, entries, FxntContext.materials(), range[0], range[1], owner);
         } catch (Throwable shape) {
             CompatLog.once("present-" + shape.getClass().getName(),
                     "FMP compat: degraded ({}), their transfer stays untouched", shape.getClass().getName());
@@ -80,7 +71,6 @@ public final class FxntCompat {
         if (FMLEnvironment.dist.isClient()) return new ClientCacheSupply();
         var server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) return null;
-        // The handler instance identifies its owner: the same instance is what their transfer path resolved.
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             if (FxntBackpack.handlerOf(player) == original) return new ServerCacheSupply(player);
         }

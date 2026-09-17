@@ -1,6 +1,7 @@
 package dev.scathiard.feedmepackages.compat.fxntstorage;
 
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.Ingredient;
 import net.neoforged.neoforge.items.IItemHandler;
 import net.neoforged.neoforge.items.IItemHandlerModifiable;
 import net.neoforged.neoforge.items.ItemStackHandler;
@@ -11,102 +12,103 @@ import java.util.List;
 /**
  * The wrapper Create: Storage's own transfer code sees instead of their plain handler.
  *
- * <p>Rules (one instance per transfer call, never stored anywhere):
+ * <p>Rules (one instance per call, never stored anywhere):
  * <ul>
  *   <li>their occupied slot =&gt; their stack, unchanged, and writes to it go back to them;</li>
- *   <li>their EMPTY item slot that we lent =&gt; a COPY of a cache stack (count clipped to the cache and to
- *       the item's stack size) - their container is never touched;</li>
- *   <li>write-back on a lent slot =&gt; how much they really took is debited from our cache, the lending ends,
- *       and nothing is written into their container;</li>
- *   <li>everything else (size, slot limit, validity, inserts) delegates to their handler.</li>
+ *   <li>their EMPTY item slot that we lent =&gt; a COPY of a cache stack, and only for a cell this call's
+ *       recipe materials accept (the material filter comes from {@link FxntContext});</li>
+ *   <li>write-back on a lent slot =&gt; the amount really taken is debited from EXACTLY that cache cell, and
+ *       nothing is written into their container;</li>
+ *   <li>everything else delegates to their handler.</li>
  * </ul>
- * Because the wrapper only ever exists as a local/argument of their method and is never serialized, a virtual
- * item cannot reach their backpack, their save file or their GUI.
- *
- * <p>It extends {@link ItemStackHandler} because every call site's declared type is that class or a
- * supertype, and it delegates to whatever handler it wraps - the LVT-confirmed type at each site is
- * {@code IItemHandlerModifiable} or {@code IItemHandler}, so the delegate is typed as {@link IItemHandler}
- * and only writes when it really is modifiable.
+ * The summary is ONE line per wrapper (and only when something was really taken), so a transfer cannot flood
+ * the log. The wrapper never escapes the call and is never serialized, so virtual items cannot reach their
+ * backpack, their save file or their GUI.
  */
 public final class CachePresentingHandler extends ItemStackHandler {
     private final IItemHandler delegate;
     private final CacheSupply supply;
-    private final List<ItemStack> available;
+    private final List<CacheSupply.Entry> entries;
     private final String owner;
     private final int first;
     private final int last;
     private final CacheBorrow borrow = new CacheBorrow();
     private int served;
+    private int debited;
+    private boolean summarised;
 
-    public CachePresentingHandler(IItemHandler delegate, CacheSupply supply, List<ItemStack> available, int first, int last, String owner) {
+    public CachePresentingHandler(IItemHandler delegate, CacheSupply supply, List<CacheSupply.Entry> entries, List<Ingredient> materials, int first, int last, String owner) {
         this.delegate = delegate;
         this.supply = supply;
-        this.available = List.copyOf(available);
+        this.entries = List.copyOf(entries);
         this.first = first;
         this.last = last;
         this.owner = owner;
-        plan();
+        plan(materials);
     }
 
-    /** Their handler when it can be written to; a read-only site simply never writes back. */
     private IItemHandlerModifiable writable() {
         return delegate instanceof IItemHandlerModifiable modifiable ? modifiable : null;
     }
 
-    /** Lend one cache stack per empty item slot; a shortage simply exposes fewer, never invents material. */
-    private void plan() {
-        var supplies = new ArrayList<CacheBorrow.Supply>();
-        for (int key = 0; key < available.size(); key++) {
-            ItemStack stack = available.get(key);
-            if (stack.isEmpty()) continue;
-            supplies.add(new CacheBorrow.Supply(key, stack.getCount(), stack.getMaxStackSize()));
+    /** Lend only cells this call's materials accept; an empty material set lends nothing (their behaviour). */
+    private void plan(List<Ingredient> materials) {
+        if (materials == null || materials.isEmpty()) {
+            CompatLog.once("no-materials", "FMP compat: degraded (no recipe materials for this call)");
+            return;
         }
-        borrow.plan(FxntCompat.emptySlots(delegate, first, last), supplies);
-        CompatLog.compat("FMP compat: exposed=" + borrow.exposed() + " cache stacks to " + owner + "; served=0 items");
+        var supplies = new ArrayList<CacheBorrow.Supply>();
+        for (int key = 0; key < entries.size(); key++) {
+            ItemStack stack = entries.get(key).stack();
+            if (stack.isEmpty()) continue;
+            if (!matches(materials, stack)) continue;
+            supplies.add(new CacheBorrow.Supply(key, entries.get(key).cell(), stack.getCount(), stack.getMaxStackSize()));
+        }
+        if (supplies.isEmpty()) return;
+        borrow.plan(FxntCompat.emptySlots(delegate, first, last), supplies, key -> true);
     }
 
-    /** The copy we present for a lent slot: never the cache stack itself, never more than it can give. */
+    private static boolean matches(List<Ingredient> materials, ItemStack stack) {
+        for (Ingredient ingredient : materials) if (ingredient != null && ingredient.test(stack)) return true;
+        return false;
+    }
+
     private ItemStack presented(int slot) {
         var lend = borrow.lend(slot);
-        if (lend == null || lend.key() < 0 || lend.key() >= available.size()) return ItemStack.EMPTY;
-        return available.get(lend.key()).copyWithCount(lend.presented());
+        if (lend == null || lend.key() < 0 || lend.key() >= entries.size()) return ItemStack.EMPTY;
+        return entries.get(lend.key()).stack().copyWithCount(lend.presented());
     }
 
-    private void settle(int slot, int remaining) {
-        account(borrow.settle(slot, remaining));
-    }
+    private void settle(int slot, int remaining) { account(borrow.settle(slot, remaining)); }
+    private void use(int slot, int amount) { account(borrow.use(slot, amount)); }
 
-    /** An extract keeps the lending for the rest, but debits exactly what left our hands. */
-    private void use(int slot, int amount) {
-        account(borrow.use(slot, amount));
-    }
-
+    /** One item really left our cache: count it, debit exactly that cell, and say it once per wrapper. */
     private void account(CacheBorrow.Settled settled) {
         if (settled == null || settled.taken() <= 0) return;
-        ItemStack source = settled.key() >= 0 && settled.key() < available.size() ? available.get(settled.key()) : ItemStack.EMPTY;
-        if (!source.isEmpty()) supply.take(source, settled.taken());
+        int removed = supply.take(settled.cell(), settled.taken());
         served += settled.taken();
-        CompatLog.compat("FMP compat: exposed=" + borrow.exposed() + " cache stacks to " + owner + "; served=" + served + " items");
+        debited += removed;
+        if (!summarised) {
+            summarised = true;
+            CompatLog.compat("FMP compat: borrow exposed=" + borrow.exposed() + " served=" + served + " debited=" + debited + " from " + owner);
+        }
     }
 
     @Override public int getSlots() { return delegate.getSlots(); }
 
     @Override public ItemStack getStackInSlot(int slot) {
         ItemStack theirs = delegate.getStackInSlot(slot);
-        if (!theirs.isEmpty()) {
-            borrow.forget(slot);            // their own item wins; nothing of ours is exposed there
-            return theirs;
-        }
+        if (!theirs.isEmpty()) { borrow.forget(slot); return theirs; }
         return presented(slot);
     }
 
     @Override public void setStackInSlot(int slot, ItemStack stack) {
         if (borrow.lend(slot) == null) {
             var writable = writable();
-            if (writable != null) writable.setStackInSlot(slot, stack);   // not ours: hand it straight back to them
+            if (writable != null) writable.setStackInSlot(slot, stack);
             return;
         }
-        settle(slot, stack.getCount());     // ours: debit what was taken, never write their container
+        settle(slot, stack.getCount());
     }
 
     @Override public ItemStack extractItem(int slot, int amount, boolean simulate) {
@@ -120,7 +122,6 @@ public final class CachePresentingHandler extends ItemStackHandler {
     }
 
     @Override public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
-        // While we present something in that slot their container stays untouched, so an insert is refused.
         if (borrow.lend(slot) != null) return stack;
         return delegate.insertItem(slot, stack, simulate);
     }
@@ -134,8 +135,8 @@ public final class CachePresentingHandler extends ItemStackHandler {
         return borrow.lend(slot) == null && delegate.isItemValid(slot, stack);
     }
 
-    /** Diagnostics only: how many slots this call lends and how many items were really served. */
     public int exposed() { return borrow.exposed(); }
     public int served() { return served; }
+    public int debited() { return debited; }
     public String owner() { return owner; }
 }
