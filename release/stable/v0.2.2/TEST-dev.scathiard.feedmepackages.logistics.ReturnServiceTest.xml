@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:30:14" hostname="BASELINE" time="0.005">
+<testsuite name="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:35:00" hostname="BASELINE" time="0.007">
   <properties/>
-  <testcase name="dispatchEvidenceDoesNotReviveAfterViewingAnotherContext()" classname="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" time="0.004"/>
+  <testcase name="dispatchEvidenceDoesNotReviveAfterViewingAnotherContext()" classname="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" time="0.006"/>
   <testcase name="dispatchEvidenceExpiresWhenTheCellConfigurationChanges()" classname="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" time="0.001"/>
   <testcase name="invalidCellConfigurationClearsPreviousDispatchEvidence()" classname="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" time="0.0"/>
   <testcase name="dispatchEvidenceSurvivesWhenDispatchRecordsTheCurrentContext()" classname="dev.scathiard.feedmepackages.logistics.ReturnServiceTest" time="0.0"/>
