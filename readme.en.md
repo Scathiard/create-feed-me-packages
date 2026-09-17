@@ -4,6 +4,8 @@ English | [简体中文](README.md)
 
 [![CurseForge](https://img.shields.io/badge/CurseForge-Download-F16436?logo=curseforge&logoColor=white)](https://www.curseforge.com/minecraft/mc-mods/create-feed-me-packages) [![Modrinth](https://img.shields.io/badge/Modrinth-Download-00AF5C?logo=modrinth&logoColor=white)](https://modrinth.com/mod/create-feed-me-packages)
 
+Downloads: [GitHub Releases](https://github.com/Scathiard/create-feed-me-packages/releases)
+
 ## About
 
 Your factory can produce building supplies automatically, but you still have to run home to collect them. **Create: Feed Me Packages!** is about saving that trip.

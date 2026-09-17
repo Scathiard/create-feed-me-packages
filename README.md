@@ -4,6 +4,8 @@
 
 [![CurseForge](https://img.shields.io/badge/CurseForge-%E4%B8%8B%E8%BD%BD-F16436?logo=curseforge&logoColor=white)](https://www.curseforge.com/minecraft/mc-mods/create-feed-me-packages) [![Modrinth](https://img.shields.io/badge/Modrinth-%E4%B8%8B%E8%BD%BD-00AF5C?logo=modrinth&logoColor=white)](https://modrinth.com/mod/create-feed-me-packages)
 
+下载：[GitHub Releases](https://github.com/Scathiard/create-feed-me-packages/releases)
+
 ## 项目介绍
 
 工厂已经能自动生产建材了，出门盖房子却还得一趟趟回去搬。**机械动力：喂我发包！** 想省掉的就是这段路。
