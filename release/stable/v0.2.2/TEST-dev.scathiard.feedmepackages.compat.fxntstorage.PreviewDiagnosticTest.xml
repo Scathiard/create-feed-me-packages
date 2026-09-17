@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnosticTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:53:15" hostname="BASELINE" time="0.004">
+<testsuite name="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnosticTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:56:56" hostname="BASELINE" time="0.003">
   <properties/>
   <testcase name="aChangedReadingAlwaysPrints()" classname="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnosticTest" time="0.001"/>
   <testcase name="anIdenticalReadingIsThrottledButNotSilenced()" classname="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnosticTest" time="0.0"/>
