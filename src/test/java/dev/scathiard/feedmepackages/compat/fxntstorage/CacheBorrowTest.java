@@ -53,6 +53,19 @@ class CacheBorrowTest {
         }
     }
 
+    @Test void aReservedAmountIsNeverLentSoBothSidesShareOneCeiling() {
+        // F-5: the server ceiling is amount - reserved; the client used to add its own reservations back and
+        // was therefore more optimistic. With both sides fed that same free amount the presented value agrees.
+        int free = 64 - 10;
+        var supplies = List.of(supply(0, 0, free, 64));
+        var client = new CacheBorrow();
+        var server = new CacheBorrow();
+        client.plan(List.of(0), supplies, ANY);
+        server.plan(List.of(0), supplies, ANY);
+        assertEquals(54, client.lend(0).presented(), "a reserved amount must not be lent");
+        assertEquals(client.lend(0).presented(), server.lend(0).presented(), "both sides must share one ceiling");
+    }
+
     @Test void aSupplyShortageExposesFewerSlots() {
         var borrow = new CacheBorrow();
         borrow.plan(List.of(0, 1, 2, 3), List.of(supply(0, 0, 64, 64)), ANY);

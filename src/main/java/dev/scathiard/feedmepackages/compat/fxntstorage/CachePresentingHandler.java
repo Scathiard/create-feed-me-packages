@@ -92,7 +92,9 @@ public final class CachePresentingHandler extends ItemStackHandler {
         int removed = supply.take(settled.cell(), settled.taken());
         served += settled.taken();
         debited += removed;
-        CompatLog.compat("FMP compat: borrow side=" + supply.side() + " exposed=" + borrow.exposed() + " served=" + served + " debited=" + debited + " from " + owner);
+        String item = settled.key() >= 0 && settled.key() < entries.size() ? entries.get(settled.key()).stack().getItem().toString() : "?";
+        CompatLog.compat("FMP compat: borrow side=" + supply.side() + " cell=" + settled.cell() + " item=" + item
+                + " amount=" + settled.taken() + " exposed=" + borrow.exposed() + " served=" + served + " debited=" + debited + " from " + owner);
     }
 
     @Override public int getSlots() { return delegate.getSlots(); }

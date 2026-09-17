@@ -14,7 +14,9 @@ final class ClientCacheSupply implements CacheSupply {
     @Override public List<Entry> available() {
         var entries = new ArrayList<Entry>();
         if (!ClientMaterials.active()) return entries;
-        var stacks = ClientMaterials.craftingStacks();
+        // F-5: the SERVER-side ceiling is amount - reserved, so the client must not add its own reservations
+        // back (craftingStacks() did, which made the preview more optimistic than the server).
+        var stacks = ClientMaterials.stacks();
         for (int index = 0; index < stacks.size(); index++) entries.add(new Entry(index, stacks.get(index)));
         return entries;
     }

@@ -3,6 +3,7 @@ package dev.scathiard.feedmepackages.compat.fxntstorage.mixin;
 import dev.scathiard.feedmepackages.compat.fxntstorage.CompatLog;
 import dev.scathiard.feedmepackages.compat.fxntstorage.FxntCompat;
 import dev.scathiard.feedmepackages.compat.fxntstorage.FxntContext;
+import dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnostic;
 import mezz.jei.api.gui.ingredient.IRecipeSlotsView;
 import mezz.jei.api.recipe.transfer.IRecipeTransferError;
 import net.minecraft.world.entity.player.Player;
@@ -30,7 +31,10 @@ public abstract class JeiCraftingTransferHandlerMixin {
     @Inject(method = "transferRecipe", at = @At("HEAD"))
     private void fmp$recordRecipeMaterials(CraftingMenu menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots,
                                            Player player, boolean maximum, boolean perform, CallbackInfoReturnable<IRecipeTransferError> info) {
-        if (recipe != null && recipe.value() != null) FxntContext.materials(recipe.value().getIngredients());
+        if (recipe != null && recipe.value() != null) {
+            FxntContext.materials(recipe.value().getIngredients());
+            PreviewDiagnostic.report(player, recipe);
+        }
     }
 
     @ModifyVariable(method = "transferRecipe", at = @At("STORE"), ordinal = 0)
