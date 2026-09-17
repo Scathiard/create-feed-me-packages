@@ -1,2 +1,2 @@
-335f0efb98906a0723ccf4a16b1a77d4fe9198aeaaa602722b0291a1c803fdb6  create-feed-me-packages-0.2.2.jar
-32718ccf1a5b2b94221e2f6c6ea33ab9596b5db088fb2b5b4db824e67f98cb9d  v0.2.2-source.zip
+9bc8d79e44e520c89d109730ed81a1b823de58a2d819fc5b84334358f57783ec  create-feed-me-packages-0.2.2.jar
+bc7195b73f96906adfdbc0ee5a32ea509707d19dd5743baf4268909b36019ae7  v0.2.2-source.zip
