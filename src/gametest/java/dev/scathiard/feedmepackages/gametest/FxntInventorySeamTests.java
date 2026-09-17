@@ -45,7 +45,7 @@ public final class FxntInventorySeamTests {
 
         var supply = new ServerCacheSupply(player);
         var seam = new CachePresentingInventory(player, supply, supply.available(),
-                List.of(Ingredient.of(Items.GOLD_INGOT)), "inventory-seam-test");
+                List.of(Ingredient.of(Items.GOLD_INGOT)), "inventory-seam-test", false);
 
         // No identity matching anywhere: the owner IS the vanilla parameter we wrapped.
         helper.assertTrue(seam.owner() == player, "the seam must carry the player it was handed: " + seam.owner());

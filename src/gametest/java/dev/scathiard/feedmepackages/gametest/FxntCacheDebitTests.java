@@ -13,7 +13,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
-import net.neoforged.neoforge.items.ItemStackHandler;
+
 import net.minecraft.world.item.crafting.Ingredient;
 
 import java.util.List;
@@ -53,20 +53,21 @@ public final class FxntCacheDebitTests {
         int capped = supply.take(0, 1000);
         helper.assertTrue(capped == 59 && stock(player, 0) == 0, "taking more than the cell holds must stop at what is there: " + capped);
 
-        // F-4 gate, in-process: a wrapper fed by the REAL server cache must debit the ledger and say which
-        // side it used (single player used to pick the client view here, and the debit then vanished).
-        seed(player, 2, new ItemStack(Items.GOLD_INGOT), 64);
+        // F-6 gate, in-process: the seam is the vanilla Inventory parameter itself, so there is no identity to
+        // match and a write-back must debit the real ledger.
+        seed(player, 3, new ItemStack(Items.DIAMOND), 64);
         var real = new ServerCacheSupply(player);
         helper.assertTrue(real.side().equals("server-cache"), "the server-side view must announce itself: " + real.side());
-        var theirs = new ItemStackHandler(9);
-        var wrapper = new dev.scathiard.feedmepackages.compat.fxntstorage.CachePresentingHandler(
-                theirs, real, real.available(), List.of(Ingredient.of(Items.GOLD_INGOT)), 0, 9, "debit-test");
-        helper.assertTrue(wrapper.getStackInSlot(0).is(Items.GOLD_INGOT) && wrapper.exposed() == 1, "the accepted cell must be lent");
-        int presented = wrapper.getStackInSlot(0).getCount();
-        wrapper.setStackInSlot(0, ItemStack.EMPTY);
-        helper.assertTrue(wrapper.served() == presented && wrapper.debited() == presented,
-                "a full take must serve and debit the same amount: " + wrapper.served() + "/" + wrapper.debited());
-        helper.assertTrue(stock(player, 2) == 64 - presented, "the ledger cell must lose exactly what was taken: " + stock(player, 2));
-        helper.succeed();
+        var seam = new dev.scathiard.feedmepackages.compat.fxntstorage.CachePresentingInventory(
+                player, real, real.available(), List.of(Ingredient.of(Items.DIAMOND)), "debit-seam-test", false);
+        helper.assertTrue(seam.owner() == player, "the owner is the inventory parameter itself");
+        int lent = -1;
+        for (int index = 0; index < seam.getContainerSize() && lent < 0; index++) if (seam.getItem(index).is(Items.DIAMOND)) lent = index;
+        helper.assertTrue(lent >= 0, "the accepted cell must be presented");
+        int presented = seam.getItem(lent).getCount();
+        seam.setItem(lent, ItemStack.EMPTY);
+        helper.assertTrue(seam.served() == presented && seam.debited() == presented,
+                "a full take must serve and debit the same amount: " + seam.served() + "/" + seam.debited());
+        helper.assertTrue(stock(player, 3) == 64 - presented, "the ledger cell must lose exactly what was taken: " + stock(player, 3));        helper.succeed();
     }
 }
