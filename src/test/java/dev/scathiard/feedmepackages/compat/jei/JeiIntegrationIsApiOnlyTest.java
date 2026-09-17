@@ -119,6 +119,13 @@ class JeiIntegrationIsApiOnlyTest {
         assertFalse(resync.contains("CuriosApi"), "F-8 revert: CuriosApi must not be referenced");
         assertTrue(resync.contains("broadcastChanges"), "the menu broadcast must stay (F-7 behaviour)");
     }
+    @Test void theContainerProbeReloadsThroughTheirApiAndNeverRewritesSlots() {
+        String probe = classBytes("/dev/scathiard/feedmepackages/compat/fxntstorage/FxntContainerProbe.class");
+        assertNotNull(probe, "the container probe must be compiled");
+        assertFalse(probe.contains("setStackInSlot"), "the probe must never write a slot (F-8 prohibition)");
+        assertTrue(probe.contains("loadItemsFromStack"), "the refresh must use THEIR own reload method");
+        assertTrue(probe.contains("fresh"), "the freshness evidence line must exist");
+    }
     @Test void ourOwnMixinConfigNeverTargetsJei() {
         String ours = resource("/create_feed_me_packages.mixins.json");
         assertNotNull(ours, "our mixin config must be on the classpath");
