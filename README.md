@@ -4,8 +4,6 @@ English | [简体中文](readme.zh.md)
 
 [![CurseForge](https://img.shields.io/badge/CurseForge-Download-F16436?logo=curseforge&logoColor=white)](https://www.curseforge.com/minecraft/mc-mods/create-feed-me-packages) [![Modrinth](https://img.shields.io/badge/Modrinth-Download-00AF5C?logo=modrinth&logoColor=white)](https://modrinth.com/mod/create-feed-me-packages)
 
-**Current version: 0.2.2** · [Release notes](https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.2)
-
 ## About
 
 Your factory can produce building supplies automatically, but you still have to run home to collect them. **Create: Feed Me Packages!** is about saving that trip.
@@ -13,21 +11,6 @@ Your factory can produce building supplies automatically, but you still have to 
 Wear a Supply Chain Pendant, connect it to your factory's logistics network, and choose what to keep stocked. As you use supplies, the pendant requests replacements. Your packagers box them up, paper planes or robo-bees bring them over, and the contents go into a cache beside your inventory. You can also draw from it to craft what you need on the spot.
 
 The idea comes from personal logistics in *Dyson Sphere Program*. Here, we want keeping yourself supplied to be another job for the Create factory you've built. The mod runs on **Minecraft 1.21.1 / NeoForge** and requires **Create** and **Curios**.
-
-## What's new in 0.2.2
-
-- **Works with Create: Storage.** With it installed, crafting can take materials from both sides at the same time.
-- **Fixed:** a cache cell holding more than one stack (say 65 iron ingots) could not take part in crafting; it now works up to the normal stack size.
-
-## Installation
-
-Put the jar in `mods/`. Needs **Minecraft 1.21.1**, **NeoForge 21.1.219+**, **Create 6.0.10** (the 6.0 line) and **Curios 9.5.1+**. **JEI is optional** — install it if you want the recipe-transfer "+" entry.
-
-## Known issue
-
-With Create: Storage installed, when items from its worn backpack take part in crafting and run out, JEI's state does not refresh — open its backpack screen again. **This is not this mod's problem, please do not file an issue for it.**
-
-Create: Storage 1.1.x is not supported yet (verified on 1.3.4 only).
 
 ## Where it helps
 
@@ -92,9 +75,10 @@ Your inventory is used first, and the cache supplies the shortfall. Support incl
 | Mod | Requirement | Integration |
 | --- | --- | --- |
 | **Create** | Required | Supplies the goods. The pendant binds to a logistics network, checks stock, and requests materials for your packagers to box up. Sequenced assembly also produces Upgrade Links. |
-| **Curios** | Required | Provides the equipment slot for the pendant. |
+| **Curios API** | Required | Provides the equipment slot for the pendant. |
 | **JEI** | Optional | View recipes and transfer ingredients, drawing missing materials from the cache. Dragging JEI item templates into cache filters isn't supported. |
-| **Package Couriers** | Optional | Uses its existing paper-plane delivery to bring restocking packages to you, ready for this mod to receive into the cache. |
+| **Create More: Package Couriers** | Optional | Uses its existing paper-plane delivery to bring restocking packages to you, ready for this mod to receive into the cache. |
 | **Create: Mobile Packages** | Optional | Uses its existing robo-bee delivery to bring packages over, with their contents received into the cache on arrival. |
+| **Create: Storage** | Optional | With its backpack worn, crafting can draw from both inventories at the same time. |
 
-Your factory needs stock, and the packages need a way to reach you. Paper planes and robo-bees still need their own infrastructure, addresses, and delivery conditions. The pendant won't build those for you or teleport materials out of storage. Without these optional mods, you can still use the cache and core features, and receive dedicated restocking packages obtained through other means.
+Your factory needs stock, and the packages need a way to reach you. Paper planes and robo-bees still need their own infrastructure, addresses, and delivery conditions. The pendant won't build those for you or teleport materials out of storage. Without these optional mods, you can still use the cache and core features, and receive dedicated restocking packages obtained through other means. Or maybe you'd like to consider becoming a courier yourself?
