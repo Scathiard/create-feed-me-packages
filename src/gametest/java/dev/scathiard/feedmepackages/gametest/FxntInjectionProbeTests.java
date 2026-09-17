@@ -6,6 +6,13 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.inventory.ContainerLevelAccess;
+import net.minecraft.world.inventory.CraftingMenu;
+import net.minecraft.world.level.block.Blocks;
+import dev.scathiard.feedmepackages.item.ItemVariantKey;
+import dev.scathiard.feedmepackages.service.AccessGate;
+import dev.scathiard.feedmepackages.storage.CacheLedger;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.Items;
 import net.neoforged.fml.ModList;
@@ -37,7 +44,15 @@ public final class FxntInjectionProbeTests {
             helper.succeed();
             return;
         }
-        var player = TestPlayers.create(helper, net.minecraft.world.item.ItemStack.EMPTY);
+        var player = TestPlayers.create(helper, dev.scathiard.feedmepackages.registry.FmpRegistries.PENDANT.toStack());
+        // Real crafting menu (their placement writes into these slots) and a matching cache cell to debit.
+        var relative = new BlockPos(1, 1, 1); helper.setBlock(relative, Blocks.CRAFTING_TABLE);
+        player.containerMenu = new CraftingMenu(37, player.getInventory(), ContainerLevelAccess.create(helper.getLevel(), helper.absolutePos(relative)));
+        var handle = AccessGate.resolve(player).handle(); var ledger = CacheLedger.get(player.getServer()); var record = ledger.find(handle.cacheId());
+        var edit = record.state().edit(); var stone = new net.minecraft.world.item.ItemStack(Items.STONE);
+        var key = ItemVariantKey.of(stone, player.registryAccess()); edit.filter(0, key); edit.insert(0, key, 8);
+        ledger.replace(handle, record.state().revision(), record.withState(edit.finish()));
+        int stoneBefore = record.state().cells().get(0).amount() + 8;
         var packetClass = Class.forName("net.fxnt.fxntstorage.network.packet.TransferRecipePacket");
         var packet = packetClass.getDeclaredConstructor(ResourceLocation.class, List.class, boolean.class, int.class)
                 .newInstance(ResourceLocation.withDefaultNamespace("oak_planks"), List.of(), false, 0);
@@ -59,7 +74,9 @@ public final class FxntInjectionProbeTests {
         helper.assertTrue(CompatLog.hasLogged("hooked:getMaxCraftableItems"),
                 "our IItemHandler hook never fired - the injection point does not match their LVT");
         helper.assertTrue(CompatLog.hasLogged("hooked:collectAndPlace"),
-                "our IItemHandlerModifiable hook never fired - the injection point does not match their LVT");
+                "our Inventory hook never fired - the injection point does not match their method");
+        int after = CacheLedger.get(player.getServer()).find(handle.cacheId()).state().cells().get(0).amount();
+        FeedMePackages.LOGGER.info("FMP compat probe: their collectAndPlace ran; cache cell 0 {} -> {} (before={})", stoneBefore, after, stoneBefore);
         helper.succeed();
     }
 }

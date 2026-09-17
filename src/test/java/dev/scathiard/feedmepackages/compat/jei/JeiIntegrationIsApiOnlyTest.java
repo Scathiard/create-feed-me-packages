@@ -75,6 +75,42 @@ class JeiIntegrationIsApiOnlyTest {
         assertNull(resource("/dev/scathiard/feedmepackages/compat/fxntstorage/CachePresentingHandler.class"), "the old ItemStackHandler seam must be gone");
         assertNull(resource("/dev/scathiard/feedmepackages/compat/fxntstorage/SideSelect.class"), "the dist-based side selection must be gone");
     }
+    @Test void theRemovedTakeoverLayerStaysGone() {
+        assertNull(resource("/fmp_jei_takeover.mixins.json"), "the JEI takeover config must not ship");
+        assertFalse(resource("/META-INF/neoforge.mods.toml").contains("fmp_jei_takeover"), "no takeover mixin config may be referenced");
+        assertNull(resource("/dev/scathiard/feedmepackages/compat/jei/takeover/TakeoverRecipeTransferManagerMixin.class"), "no takeover mixin may be compiled");
+    }
+
+    @Test void theRemovedJeiHelperLayerStaysGone() {
+        for (String gone : List.of("/dev/scathiard/feedmepackages/compat/jei/FmpRecipeTransfer.class",
+                "/dev/scathiard/feedmepackages/compat/jei/PreviewPolicy.class",
+                "/dev/scathiard/feedmepackages/client/ClientNotice.class",
+                "/dev/scathiard/feedmepackages/client/NoticeText.class")) {
+            assertNull(resource(gone), gone + " must stay gone");
+        }
+        String plugin = classBytes("/dev/scathiard/feedmepackages/compat/jei/FmpJeiPlugin.class");
+        assertNotNull(plugin);
+        assertFalse(plugin.contains("registerRecipeTransferHandlers"), "the plugin must not register transfer handlers");
+        assertFalse(plugin.contains("mezz/jei/api/recipe/transfer"), "the plugin must not touch JEI's transfer API");
+    }
+
+    @Test void theSentencesWrittenForJeiStayGone() {
+        for (String lang : List.of("/assets/create_feed_me_packages/lang/zh_cn.json", "/assets/create_feed_me_packages/lang/en_us.json")) {
+            String text = resource(lang);
+            assertNotNull(text, lang);
+            assertFalse(text.contains("missing_entry"), lang);
+            assertFalse(text.contains("missing_detail"), lang);
+            assertFalse(text.contains("missing_scope"), lang);
+            assertTrue(text.contains("result.panel_not_ready"), "the panel's own messages must stay: " + lang);
+        }
+    }
+
+    @Test void theSeamIsTheVanillaInventoryAndNothingElse() {
+        // F-6: the one seam is a subclass of the vanilla Inventory the call carries; the old handler seam is gone.
+        assertNotNull(resource("/dev/scathiard/feedmepackages/compat/fxntstorage/CachePresentingInventory.class"), "the Inventory seam must ship");
+        assertNull(resource("/dev/scathiard/feedmepackages/compat/fxntstorage/CachePresentingHandler.class"), "the old handler seam must be gone");
+        assertNull(resource("/net/fxnt/fxntstorage/backpack/main/IBackpackContainer.class"), "no third-party classes may be shipped");
+    }
     @Test void ourOwnMixinConfigNeverTargetsJei() {
         String ours = resource("/create_feed_me_packages.mixins.json");
         assertNotNull(ours, "our mixin config must be on the classpath");

@@ -7,6 +7,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.neoforged.neoforge.items.IItemHandler;
+import net.neoforged.neoforge.items.IItemHandlerModifiable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
@@ -28,7 +29,7 @@ import java.util.List;
 public abstract class TransferRecipePacketMixin {
     @Inject(method = "collectAndPlace", at = @At("HEAD"))
     private void fmp$recordIngredient(Ingredient ingredient, int placed, int index, Inventory inventory,
-                                      Object handler, List<Slot> slots, CallbackInfoReturnable<Boolean> info) {
+                                      IItemHandlerModifiable handler, List<Slot> slots, CallbackInfoReturnable<Boolean> info) {
         FxntContext.materials(ingredient == null ? List.of() : List.of(ingredient));
     }
 
@@ -40,7 +41,7 @@ public abstract class TransferRecipePacketMixin {
 
     @Inject(method = "collectAndPlace", at = @At("RETURN"))
     private void fmp$clearIngredient(Ingredient ingredient, int placed, int index, Inventory inventory,
-                                     Object handler, List<Slot> slots, CallbackInfoReturnable<Boolean> info) {
+                                     IItemHandlerModifiable handler, List<Slot> slots, CallbackInfoReturnable<Boolean> info) {
         FxntContext.clear();
     }
 
