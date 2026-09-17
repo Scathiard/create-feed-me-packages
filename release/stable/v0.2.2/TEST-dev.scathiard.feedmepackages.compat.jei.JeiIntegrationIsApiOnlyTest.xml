@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:43:12" hostname="BASELINE" time="0.024">
+<testsuite name="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:53:15" hostname="BASELINE" time="0.027">
   <properties/>
-  <testcase name="theModCarriesOnlyItsOwnMixinConfigs()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.002"/>
+  <testcase name="theContainerProbeReloadsThroughTheirApiAndNeverRewritesSlots()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.008"/>
+  <testcase name="theModCarriesOnlyItsOwnMixinConfigs()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.001"/>
   <testcase name="theRemovedJeiHelperLayerStaysGone()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.001"/>
   <testcase name="theResyncNeverRewritesAnotherContainer()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.001"/>
-  <testcase name="ourOwnMixinConfigNeverTargetsJei()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.002"/>
+  <testcase name="ourOwnMixinConfigNeverTargetsJei()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.0"/>
   <testcase name="theRemovedTakeoverLayerStaysGone()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.001"/>
-  <testcase name="theCreateStorageCompatIsSoftAndNeverTouchesJei()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.005"/>
-  <testcase name="theSeamIsTheVanillaInventoryAndNothingElse()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.009"/>
+  <testcase name="theCreateStorageCompatIsSoftAndNeverTouchesJei()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.01"/>
+  <testcase name="theSeamIsTheVanillaInventoryAndNothingElse()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.001"/>
   <testcase name="theSentencesWrittenForJeiStayGone()" classname="dev.scathiard.feedmepackages.compat.jei.JeiIntegrationIsApiOnlyTest" time="0.002"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>

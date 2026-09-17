@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="dev.scathiard.feedmepackages.client.PanelLayoutTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:43:12" hostname="BASELINE" time="0.066">
+<testsuite name="dev.scathiard.feedmepackages.client.PanelLayoutTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T10:53:15" hostname="BASELINE" time="0.066">
   <properties/>
-  <testcase name="sliderStaysCenteredBelowItsCellAcrossRowsColumnsAndScrolling()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.018"/>
+  <testcase name="sliderStaysCenteredBelowItsCellAcrossRowsColumnsAndScrolling()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.017"/>
   <testcase name="expandedSliderAndRecipeBookUseSeparateSpace()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.001"/>
   <testcase name="sliderEndpointValuesMapToThePaintedTrackPixels()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.001"/>
-  <testcase name="bottomRowPopupTakesInputBeforeTheReturnAddress()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.001"/>
-  <testcase name="slotSourceRetainsTheCompleteOpaqueCellEvenWithoutPanelReferenceArea()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.032"/>
+  <testcase name="bottomRowPopupTakesInputBeforeTheReturnAddress()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.0"/>
+  <testcase name="slotSourceRetainsTheCompleteOpaqueCellEvenWithoutPanelReferenceArea()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.034"/>
   <testcase name="visibleSliderArtworkIsCenteredAndStartsJustBelowTheCell()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.001"/>
   <testcase name="sliderMidpointPixelMapsToMidpointValue()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.0"/>
-  <testcase name="everyUnlockedCellCanBeReachedWithoutShrinkingOrOverlap()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.008"/>
+  <testcase name="everyUnlockedCellCanBeReachedWithoutShrinkingOrOverlap()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.009"/>
   <system-out><![CDATA[]]></system-out>
   <system-err><![CDATA[]]></system-err>
 </testsuite>
