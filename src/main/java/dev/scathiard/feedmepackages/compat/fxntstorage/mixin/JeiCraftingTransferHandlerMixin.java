@@ -44,6 +44,12 @@ public abstract class JeiCraftingTransferHandlerMixin {
     @Inject(method = "transferRecipe", at = @At("RETURN"))
     private void fmp$clearRecipeMaterials(CraftingMenu menu, RecipeHolder<CraftingRecipe> recipe, IRecipeSlotsView slots,
                                           Player player, boolean maximum, boolean perform, CallbackInfoReturnable<IRecipeTransferError> info) {
+        var verdict = info.getReturnValue();
+        int missing = 0;
+        try {
+            for (var ingredient : recipe.value().getIngredients()) if (!dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnostic.covered(player, ingredient)) missing++;
+        } catch (Throwable ignored) { }
+        CompatLog.compat(dev.scathiard.feedmepackages.compat.fxntstorage.PreviewDiagnostic.verdictLine(verdict == null ? null : verdict.getType().name(), missing));
         FxntContext.clear();
     }
 }

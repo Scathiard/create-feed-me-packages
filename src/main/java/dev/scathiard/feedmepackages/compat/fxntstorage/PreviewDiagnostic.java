@@ -48,6 +48,11 @@ public final class PreviewDiagnostic {
         }
     }
 
+    /** F-8: one line that says what THEIR preview answered (read-only observation; never a decision). */
+    public static String verdictLine(String typeOrNull, int missing) {
+        return "FMP compat: their preview returned=" + (typeOrNull == null ? "null" : typeOrNull) + " missing=" + Math.max(0, missing);
+    }
+
     /** Pure: a changed content always prints; identical content is throttled to once every two seconds. */
     static boolean shouldPrint(String line, long now, String previous, long previousAt) {
         if (previous == null || !previous.equals(line)) return true;
@@ -60,6 +65,18 @@ public final class PreviewDiagnostic {
             return items.length == 0 ? "?" : items[0].getItem().toString();
         } catch (Throwable missing) {
             return "?";
+        }
+    }
+    /** True when the player inventory, their worn backpack or our lent cache can cover the ingredient. */
+    public static boolean covered(Player player, Ingredient ingredient) {
+        try {
+            for (ItemStack stack : player.getInventory().items) if (ingredient.test(stack)) return true;
+            var worn = FxntBackpack.handlerOf(player);
+            if (worn != null) for (int index = 0; index < worn.getSlots(); index++) if (ingredient.test(worn.getStackInSlot(index))) return true;
+            for (var entry : new ClientCacheSupply().available()) if (ingredient.test(entry.stack())) return true;
+            return false;
+        } catch (Throwable unavailable) {
+            return true;   // cannot tell: never claim something is missing
         }
     }
 }
