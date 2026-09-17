@@ -35,7 +35,6 @@ public final class CachePresentingHandler extends ItemStackHandler {
     private final CacheBorrow borrow = new CacheBorrow();
     private int served;
     private int debited;
-    private boolean summarised;
 
     public CachePresentingHandler(IItemHandler delegate, CacheSupply supply, List<CacheSupply.Entry> entries, List<Ingredient> materials, int first, int last, String owner) {
         this.delegate = delegate;
@@ -83,15 +82,17 @@ public final class CachePresentingHandler extends ItemStackHandler {
     private void use(int slot, int amount) { account(borrow.use(slot, amount)); }
 
     /** One item really left our cache: count it, debit exactly that cell, and say it once per wrapper. */
+    /**
+     * One item left our hands: count what we served and what the cache really lost, and say BOTH - a summary
+     * that only showed the first take (served=3 debited=0) is what hid the F-4 bug. The line is per take, i.e.
+     * per recipe material, so a transfer cannot flood the log.
+     */
     private void account(CacheBorrow.Settled settled) {
         if (settled == null || settled.taken() <= 0) return;
         int removed = supply.take(settled.cell(), settled.taken());
         served += settled.taken();
         debited += removed;
-        if (!summarised) {
-            summarised = true;
-            CompatLog.compat("FMP compat: borrow exposed=" + borrow.exposed() + " served=" + served + " debited=" + debited + " from " + owner);
-        }
+        CompatLog.compat("FMP compat: borrow side=" + supply.side() + " exposed=" + borrow.exposed() + " served=" + served + " debited=" + debited + " from " + owner);
     }
 
     @Override public int getSlots() { return delegate.getSlots(); }

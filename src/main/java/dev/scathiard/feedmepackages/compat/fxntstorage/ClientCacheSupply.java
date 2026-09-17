@@ -6,8 +6,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Client side: the cache is only a view (the MaterialHints snapshot), so nothing is ever written from here -
- * the server owns the cache and debits it. Loaded on the client only (the helper picks the side first).
+ * Client side: the cache is only a view (the MaterialHints snapshot). It must never be the side that serves a
+ * server-side placement - if a debit reaches here it says so loudly, because that is exactly the F-4 failure
+ * (single player: dist is CLIENT, so the side used to be picked wrongly and nothing was ever debited).
  */
 final class ClientCacheSupply implements CacheSupply {
     @Override public List<Entry> available() {
@@ -18,7 +19,7 @@ final class ClientCacheSupply implements CacheSupply {
         return entries;
     }
     @Override public int take(int cell, int count) {
-        // Deliberately nothing removed: a client-side write-back is a preview artefact, not a real removal.
+        CompatLog.once("debit-refused:client", "FMP compat: debit refused (client view cannot write; server side not selected)");
         return 0;
     }
     @Override public String side() { return "client-view"; }

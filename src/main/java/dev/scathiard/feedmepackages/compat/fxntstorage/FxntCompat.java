@@ -66,15 +66,27 @@ public final class FxntCompat {
         }
     }
 
-    /** The cache view of the side we are on: the client's hints, or the server cache of the handler's owner. */
+    /**
+     * The cache view of the side this call may use. The choice is {@link SideSelect}'s pure rule: a handler
+     * belonging to one of our server players is served from the server cache, and the server cache is only
+     * touched on the server thread - in single player dist is CLIENT, so dist alone must never decide this.
+     */
     private static CacheSupply supplyFor(IItemHandler original) {
-        if (FMLEnvironment.dist.isClient()) return new ClientCacheSupply();
+        boolean distIsClient = FMLEnvironment.dist.isClient();
         var server = ServerLifecycleHooks.getCurrentServer();
-        if (server == null) return null;
-        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            if (FxntBackpack.handlerOf(player) == original) return new ServerCacheSupply(player);
+        boolean onServerThread = server != null && server.isSameThread();
+        ServerPlayer owner = null;
+        if (server != null) {
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                if (FxntBackpack.handlerOf(player) == original) { owner = player; break; }
+            }
         }
-        return null;
+        var side = SideSelect.choose(distIsClient, onServerThread, owner != null);
+        if (side == SideSelect.Side.SERVER_CACHE) {
+            if (owner == null) return null;                       // cannot happen by rule; never fall back to the view
+            return new ServerCacheSupply(owner);
+        }
+        return new ClientCacheSupply();
     }
 
     /** Their item slots as [first, lastExclusive]; null when the shape is unknown (then we do not lend). */
