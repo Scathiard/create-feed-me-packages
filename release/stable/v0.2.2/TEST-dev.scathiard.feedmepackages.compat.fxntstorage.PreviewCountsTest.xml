@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewCountsTest" tests="4" skipped="0" failures="0" errors="0" timestamp="2026-09-17T11:08:17" hostname="BASELINE" time="0.003">
+  <properties/>
+  <testcase name="theMaterialThatIsOnlyInTheCacheIsVisiblyOnlyInTheCache()" classname="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewCountsTest" time="0.001"/>
+  <testcase name="nothingIsCountedForAnEmptySource()" classname="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewCountsTest" time="0.001"/>
+  <testcase name="anAmountFunctionIsHonoured()" classname="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewCountsTest" time="0.0"/>
+  <testcase name="eachSourceIsCountedOnItsOwn()" classname="dev.scathiard.feedmepackages.compat.fxntstorage.PreviewCountsTest" time="0.0"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

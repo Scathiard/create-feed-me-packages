@@ -120,10 +120,11 @@ public final class JeiClientReview {
             }
         }
         if (transferLayout == null) throw new IllegalStateException("Actual JEI recipe layout was not found");
-        var handler = runtime.getRecipeTransferManager().getRecipeTransferHandler(mc.player.containerMenu, transferLayout.getRecipeCategory()).orElseThrow();
-        if (!handler.getClass().getName().endsWith("FmpRecipeTransfer")) throw new IllegalStateException("JEI registered the wrong transfer handler");
-        for (int i = 0; i < 3; i++) if (handler.transferRecipe(mc.player.containerMenu, transferLayout.getRecipe(), transferLayout.getRecipeSlotsView(), mc.player, false, false) != null)
-            throw new IllegalStateException("JEI transfer preview rejected the available ingredient");
+        // User decision 2026-09-17: this mod registers NO recipe transfer handler, so the "+" is answered by
+        // JEI itself (or by whoever owns that slot in the pack). Seeing a handler of ours here is a regression.
+        var handler = runtime.getRecipeTransferManager().getRecipeTransferHandler(mc.player.containerMenu, transferLayout.getRecipeCategory()).orElse(null);
+        if (handler != null && handler.getClass().getName().contains("feedmepackages"))
+            throw new IllegalStateException("this mod must not register a recipe transfer handler: " + handler.getClass().getName());
         var area = transferLayout.getSideButtonArea(0); var rect = transferLayout.getRect();
         transferX = area.getX() + rect.getX() + area.getWidth() / 2;
         transferY = area.getY() + rect.getY() + area.getHeight() / 2;

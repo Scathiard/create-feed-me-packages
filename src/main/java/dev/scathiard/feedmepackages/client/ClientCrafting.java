@@ -10,7 +10,7 @@ import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import java.util.*;
 
-/** Shared exact client preview for the vanilla book and optional recipe viewers; never a mutation. */
+/** Shared exact client preview for the vanilla recipe book; never a mutation. */
 public final class ClientCrafting {
     private ClientCrafting() {}
     public static CraftingService.Result check(Player player, RecipeHolder<CraftingRecipe> recipe, boolean maximum, boolean incrementExisting) {

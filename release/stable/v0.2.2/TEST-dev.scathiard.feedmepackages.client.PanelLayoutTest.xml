@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="dev.scathiard.feedmepackages.client.PanelLayoutTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-09-17T11:08:16" hostname="BASELINE" time="0.062">
+  <properties/>
+  <testcase name="sliderStaysCenteredBelowItsCellAcrossRowsColumnsAndScrolling()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.017"/>
+  <testcase name="expandedSliderAndRecipeBookUseSeparateSpace()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.002"/>
+  <testcase name="sliderEndpointValuesMapToThePaintedTrackPixels()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.001"/>
+  <testcase name="bottomRowPopupTakesInputBeforeTheReturnAddress()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.0"/>
+  <testcase name="slotSourceRetainsTheCompleteOpaqueCellEvenWithoutPanelReferenceArea()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.029"/>
+  <testcase name="visibleSliderArtworkIsCenteredAndStartsJustBelowTheCell()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.001"/>
+  <testcase name="sliderMidpointPixelMapsToMidpointValue()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.0"/>
+  <testcase name="everyUnlockedCellCanBeReachedWithoutShrinkingOrOverlap()" classname="dev.scathiard.feedmepackages.client.PanelLayoutTest" time="0.008"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

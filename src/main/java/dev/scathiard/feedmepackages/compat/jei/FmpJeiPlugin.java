@@ -7,7 +7,6 @@ import mezz.jei.api.IModPlugin;
 import mezz.jei.api.JeiPlugin;
 import mezz.jei.api.gui.handlers.IGuiContainerHandler;
 import mezz.jei.api.registration.IGuiHandlerRegistration;
-import mezz.jei.api.registration.IRecipeTransferRegistration;
 import mezz.jei.api.registration.IVanillaCategoryExtensionRegistration;
 import mezz.jei.api.recipe.category.extensions.vanilla.smithing.ISmithingCategoryExtension;
 import mezz.jei.api.gui.builder.IIngredientAcceptor;
@@ -15,12 +14,17 @@ import mezz.jei.api.runtime.IJeiRuntime;
 import net.minecraft.client.gui.screens.inventory.*;
 import net.minecraft.client.renderer.Rect2i;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.inventory.InventoryMenu;
-import net.minecraft.world.inventory.CraftingMenu;
-import net.minecraft.world.inventory.MenuType;
 import java.util.*;
 
-/** JEI discovers this isolated plugin. No core/bootstrap class links to its optional API. */
+/**
+ * JEI discovers this isolated plugin. No core/bootstrap class links to its optional API.
+ *
+ * <p>Deliberate scope (user decision 2026-09-17): this plugin only makes JEI work WITH our own screens -
+ * the panel session and its layout exclusion area, plus showing our pendant smithing recipe. It does NOT
+ * take part in recipe transfer: no handler is registered, JEI's "+" is answered by JEI itself (or by
+ * whoever owns that slot in the pack), and our cache is reached through our own logistics panel and the
+ * vanilla recipe book.
+ */
 @JeiPlugin
 public final class FmpJeiPlugin implements IModPlugin {
     private static IJeiRuntime runtime;
@@ -50,16 +54,6 @@ public final class FmpJeiPlugin implements IModPlugin {
                 acceptor.addItemStack(recipe.getResultItem(net.minecraft.client.Minecraft.getInstance().level.registryAccess()));
             }
         });
-    }
-    @Override public void registerRecipeTransferHandlers(IRecipeTransferRegistration registration) {
-        var helper = registration.getTransferHelper();
-        registration.addRecipeTransferHandler(new FmpRecipeTransfer<>(InventoryMenu.class, null, 2, helper), mezz.jei.api.constants.RecipeTypes.CRAFTING);
-        registration.addRecipeTransferHandler(new FmpRecipeTransfer<>(CraftingMenu.class, MenuType.CRAFTING, 3, helper), mezz.jei.api.constants.RecipeTypes.CRAFTING);
-        // Proof for the log that JEI discovered this plugin and what the two handlers were registered as:
-        // CraftingMenu is constructed with MenuType.CRAFTING (verified in the merged Minecraft jar), so the
-        // 3x3 handler must match the crafting table's menu type.
-        FeedMePackages.LOGGER.info("FMP JEI transfer handlers registered: 2x2={} menuType=null width=2, 3x3={} menuType={} width=3",
-                InventoryMenu.class.getSimpleName(), CraftingMenu.class.getSimpleName(), MenuType.CRAFTING);
     }
     @Override public void registerGuiHandlers(IGuiHandlerRegistration registration) {
         register(registration, InventoryScreen.class); register(registration, CraftingScreen.class); register(registration, CreativeModeInventoryScreen.class);
