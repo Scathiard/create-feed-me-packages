@@ -70,4 +70,26 @@ public final class FxntCacheDebitTests {
                 "a full take must serve and debit the same amount: " + seam.served() + "/" + seam.debited());
         helper.assertTrue(stock(player, 3) == 64 - presented, "the ledger cell must lose exactly what was taken: " + stock(player, 3));        helper.succeed();
     }
+
+    @GameTest(template = "empty")
+    public static void aCellAboveTheStackLimitIsClampedAndNeverThrows(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
+        seed(player, 0, new ItemStack(Items.IRON_INGOT), 1000);
+        seed(player, 1, new ItemStack(Items.SNOWBALL), 1000);
+        seed(player, 2, new ItemStack(Items.WATER_BUCKET), 8);
+        var supply = new ServerCacheSupply(player);
+        var entries = supply.available();   // must not throw for any of them
+        for (var entry : entries) {
+            helper.assertTrue(entry.stack().getCount() <= entry.stack().getMaxStackSize(),
+                    "a presented stack must never exceed its native limit: " + entry.stack());
+        }
+        var present = new dev.scathiard.feedmepackages.compat.fxntstorage.CachePresentingInventory(
+                player, supply, entries, List.of(Ingredient.of(Items.IRON_INGOT), Ingredient.of(Items.SNOWBALL), Ingredient.of(Items.WATER_BUCKET)), "cap-test", false);
+        int lent = -1;
+        for (int index = 0; index < present.getContainerSize() && lent < 0; index++) if (present.getItem(index).is(Items.IRON_INGOT) || present.getItem(index).is(Items.SNOWBALL) || present.getItem(index).is(Items.WATER_BUCKET)) lent = index;
+        helper.assertTrue(lent >= 0, "at least one capped cell must be presented");
+        int shown = present.getItem(lent).getCount();
+        helper.assertTrue(shown <= present.getItem(lent).getMaxStackSize(), "presented count must respect the cap: " + shown);
+        helper.succeed();
+    }
 }

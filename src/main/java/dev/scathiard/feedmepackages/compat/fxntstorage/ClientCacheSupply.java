@@ -17,7 +17,10 @@ final class ClientCacheSupply implements CacheSupply {
         // F-5: the SERVER-side ceiling is amount - reserved, so the client must not add its own reservations
         // back (craftingStacks() did, which made the preview more optimistic than the server).
         var stacks = ClientMaterials.stacks();
-        for (int index = 0; index < stacks.size(); index++) entries.add(new Entry(index, stacks.get(index)));
+        for (int index = 0; index < stacks.size(); index++) {
+            var stack = stacks.get(index);
+            entries.add(new Entry(index, stack.copyWithCount(Math.min(stack.getCount(), stack.getMaxStackSize()))));
+        }
         return entries;
     }
     @Override public int take(int cell, int count) {

@@ -35,7 +35,15 @@ public final class ServerCacheSupply implements CacheSupply {
             if (cell.amount() <= 0 || cell.filter() == null) continue;
             int free = free(record, index);
             if (free <= 0) continue;
-            entries.add(new Entry(index, cell.filter().stack(player.registryAccess(), free)));
+            // F-9: materialising a stack ABOVE the item's native limit throws (ItemVariantKey#stack), and an
+            // escaped throw used to kill the whole supply silently. Clamp first, and never let it escape.
+            try {
+                int cap = cell.filter().stack(player.registryAccess(), 1).getMaxStackSize();
+                entries.add(new Entry(index, cell.filter().stack(player.registryAccess(), Math.min(free, cap))));
+            } catch (Throwable failed) {
+                CompatLog.once("materialize-" + failed.getClass().getName(),
+                        "FMP compat: degraded (materialize failed: {})", failed.getClass().getName());
+            }
         }
         return entries;
     }

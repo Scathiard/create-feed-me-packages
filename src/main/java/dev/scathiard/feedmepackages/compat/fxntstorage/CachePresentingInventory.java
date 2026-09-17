@@ -62,7 +62,8 @@ public final class CachePresentingInventory extends Inventory {
     private ItemStack presented(int slot) {
         var lend = borrow.lend(slot);
         if (lend == null || lend.key() < 0 || lend.key() >= entries.size()) return ItemStack.EMPTY;
-        return entries.get(lend.key()).stack().copyWithCount(lend.presented());
+        int shown = Math.min(lend.presented(), entries.get(lend.key()).stack().getMaxStackSize());
+        return entries.get(lend.key()).stack().copyWithCount(shown);
     }
 
     private void account(CacheBorrow.Settled settled) {

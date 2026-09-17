@@ -16,7 +16,9 @@ import java.util.ArrayList;
  */
 public final class PreviewDiagnostic {
     private static String lastLine;
+    private static String lastHintLine;
     private static long lastPrintedAt;
+    private static long lastHintAt;
 
     private PreviewDiagnostic() {}
 
@@ -38,6 +40,11 @@ public final class PreviewDiagnostic {
                         .append(" backpack=").append(PreviewCounts.sum(backpack, ingredient::test, ItemStack::getCount))
                         .append(" lent=").append(PreviewCounts.sum(lent, ingredient::test, ItemStack::getCount));
             }
+            var hints = dev.scathiard.feedmepackages.client.ClientMaterials.stacks();
+            int hintTotal = 0;
+            for (var stack : hints) hintTotal += stack.getCount();
+            String hintLine = "FMP compat: hints view stacks=" + hints.size() + " total=" + hintTotal + " serial=" + dev.scathiard.feedmepackages.client.ClientMaterials.version();
+            if (shouldPrint(hintLine, System.currentTimeMillis(), lastHintLine, lastHintAt)) { lastHintLine = hintLine; lastHintAt = System.currentTimeMillis(); CompatLog.compat(hintLine); }
             String line = text.toString();
             long now = System.currentTimeMillis();
             if (!shouldPrint(line, now, lastLine, lastPrintedAt)) return;   // unchanged: stay quiet

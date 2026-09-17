@@ -11,7 +11,10 @@ final class ReadOnlyCacheSupply implements CacheSupply {
         var entries = new ArrayList<Entry>();
         if (!ClientMaterials.active()) return entries;
         var stacks = ClientMaterials.stacks();
-        for (int index = 0; index < stacks.size(); index++) entries.add(new Entry(index, stacks.get(index)));
+        for (int index = 0; index < stacks.size(); index++) {
+            var stack = stacks.get(index);
+            entries.add(new Entry(index, stack.copyWithCount(Math.min(stack.getCount(), stack.getMaxStackSize()))));
+        }
         return entries;
     }
     @Override public int take(int cell, int count) {
