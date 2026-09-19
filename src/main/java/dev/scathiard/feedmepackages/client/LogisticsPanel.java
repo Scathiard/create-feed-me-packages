@@ -64,6 +64,14 @@ public final class LogisticsPanel {
     private static final ResourceLocation BUTTON_TEXTURE = ResourceLocation.fromNamespaceAndPath(
             "create_feed_me_packages", "textures/gui/button.png");
     /**
+     * The user-authored cell background. The shipped sheet is exactly this size - the crop that moved the drawn
+     * block to (0,0) - so the blit reads the whole texture at 1:1. See {@link #renderSlot}.
+     */
+    private static final ResourceLocation SLOT_TEXTURE = ResourceLocation.fromNamespaceAndPath(
+            "create_feed_me_packages", "textures/gui/slot_source.png");
+    /** Edge of the cropped slot sheet in pixels (was the 18x18 block at (101,65) of the 256x256 reference). */
+    private static final int SLOT_SIZE = 18;
+    /**
      * The layer the panel's own buttons and flat overlays live on. {@link #overlay} has always drawn here, and
      * the button sheet must use the SAME layer: the "grey square, no arrow" bug was an icon drawn at z = 0
      * underneath a face fill at {@code +BUTTON_Z}.
@@ -888,12 +896,19 @@ public final class LogisticsPanel {
         }
     }
 
+    /**
+     * The user-authored cell background. Its texture holds <b>only</b> the 18x18 slot that is actually drawn: the
+     * sheet used to be the user's full 256x256 panel reference (with its address plate and hooks) of which just
+     * the block at (101,65) was ever sampled. Cropping moved those exact 324 pixels to (0,0) and the whole sheet is
+     * now 18x18, so the blit reads the whole texture - the pixels on screen are unchanged, and the jar no longer
+     * carries 8 KB of unreachable art. The reference sheet itself is kept outside the mod
+     * ({@code 参考/slot_source-参考稿.png}).
+     */
     private static void renderSlot(GuiGraphics g, int x, int y) {
         // This user-authored slot has its own stable source; panel.png may be reorganized independently.
         com.mojang.blaze3d.systems.RenderSystem.enableBlend();
         com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
-        g.blit(ResourceLocation.fromNamespaceAndPath("create_feed_me_packages", "textures/gui/slot_source.png"),
-                x, y, 101.0f, 65.0f, 18, 18, 256, 256);
+        g.blit(SLOT_TEXTURE, x, y, 0.0f, 0.0f, SLOT_SIZE, SLOT_SIZE, SLOT_SIZE, SLOT_SIZE);
         com.mojang.blaze3d.systems.RenderSystem.disableBlend();
     }
 

@@ -131,8 +131,11 @@ class PanelLayoutTest {
             assertNotNull(source);
             var image = javax.imageio.ImageIO.read(source);
             assertNotNull(image);
+            // The sheet was cropped to the block that is actually drawn, so the drawn block now IS the whole sheet.
+            assertEquals(18, image.getWidth());
+            assertEquals(18, image.getHeight());
             Set<Integer> colors = new HashSet<>();
-            for (int y = 65; y < 83; y++) for (int x = 101; x < 119; x++) {
+            for (int y = 0; y < 18; y++) for (int x = 0; x < 18; x++) {
                 int rgba = image.getRGB(x, y);
                 assertEquals(255, (rgba >>> 24), "Slot became transparent at " + x + "," + y);
                 colors.add(rgba);
@@ -523,8 +526,53 @@ class PanelLayoutTest {
     }
 
     /**
+     * The cell background sheet was cropped: the shipped {@code slot_source.png} used to be the user's full 256x256
+     * panel reference of which only the 18x18 block at (101,65) was ever sampled; those exact 324 pixels now sit at
+     * (0,0) and the file is 18x18. This test pins the crop three ways - the size, the exact colour histogram and a
+     * fingerprint of the pixel stream - so the sheet that reaches the jar is provably the same art, and any silent
+     * re-export, resize or channel change fails the build. The reference sheet itself lives outside the mod.
+     */
+    @Test void theCroppedCellBackgroundCarriesTheSameThreeHundredAndTwentyFourPixels() throws Exception {
+        var url = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/slot_source.png");
+        assertNotNull(url, "the slot sheet is missing from the mod's own assets");
+        var sheet = javax.imageio.ImageIO.read(url);
+        assertNotNull(sheet, "the slot sheet is not a readable PNG");
+        assertEquals(18, sheet.getWidth(), "the shipped slot sheet is the cropped 18x18 block");
+        assertEquals(18, sheet.getHeight());
+        assertTrue(sheet.getColorModel().hasAlpha(), "the slot sheet keeps its alpha channel");
+        var histogram = new java.util.TreeMap<String, Integer>();
+        var digest = java.security.MessageDigest.getInstance("SHA-256");
+        for (int y = 0; y < 18; y++) {
+            for (int x = 0; x < 18; x++) {
+                int argb = sheet.getRGB(x, y);
+                assertEquals(255, argb >>> 24, "the slot art is fully opaque at " + x + "," + y);
+                String rgb = (argb >>> 16 & 0xFF) + "," + (argb >>> 8 & 0xFF) + "," + (argb & 0xFF);
+                histogram.merge(rgb, 1, Integer::sum);
+                digest.update((byte)(argb >>> 24)); digest.update((byte)(argb >>> 16));
+                digest.update((byte)(argb >>> 8)); digest.update((byte)(argb));
+            }
+        }
+        var expectedHistogram = new java.util.TreeMap<String, Integer>();
+        expectedHistogram.put("109,69,59", 128);
+        expectedHistogram.put("113,74,64", 128);
+        expectedHistogram.put("96,61,57", 32);
+        expectedHistogram.put("74,45,49", 18);
+        expectedHistogram.put("181,147,112", 16);
+        expectedHistogram.put("162,124,96", 2);
+        assertEquals(expectedHistogram, histogram, "the cropped sheet's colour histogram is not the original block's");
+        var hex = new StringBuilder();
+        for (byte b : digest.digest()) hex.append(String.format("%02x", b));
+        assertEquals("fd195c3a9cd355f77c04083383afdaa730838a5fbe36a6c66ca6cb5cb1cbc952", hex.toString(),
+                "the cropped sheet's pixels are not the original (101,65) block byte for byte");
+        // The 8 KB of unreachable reference art must be gone from the shipped sheet.
+        assertTrue(java.nio.file.Files.size(java.nio.file.Path.of(
+                "src/main/resources/assets/create_feed_me_packages/textures/gui/slot_source.png")) < 1024,
+                "the cropped sheet should be a small file, not the 256x256 reference");
+    }
+
+    /**
      * The three button tooltips are capped at FOUR Chinese characters (user: "按钮说明删减到四个字"), which is what
-     * fits next to an 8x8 button. Read from the shipped lang files - the same bytes the client loads - and this
+     * fits next to a 7x7 button. Read from the shipped lang files - the same bytes the client loads - and this
      * change only shortens three values: the mod keeps exactly the keys it had.
      */
     @Test void theThreeButtonTooltipsStayWithinFourChineseCharacters() throws Exception {
