@@ -52,13 +52,10 @@ import top.theillusivec4.curios.api.type.capability.ICuriosItemHandler;
 public final class LogisticsPanel {
     private static final Minecraft MC = Minecraft.getInstance();
     /**
-     * The button glyphs are <b>font characters, not textures</b>. The first version mirrored the vanilla
-     * furnace arrow sprite; the user reports it never became visible in game ("就是个灰方块、没有箭头"), so
-     * the icons are now plain glyphs the font always has: {@code ←} for the one-key collect (user: "icon 是
-     * 朝左的箭头"), {@code »} to fold the panel away and {@code «} to unfold it.
+     * The button icons are <b>painted from flat fills</b> (see {@link PanelLayout#glyphFills}): no texture and no
+     * font glyph is involved, so an icon cannot silently render as an empty grey square - which is exactly what
+     * the user saw with the first, mirrored-sprite version.
      */
-    private static final String GLYPH_COLLECT = "\u2190", GLYPH_FOLD = "\u00bb", GLYPH_UNFOLD = "\u00ab";
-    /** Button background: flat fills only, so nothing depends on a texture being present. */
     private static final int BUTTON_FACE = 0xC0202020, BUTTON_FACE_HOVER = 0xD0505050;
     private static final int BUTTON_GLYPH = 0xFFE6E6E6, BUTTON_GLYPH_OFF = 0xFF7F7F7F;
 
@@ -724,8 +721,8 @@ public final class LogisticsPanel {
      * narrow door for this action alone (it never touches the client-owned cursor), so the button stays live.
      */
     private static void renderCollectButton(GuiGraphics g) {
-        PanelLayout.Rect r = layout.collectButton();
-        LogisticsPanel.glyphButton(g, r, GLYPH_COLLECT, "collect_button", LogisticsPanel.collectEnabled());
+        LogisticsPanel.glyphButton(g, layout.collectButton(), PanelLayout.Glyph.COLLECT_LEFT, "collect_button",
+                LogisticsPanel.collectEnabled());
     }
 
     /**
@@ -734,22 +731,26 @@ public final class LogisticsPanel {
      * nothing is intercepted, so whatever sits behind it (JEI's bookmark column) becomes usable again.
      */
     private static void renderCollapseButton(GuiGraphics g) {
-        LogisticsPanel.glyphButton(g, layout.collapseButton(), layout.hidden() ? GLYPH_UNFOLD : GLYPH_FOLD,
+        LogisticsPanel.glyphButton(g, layout.collapseButton(),
+                layout.hidden() ? PanelLayout.Glyph.UNFOLD_LEFT : PanelLayout.Glyph.FOLD_RIGHT,
                 layout.hidden() ? "unfold_button" : "fold_button", true);
     }
 
     /** The one small entry left on screen while the panel is hidden. */
     private static void renderEntry(GuiGraphics g) {
-        LogisticsPanel.glyphButton(g, layout.collapseButton(), GLYPH_UNFOLD, "unfold_button", true);
+        LogisticsPanel.glyphButton(g, layout.collapseButton(), PanelLayout.Glyph.UNFOLD_LEFT, "unfold_button", true);
     }
 
-    /** A texture-free button: a flat fill plus one centred font glyph, with hover and disabled states. */
-    private static void glyphButton(GuiGraphics g, PanelLayout.Rect r, String glyph, String help, boolean enabled) {
+    /** A texture-free, font-free button: a flat fill plus one painted icon, with hover and disabled states. */
+    private static void glyphButton(GuiGraphics g, PanelLayout.Rect r, PanelLayout.Glyph glyph, String help,
+            boolean enabled) {
+        if (r.width() <= 0 || r.height() <= 0) return;   // no button in this state (e.g. collect while hidden)
         boolean hover = enabled && r.contains(mouseX, mouseY);
         LogisticsPanel.overlay(g, r.x(), r.y(), r.width(), r.height(), hover ? BUTTON_FACE_HOVER : BUTTON_FACE);
-        int width = LogisticsPanel.MC.font.width(glyph);
-        LogisticsPanel.text(g, glyph, r.x() + (r.width() - width) / 2, r.y() + (r.height() - 8) / 2,
-                enabled ? BUTTON_GLYPH : BUTTON_GLYPH_OFF);
+        int color = enabled ? BUTTON_GLYPH : BUTTON_GLYPH_OFF;
+        for (PanelLayout.Rect fill : PanelLayout.glyphFills(r, glyph)) {
+            LogisticsPanel.overlay(g, fill.x(), fill.y(), fill.width(), fill.height(), color);
+        }
         if (enabled && r.contains(mouseX, mouseY)) {
             tooltip = List.of(LogisticsPanel.tr(help, new Object[0]));
         }

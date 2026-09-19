@@ -91,8 +91,11 @@ public final class CacheCollectTests {
         carry(player, 1, new ItemStack(Items.IRON_INGOT, 8));
         carry(player, 2, new ItemStack(Items.GRAVEL, 64));   // no cell filters gravel
         int cachedBefore = cachedTotal(player);
+        CacheActions.resetCollectReports();
 
         helper.assertTrue(collect(player) == Result.OK, "the collect was refused");
+        helper.assertTrue(CacheActions.collectReports() == 1,
+                "a collect that moved items must say so exactly once, said " + CacheActions.collectReports());
 
         var cells = CacheLedger.get(player.getServer()).find(AccessGate.resolve(player).handle().cacheId()).state().cells();
         helper.assertTrue(cells.get(stoneCell).amount() == 25, "stone cell should be 5 + 20, was " + cells.get(stoneCell).amount());
@@ -116,8 +119,10 @@ public final class CacheCollectTests {
         carry(player, 1, new ItemStack(Items.STONE, 64));
         carry(player, 2, new ItemStack(Items.STONE, 64));
         int cachedBefore = cachedTotal(player);
+        CacheActions.resetCollectReports();
 
         helper.assertTrue(collect(player) == Result.OK, "the collect was refused");
+        helper.assertTrue(CacheActions.collectReports() == 1, "a partial collect is still reported once");
 
         var cells = CacheLedger.get(player.getServer()).find(AccessGate.resolve(player).handle().cacheId()).state().cells();
         helper.assertTrue(cells.get(cell).amount() == CacheLevel.of(1).groupCapacity() * 64,
@@ -137,7 +142,10 @@ public final class CacheCollectTests {
         var ledger = CacheLedger.get(player.getServer());
         java.util.UUID cacheId = AccessGate.resolve(player).handle().cacheId();
         var before = ledger.find(cacheId).state();
+        CacheActions.resetCollectReports();
         helper.assertTrue(collect(player) == Result.OK, "a collect with nothing to collect is not a failure");
+        helper.assertTrue(CacheActions.collectReports() == 0,
+                "nothing to collect must stay silent, said " + CacheActions.collectReports());
         var afterNothing = ledger.find(cacheId).state();
         helper.assertTrue(before.cells().equals(afterNothing.cells()) && before.revision() == afterNothing.revision(),
                 "a collect with no matching cell still changed the cache");
@@ -149,6 +157,7 @@ public final class CacheCollectTests {
         Result stale = CacheActions.execute(player, new CacheActions.Intent(view.session(),
                 ledger.find(cacheId).state().revision() + 1, Action.COLLECT_MATCHING, -1, 0, -1, ""));
         helper.assertTrue(stale == Result.STALE, "a stale collect must be refused, was " + stale);
+        helper.assertTrue(CacheActions.collectReports() == 0, "a refused collect must stay silent");
         helper.assertTrue(ledger.find(cacheId).state().cells().equals(afterNothing.cells()), "a refused collect still moved items");
         helper.assertTrue(player.getInventory().getItem(1).getCount() == 10, "a refused collect emptied the stack");
         helper.assertTrue(ledger.find(cacheId).state().cells().get(cell).amount() == 4, "the seeded cell changed");
@@ -162,6 +171,7 @@ public final class CacheCollectTests {
         carry(player, 2, new ItemStack(Items.STONE, 32));
         var beforeFull = ledger.find(cacheId).state();
         helper.assertTrue(collect(player) == Result.OK, "a full cell is not a failure");
+        helper.assertTrue(CacheActions.collectReports() == 0, "a full cell must stay silent");
         helper.assertTrue(ledger.find(cacheId).state().cells().equals(beforeFull.cells()),
                 "a full cell took stock it cannot hold");
         helper.assertTrue(ledger.find(cacheId).state().revision() == beforeFull.revision(),
@@ -183,8 +193,10 @@ public final class CacheCollectTests {
         int cell = seed(player, stone, 4);
         carry(player, 0, new ItemStack(Items.STONE, 6));
         int cachedBefore = cachedTotal(player);
+        CacheActions.resetCollectReports();
 
         helper.assertTrue(collect(player) == Result.OK, "the one-key collect must work in creative");
+        helper.assertTrue(CacheActions.collectReports() == 1, "the creative collect reports once, like any other");
 
         var cells = CacheLedger.get(player.getServer()).find(AccessGate.resolve(player).handle().cacheId()).state().cells();
         helper.assertTrue(cells.get(cell).amount() == 10, "the creative collect did not move the items");

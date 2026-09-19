@@ -76,6 +76,43 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
                 : bounds.y() + bounds.height() - FOOTER + (FOOTER - BUTTON) / 2;
         return new Rect(buttonX(), y, BUTTON, BUTTON);
     }
+    /** The one small entry left on screen while the panel is hidden. */
+    public static List<Rect> glyphFills(Rect button, Glyph glyph) {
+        List<Rect> fills = new ArrayList<>();
+        int cx = button.x() + button.width() / 2;
+        int cy = button.y() + button.height() / 2;
+        switch (glyph) {
+            case COLLECT_LEFT -> {
+                fills.add(new Rect(cx - 1, cy - 1, 5, 2));   // shaft, pointing away to the right
+                fills.add(new Rect(cx - 3, cy - 2, 1, 1));   // head, upper barb
+                fills.add(new Rect(cx - 4, cy - 1, 1, 2));   // head, tip
+                fills.add(new Rect(cx - 3, cy + 1, 1, 1));   // head, lower barb
+            }
+            case FOLD_RIGHT -> {
+                chevron(cx - 3, cy - 3, 1, fills);
+                chevron(cx, cy - 3, 1, fills);
+            }
+            case UNFOLD_LEFT -> {
+                chevron(cx + 2, cy - 3, -1, fills);
+                chevron(cx - 1, cy - 3, -1, fills);
+            }
+        }
+        return List.copyOf(fills);
+    }
+
+    private static void chevron(int x, int y, int direction, List<Rect> fills) {
+        int[] indent = {0, 1, 2, 1, 0};
+        for (int row = 0; row < indent.length; row++)
+            fills.add(new Rect(x + direction * indent[row], y + row, 1, 1));
+    }
+
+    /**
+     * The two button icons are <b>drawn from flat fills</b> - no texture and no font glyph - so nothing can
+     * silently fail to render: the user reported the first (mirrored sprite) version as "就是个灰方块、没有箭头",
+     * and the follow-up asked for evidence that the icons really are painted rather than merely referenced.
+     */
+    public enum Glyph { COLLECT_LEFT, FOLD_RIGHT, UNFOLD_LEFT }
+
     /** Width of the panel for a level's own arrangement (used before a layout exists). */
     public static int preferredWidth(CacheGrid grid) { return grid.columns() * ROW + 2 * SIDE; }
     /** Offset of the LAST painted track pixel from the track's first pixel. The track is

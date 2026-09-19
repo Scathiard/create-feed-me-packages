@@ -246,14 +246,23 @@ public final class CacheActions {
         return Result.OK;
     }
 
-    /**
-     * One action-bar line: how much moved - and nothing else. Only ever called when something actually moved,
-     * so "nothing to collect", a full cell and every refusal stay silent (user's silence rule).
-     */
+    /** One action-bar line: how much moved - and nothing else. Only ever called when something actually moved. */
     private static void collectReport(ServerPlayer player, CollectPlan.Plan plan) {
+        collectReports++;
         player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
                 "message.create_feed_me_packages.collect", plan.moved()), true);
     }
+
+    /**
+     * How many collect reports this process has emitted. The silence rule ("no message unless something moved,
+     * and then exactly one") is a user-visible promise, and this counter is how the tests observe it without a
+     * client attached; the game tests reset it, run the four silent paths and one moving collect, and assert
+     * 0 / 1 exactly.
+     */
+    private static volatile int collectReports;
+
+    public static int collectReports() { return collectReports; }
+    public static void resetCollectReports() { collectReports = 0; }
 
     private static void cursor(ServerPlayer player, ItemStack next, boolean creative, UUID session, int sequence) {        var menu = player.containerMenu;
         if (!creative) { menu.setCarried(next); return; }

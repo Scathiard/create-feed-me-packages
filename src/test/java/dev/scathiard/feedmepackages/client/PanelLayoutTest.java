@@ -3,6 +3,7 @@ package dev.scathiard.feedmepackages.client;
 import dev.scathiard.feedmepackages.domain.CacheGrid;
 import org.junit.jupiter.api.Test;
 import java.util.*;
+import java.util.HashSet;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PanelLayoutTest {
@@ -277,5 +278,39 @@ class PanelLayoutTest {
             assertEquals(expanded.bounds(), again.bounds());
             assertEquals(expanded.cells(), again.cells(), "unfolding must be cell for cell identical");
         }
+    }
+
+    /**
+     * The icons are painted from flat fills - no texture, no font glyph - so "the icon never showed up" (the
+     * user's report about the first, mirrored-sprite version) cannot happen again by construction. Shape only;
+     * the pixels being lit on screen still has to be seen in game.
+     */
+    @Test void theButtonIconsArePaintedFromFills() {
+        var button = new PanelLayout.Rect(10, 20, PanelLayout.BUTTON, PanelLayout.BUTTON);
+        for (var glyph : PanelLayout.Glyph.values()) {
+            var fills = PanelLayout.glyphFills(button, glyph);
+            assertFalse(fills.isEmpty(), glyph + " paints nothing");
+            int pixels = fills.stream().mapToInt(fill -> fill.width() * fill.height()).sum();
+            assertTrue(pixels >= 8, glyph + " paints only " + pixels + " pixel(s)");
+            for (var fill : fills) {
+                assertTrue(fill.x() >= button.x() && fill.x() + fill.width() <= button.x() + button.width(),
+                        glyph + " paints outside the button horizontally");
+                assertTrue(fill.y() >= button.y() && fill.y() + fill.height() <= button.y() + button.height(),
+                        glyph + " paints outside the button vertically");
+            }
+        }
+        // The collect icon is a left arrow: a shaft long enough to read, with the tip left of it.
+        var arrow = PanelLayout.glyphFills(button, PanelLayout.Glyph.COLLECT_LEFT);
+        int leftmost = arrow.stream().mapToInt(PanelLayout.Rect::x).min().orElseThrow();
+        int rightmost = arrow.stream().mapToInt(fill -> fill.x() + fill.width()).max().orElseThrow();
+        assertTrue(rightmost - leftmost >= 6, "the arrow is too short to read (" + (rightmost - leftmost) + "px)");
+        // Fold and unfold are exact mirror images, so the entry reads as the same control.
+        var fold = PanelLayout.glyphFills(button, PanelLayout.Glyph.FOLD_RIGHT);
+        var unfold = PanelLayout.glyphFills(button, PanelLayout.Glyph.UNFOLD_LEFT);
+        assertEquals(fold.size(), unfold.size(), "the two chevrons must have the same pixel count");
+        var mirrored = new HashSet<String>();
+        for (var fill : fold) mirrored.add((button.x() + button.width() - 1 - (fill.x() - button.x())) + "," + fill.y());
+        for (var fill : unfold)
+            assertTrue(mirrored.contains(fill.x() + "," + fill.y()), "unfold is not the mirror of fold at " + fill.x() + "," + fill.y());
     }
 }
