@@ -15,19 +15,21 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     public static final int TRACK_INSET = 5, TRACK_Y = 4, MIN_THUMB_Y = 8, MAX_THUMB_Y = 0, LABEL_Y = 11;
     public static final int MARGIN = 4, GAP = 4, BOOK_WIDTH = 177, MAX_ROWS = 6;
     /**
-     * The two small square buttons (collect / collapse) are <b>8x8</b> and live entirely inside the right-hand
-     * end-cap band. The user rejected the previous 10x10 size as "太丑了且超出边框了" and asked for a 16x16
-     * texture drawn at half scale, so the drawn square is 8x8.
+     * The two buttons (collect / collapse) are <b>7x7</b> and hug the inside of the right-hand cap's two black
+     * lines: the user drew a 7x7 chevron sheet ({@code 参考/Button_7x7.png}) and asked for it 1:1, with its left
+     * edge against the inner black line at texture {@code x=58} and its right edge against the one at {@code x=66}.
      */
-    public static final int BUTTON = 8;
+    public static final int BUTTON = 7;
     /**
      * How much of the {@link #SIDE}-wide end cap is actually painted. Measured in {@code panel.png}: the cap
      * blits read texture columns {@code u=53..66} (14 columns) for the repeat strip and the footer, i.e. the
      * <b>last 8 of the 22 cap columns are transparent</b> - that transparent margin is exactly what made the
-     * old 10x10 square look like it stuck out past the frame. The last painted column is the 1 px dark border
-     * stroke, so a button may use {@code CAP_ART - 1 = 13} columns.
+     * old 10x10 square look like it stuck out past the frame. The last painted column ({@code u=66}) is the
+     * right inner black line, and {@code u=58} is the left one.
      */
     public static final int CAP_ART = 14;
+    /** Texture column of the cap's LEFT inner black line, relative to the first painted cap column (u=53+5=58). */
+    public static final int CAP_LEFT_STROKE = 5;
 
     public record Rect(int x, int y, int width, int height) {
         public boolean contains(double mx, double my) {
@@ -50,18 +52,19 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
                 2, visibleRows * ROW);
     }
     /**
-     * The column the two buttons share: centred in the <b>painted</b> part of the right-hand end-cap band (the
-     * border stroke column is excluded, leaving >= 1 px clear of the frame line on both sides); the entry when
-     * hidden. Derived from {@link #SIDE}/{@link #CAP_ART}/{@link #BUTTON} - no pixel is written down here.
+     * The column the two buttons share: the 7x7 square is <b>wedged between the cap's two black lines</b> - left
+     * edge one pixel right of the left line, right edge one pixel left of the right line (user: "正好贴住边框的
+     * 左右边线"). Derived from {@link #leftBorderStrokeX()} / {@link #rightBorderStrokeX()} - no pixel is written
+     * down here. The entry when hidden.
      */
     private int buttonX() {
         if (hidden) return bounds.x();   // while hidden the box IS the entry square
-        int capLeft = bounds.x() + bounds.width() - SIDE;      // first painted cap column
-        int usable = CAP_ART - 1;                             // drop the 1 px dark border stroke column
-        return capLeft + (usable - BUTTON) / 2;
+        return leftBorderStrokeX() + 1;
     }
 
-    /** The 1 px border stroke of the right-hand frame line, for gap assertions. */
+    /** The 1 px black line on the INSIDE-left of the right-hand cap (texture u=58). */
+    public int leftBorderStrokeX() { return bounds.x() + bounds.width() - SIDE + CAP_LEFT_STROKE; }
+    /** The 1 px black line on the INSIDE-right of the right-hand cap (texture u=66). */
     public int rightBorderStrokeX() { return bounds.x() + bounds.width() - SIDE + CAP_ART - 1; }
 
     /**

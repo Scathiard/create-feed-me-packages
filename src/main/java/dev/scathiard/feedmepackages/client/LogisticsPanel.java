@@ -52,18 +52,17 @@ import top.theillusivec4.curios.api.type.capability.ICuriosItemHandler;
 public final class LogisticsPanel {
     private static final Minecraft MC = Minecraft.getInstance();
     /**
-     * The button IS one 32x32 texture supplied by the user ({@code 参考/Button.png}): 1 px black frame, grey
-     * face, right/bottom inner shadow and the arrow baked into the face. It replaces the previous arrow-only
-     * sheet, so the mod still ships exactly <b>one</b> button texture. Because the frame, the face and the arrow
-     * are a single image there is no separate face fill any more - which makes "the face covers the arrow"
-     * structurally impossible now. That is exactly what the user's "grey square, no arrow" report was:
-     * {@link #overlay} draws at {@link #BUTTON_Z} while the icon was drawn at z = 0 and stayed behind it.
-     * Drawn at whatever size the layout rect has (uniform scale) and mirrored for the collect/entry direction.
+     * The button IS one 7x7 texture drawn by the user ({@code 参考/Button_7x7.png}): a black right-pointing chevron
+     * on the same dark grey as the panel cap's inner shadow, with no frame of its own. It is drawn <b>1:1</b> - the
+     * layout rect is exactly the sheet size, so there is no scale factor - and mirrored for the collect/entry
+     * direction (user: "两个箭头复用一份素材"). Because the image is the whole button there is no separate face
+     * fill, which makes "the face covers the arrow" structurally impossible; that was the user's "grey square, no
+     * arrow" bug: {@link #overlay} draws at {@link #BUTTON_Z} while the icon used to be drawn at z = 0.
      */
     private static final ResourceLocation BUTTON_TEXTURE = ResourceLocation.fromNamespaceAndPath(
             "create_feed_me_packages", "textures/gui/button.png");
-    /** Source sheet edge in pixels (the user's file). The on-screen size comes from the layout rect. */
-    private static final int BUTTON_SHEET = 32;
+    /** Source sheet edge in pixels (the user's file). The on-screen size is the same: {@code BUTTON}. */
+    private static final int BUTTON_SHEET = 7;
     /**
      * The layer the panel's own buttons and flat overlays live on. {@link #overlay} has always drawn here, and
      * the button sheet must use the SAME layer: the "grey square, no arrow" bug was an icon drawn at z = 0
@@ -780,17 +779,16 @@ public final class LogisticsPanel {
      * left as it was found.
      */
     private static void buttonSheet(GuiGraphics g, PanelLayout.Rect r, boolean mirrored) {
-        float scale = (float) r.width() / BUTTON_SHEET;
         com.mojang.blaze3d.systems.RenderSystem.enableBlend();
         com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
         g.pose().pushPose();
         g.pose().translate(0.0f, 0.0f, BUTTON_Z);
         if (mirrored) {
+            // A direction flip only (x = -1): the sheet is drawn 1:1, never resized.
             g.pose().translate((float)(r.x() + r.width()), (float)r.y(), 0.0f);
-            g.pose().scale(-scale, scale, 1.0f);
+            g.pose().scale(-1.0f, 1.0f, 1.0f);
         } else {
             g.pose().translate((float)r.x(), (float)r.y(), 0.0f);
-            g.pose().scale(scale, scale, 1.0f);
         }
         g.blit(BUTTON_TEXTURE, 0, 0, 0.0f, 0.0f, BUTTON_SHEET, BUTTON_SHEET, BUTTON_SHEET, BUTTON_SHEET);
         g.pose().popPose();

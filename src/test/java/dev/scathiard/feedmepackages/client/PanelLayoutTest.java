@@ -214,13 +214,14 @@ class PanelLayoutTest {
     }
 
     /**
-     * The two small buttons: 8x8 (the user rejected 10x10 as "太丑了且超出边框了"), inside the <b>painted</b>
-     * part of the end-cap band only, sharing one column, clear of the frame stroke by >= 1 px, clearing every
-     * cell and each other.
+     * The two buttons are the user's <b>7x7</b> chevron sheet, wedged between the cap's two inner black lines:
+     * {@code buttonLeft == leftBorderStrokeX() + 1} and {@code buttonRight == rightBorderStrokeX() - 1}, at every
+     * level, clear of the grid and of each other.
      */
     @Test void theTwoSmallButtonsSitInTheBorderBandClearOfEveryCell() {
-        assertEquals(8, PanelLayout.BUTTON, "the user asked for a 16x16 sheet drawn at half scale");
+        assertEquals(7, PanelLayout.BUTTON, "the user drew a 7x7 sheet and asked for it 1:1");
         assertEquals(14, PanelLayout.CAP_ART, "panel.png paints only 14 of the 22 cap columns");
+        assertEquals(5, PanelLayout.CAP_LEFT_STROKE, "the left inner black line is at texture u=58 (53+5)");
         for (int count : new int[]{9, 16, 24, 30, 36}) {
             var grid = CacheGrid.forCount(count);
             var layout = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
@@ -228,17 +229,14 @@ class PanelLayoutTest {
             var collect = layout.collectButton();
             var collapse = layout.collapseButton();
             for (var button : List.of(collect, collapse)) {
-                assertEquals(PanelLayout.BUTTON, button.width(), "the buttons are one small square");
+                assertEquals(PanelLayout.BUTTON, button.width(), "the buttons are one 7x7 square");
                 assertEquals(PanelLayout.BUTTON, button.height());
                 assertTrue(layout.bounds().contains(button.x(), button.y()));
-                // Left edge: never past the first painted cap column. Right edge: at least one clear pixel
-                // before the 1 px frame stroke, which is the LAST painted cap column.
-                int capLeft = layout.bounds().x() + layout.bounds().width() - PanelLayout.SIDE;
-                assertTrue(button.x() >= capLeft, "the button escaped the border band");
-                assertTrue(button.x() + button.width() <= layout.rightBorderStrokeX(),
-                        "the button reaches into the frame stroke");
-                assertTrue(layout.rightBorderStrokeX() - (button.x() + button.width()) >= 1,
-                        "the button has no >= 1 px gap to the frame line");
+                // "正好贴住边框的左右边线": one pixel inside each of the cap's two black lines.
+                assertEquals(layout.leftBorderStrokeX() + 1, button.x(),
+                        "the left edge must hug the left inner black line");
+                assertEquals(layout.rightBorderStrokeX() - 1, button.x() + button.width() - 1,
+                        "the right edge must hug the right inner black line");
             }
             assertEquals(collect.x(), collapse.x(), "both buttons share the same column");
             assertEquals(layout.bounds().y() + (layout.bounds().height() - PanelLayout.BUTTON) / 2, collect.y(),
@@ -247,6 +245,8 @@ class PanelLayoutTest {
                     "the fold button lives in the bottom-right footer band");
             assertTrue(collapse.y() + collapse.height() <= layout.bounds().y() + layout.bounds().height());
             assertFalse(intersects(collect, collapse), "the two buttons overlap");
+            assertFalse(intersects(collect, layout.scrollbar()) && intersects(collapse, layout.scrollbar()),
+                    "the two buttons and the rail cannot all overlap");
             for (var box : layout.cells()) {
                 assertFalse(intersects(collect, box.bounds()), "the collect button covers a cell");
                 assertFalse(intersects(collapse, box.bounds()), "the fold button covers a cell");
@@ -288,52 +288,49 @@ class PanelLayoutTest {
     }
 
     /**
-     * The button is ONE 32x32 texture supplied by the user ({@code 参考/Button.png}), copied byte for byte into our
-     * own namespace. This test reads the <b>shipped</b> PNG out of the build output and pins what the user's asset
-     * actually contains, so a silent replacement or a corrupt copy fails the build: a 1 px black frame all round,
-     * a grey face, and an arrow baked into the middle whose tip reaches the right half (the direction the user
-     * supplied). Nothing may touch the frame: the arrow stays inside the 1 px border.
+     * The button is the user's own <b>7x7</b> chevron sheet ({@code 参考/Button_7x7.png}), copied byte for byte into
+     * our namespace and drawn <b>1:1</b> (no scaling). This test reads the <b>shipped</b> PNG out of the build output
+     * and pins what the user drew, so a silent replacement or a corrupt copy fails the build: 7x7 - exactly the
+     * button size - fully opaque, background (64,69,67) (the same dark grey as the panel cap's inner shadow), and a
+     * pure black right-pointing chevron whose tip is the middle row and reaches the right edge. The four corners are
+     * background, i.e. the sheet has no black frame of its own.
      */
-    @Test void theButtonSheetIsTheUsersThirtyTwoPixelButtonWithAnArrowInsideItsFrame() throws Exception {
+    @Test void theButtonSheetIsTheUsersSevenPixelChevronDrawnOneToOne() throws Exception {
         var url = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/button.png");
         assertNotNull(url, "the button sheet is missing from the mod's own assets");
         var sheet = javax.imageio.ImageIO.read(url);
         assertNotNull(sheet, "the button sheet is not a readable PNG");
-        assertEquals(32, sheet.getWidth(), "the user's sheet is 32x32 and is scaled to the button rect");
-        assertEquals(32, sheet.getHeight());
+        assertEquals(PanelLayout.BUTTON, sheet.getWidth(),
+                "the sheet is drawn 1:1, so it must be exactly as wide as the button");
+        assertEquals(PanelLayout.BUTTON, sheet.getHeight());
         assertTrue(sheet.getColorModel().hasAlpha(), "the sheet needs an alpha channel (RGBA)");
-        int face = 0;
-        int frame = 0;
-        int left = 32, right = -1, top = 32, bottom = -1;
-        for (int y = 0; y < 32; y++) {
-            for (int x = 0; x < 32; x++) {
-                int rgb = sheet.getRGB(x, y) & 0x00FFFFFF;
-                boolean border = x == 0 || y == 0 || x == 31 || y == 31;
-                if (border) {
-                    assertEquals(0x000000, rgb, "the 1 px frame must be black at " + x + "," + y);
-                    continue;
-                }
-                if (rgb == 0x8D8F8D) { face++; continue; }               // (141,143,141) the face
-                if (rgb == 0x000000) continue;                            // frame-adjacent / arrow outline
-                if (rgb == 0x9AA49D || rgb == 0x404543) continue;         // inner edge / inner shadow
-                frame++;
-                left = Math.min(left, x);
-                right = Math.max(right, x);
-                top = Math.min(top, y);
-                bottom = Math.max(bottom, y);
+        int background = 0;
+        int black = 0;
+        for (int y = 0; y < sheet.getHeight(); y++) {
+            for (int x = 0; x < sheet.getWidth(); x++) {
+                int argb = sheet.getRGB(x, y);
+                assertEquals(255, argb >>> 24, "the user's sheet is fully opaque at " + x + "," + y);
+                int rgb = argb & 0x00FFFFFF;
+                if (rgb == 0x404543) background++;                                  // (64,69,67)
+                else assertEquals(0x000000, rgb, "unexpected colour at " + x + "," + y);
+                if (rgb == 0x000000) black++;
             }
         }
-        assertTrue(face >= 300, "the grey face is missing (" + face + " px)");
-        assertTrue(frame >= 100, "no arrow inside the frame (" + frame + " px)");
-        assertTrue(right - left >= 16, "the arrow is too small to read (" + (right - left) + " px wide)");
-        assertTrue(right >= 24, "the arrow must reach the right half of the sheet (rightmost " + right + ")");
-        assertTrue(left >= 2 && top >= 2 && right <= 29 && bottom <= 29,
-                "the arrow touches the frame: " + left + "," + top + ".." + right + "," + bottom);
+        assertTrue(background >= 20, "the dark cap-coloured background is missing (" + background + " px)");
+        assertTrue(black >= 15, "the chevron is missing (" + black + " px)");
+        for (int[] corner : new int[][]{{0, 0}, {6, 0}, {0, 6}, {6, 6}}) {
+            assertEquals(0x404543, sheet.getRGB(corner[0], corner[1]) & 0x00FFFFFF,
+                    "a corner must be background, not a frame: " + corner[0] + "," + corner[1]);
+        }
+        // The chevron points right: its tip is the middle row and it reaches the right-most column.
+        assertEquals(0x000000, sheet.getRGB(6, 3) & 0x00FFFFFF, "the tip must touch the right edge at the middle row");
+        assertEquals(0x404543, sheet.getRGB(6, 0) & 0x00FFFFFF, "row 0 must not reach the right edge");
+        assertEquals(0x404543, sheet.getRGB(0, 3) & 0x00FFFFFF, "the tip must not span the whole sheet");
     }
 
     /**
      * The shipped bytecode must draw THAT one sheet and must no longer carry the fill-based glyph path. This is the
-     * artifact-level half of the "grey square, no arrow" post-mortem: the previous build drew a face fill at a
+     * artifact-level half of the "grey square, no arrow" post-mortem: the previous builds drew a face fill at a
      * raised z and the icon at z = 0, so the icon was hidden. There is now only one texture blit per button.
      */
     @Test void theShippedButtonCodeDrawsTheOneSheetAndHasNoFillGlyphPathLeft() throws Exception {
@@ -342,7 +339,8 @@ class PanelLayoutTest {
             assertNotNull(in, "the compiled panel class must be on the test classpath");
             String code = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.ISO_8859_1);
             assertTrue(code.contains("textures/gui/button.png"), "the shipped code does not load the button sheet");
-            for (String gone : new String[]{"glyphFills", "BUTTON_GLYPH", "textures/gui/arrow.png", "drawArrow"}) {
+            for (String gone : new String[]{"glyphFills", "BUTTON_GLYPH", "textures/gui/arrow.png", "drawArrow",
+                    "ARROW_SCALE", "ARROW_SHEET"}) {
                 assertFalse(code.contains(gone), "the old fill/glyph path is still in the shipped class: " + gone);
             }
         }
