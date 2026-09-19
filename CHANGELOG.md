@@ -8,6 +8,25 @@ gameplay milestone.
 本文件记录本项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号沿用 `MAJOR.MINOR.PATCH`，其中 `MINOR` 对应一次玩法里程碑。
 
+## [0.2.3] — 2026-09-19
+
+**Two things you can feel: the cache no longer shuffles when it grows, and a stack dropped anywhere on the panel lands by itself.** / **两处手感：扩容不再挪动已有格子；物品丢在面板任意处就能存。**
+
+### Changed / 改动
+
+- **Growing a cache adds rows and columns instead of re-flowing the cells / 扩容＝加行加列，不再顺序顺延**:
+  each level now has its own rectangle (3x3, 4x4, 4x6, 5x6, 6x6) and **a cell that already existed keeps its row and column for good**; the old rule recomputed the columns from the cell count, so an upgrade moved 7 of 9 / 13 of 16 / 20 of 24 / 25 of 30 cells — the "everything jumped" you saw. Saves are untouched: an upgrade still appends empty cells at the end, so nothing migrates or re-orders.
+  每一级有自己的矩形（3×3、4×4、4×6、5×6、6×6），**已经存在的格子永远待在原来的行/列**；旧规则按格数重算列数，所以升级会挪动 7/9、13/16、20/24、25/30 个格子。**存档未动**：升级仍只在末尾补空格。
+- **Drop a stack anywhere on the panel / 物品丢在面板任意处即可存入**:
+  a cache holds one cell per exact item, so the item itself picks the cell - the one already filtering it, else the first empty cell (which then gets that filter). Aiming at a specific cell, right-click for a single item, shift-take, the threshold dot and ctrl+right to clear a filter all behave exactly as before. If nothing can take the stack, the panel says so instead of staying silent.
+  缓存一格只放一种精确物品，所以**物品自己挑格子**（已有该格⇒存进去；否则第一个空格⇒自动设过滤并存入）。对准某格的点击、右键单件、Shift 取料、阈值小圆点、Ctrl+右键清过滤**都照旧**；放不下时面板明确提示，不静默。
+
+### Notes / 说明
+
+- Cache schema stays **8** and the panel protocol stays **4**; the server keeps validating every deposit.
+  缓存 schema 仍 **8**、面板协议仍 **4**；服务端照旧逐条校验存入。
+- After updating, existing caches are drawn once in the new arrangement (the items stay in their cells); later upgrades no longer move anything.
+  更新后既有缓存的排布会**按新规则画一次**（物品仍在原来的格子里），此后升级不再移动。
 ## [0.2.2] — 2026-09-17
 
 **Compatibility with Create: Storage, plus a cache-cell fix.**
@@ -141,6 +160,7 @@ package — the only difference is the version number.
   drawing, five-level growth and owner-locked personal caches.
   首个本地可玩版本：坠子绑定缓存、真实 Create 补货请求、含残包的收件、合成／JEI／标准投射物取料、五级成长与物主锁定的个人缓存。
 
+[0.2.3]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.3
 [0.2.2]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.2
 [0.2.1]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.0
