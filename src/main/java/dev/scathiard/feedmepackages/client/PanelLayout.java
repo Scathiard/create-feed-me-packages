@@ -54,16 +54,19 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
         return new Rect(bounds.x() + bounds.width() - 13, bounds.y() + HEADER,
                 2, visibleRows * ROW);
     }
-    /** The 1 px black line on the inside-right of the right-hand cap (texture u=66) - the buttons hug it. */
+    /** The 1 px black line on the inside-right of the right-hand cap (texture u=66) - the buttons sit 2 px left of it. */
     public int rightBorderStrokeX() { return bounds.x() + bounds.width() - SIDE + CAP_ART - 1; }
     /** The 1 px black line along the very bottom of the panel (texture v=139) - the buttons hug it. */
     public int bottomBorderStrokeY() { return bounds.y() + bounds.height() - 1; }
-    /** The row both buttons start on: their bottom edge is the row just above {@link #bottomBorderStrokeY()}. */
-    private int buttonY() { return bottomBorderStrokeY() - BUTTON; }
+    /**
+     * The row both buttons start on: two rows above {@link #bottomBorderStrokeY()} (user 09-20, pixel nudge:
+     * "两个按钮一起上移 1px、左移 2px") - i.e. the 13 px band {@code v=125..137}, leaving {@code v=138} free.
+     */
+    private int buttonY() { return bottomBorderStrokeY() - BUTTON - 1; }
 
     /**
      * The one-key collect ("transfer") button: the <b>left</b> of the two 13x13 squares in the panel's bottom
-     * border band, flush against the bottom black line and sitting one pixel left of the fold button (user:
+     * border band, sitting one pixel left of the fold button and two rows above the bottom black line (user:
      * "把按钮都放到底部边框…依旧贴边框", "右下角并排两个"). It is answered before the scrollbar in {@code press}, so the
      * thin rail stays clickable above it; the mouse wheel is unaffected.
      *
@@ -76,8 +79,9 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     }
 
     /**
-     * The fold-away button: the <b>right</b> of the two 13x13 squares, its right edge hugging the panel's right
-     * black line and its bottom edge the bottom black line - i.e. the bottom-right corner inside the border band.
+     * The fold-away button: the <b>right</b> of the two 13x13 squares, its right edge two pixels left of the
+     * panel's right black line and its bottom edge two rows above the bottom black line (user 09-20: "上移 1px、
+     * 左移 2px") - i.e. the bottom-right corner inside the border band.
      * Pressing it folds the panel into {@link #hidden()} / unfolds it again.
      *
      * <p>When the panel is hidden this is the <b>entry</b>: the one square left on screen, at the same place the
@@ -85,7 +89,7 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
      */
     public Rect foldButton() {
         if (hidden) return new Rect(bounds.x(), bounds.y(), BUTTON, BUTTON);
-        return new Rect(rightBorderStrokeX() - BUTTON + 1, buttonY(), BUTTON, BUTTON);
+        return new Rect(rightBorderStrokeX() - BUTTON - 1, buttonY(), BUTTON, BUTTON);
     }
 
     /** Width of the panel for a level's own arrangement (used before a layout exists). */

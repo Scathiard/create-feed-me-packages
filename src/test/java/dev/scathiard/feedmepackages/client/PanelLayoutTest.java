@@ -247,27 +247,33 @@ class PanelLayoutTest {
                         "a button covers the bottom black line");
                 // Exactly the footer rows panel.png measures as art (v=124..138 - see
                 // theBottomBorderBandIsPaintedWhereTheButtonsSit): the footer blit starts at y+h-49 on texture row
-                // v=91, so v = y+h+v-140. The buttons occupy v=126..138 - inside that painted band, with two rows
-                // to spare above them (v=124,125 vs the inner edge v=123) and their bottom edge on v=138, i.e. the
-                // row just above the outer black line v=139.
-                assertEquals(layout.bounds().y() + layout.bounds().height() - 14, button.y(),
-                        "the buttons must start on footer row v=126");
-                assertEquals(layout.bounds().y() + layout.bounds().height() - 2, button.y() + button.height() - 1,
-                        "the buttons must end on footer row v=138, one pixel above the bottom black line");
+                // v=91, so v = y+h+v-140. The buttons occupy v=125..137 (user 09-20 pixel nudge: up 1 px), so they
+                // still sit on painted art, clear of the inner edge v=123 by one row and of the outer black line
+                // v=139 by two, with v=138 deliberately left free.
+                assertEquals(layout.bounds().y() + layout.bounds().height() - 15, button.y(),
+                        "the buttons must start on footer row v=125");
+                assertEquals(layout.bounds().y() + layout.bounds().height() - 3, button.y() + button.height() - 1,
+                        "the buttons must end on footer row v=137");
+                assertTrue(button.y() > layout.bounds().y() + layout.bounds().height() - 17,
+                        "the buttons must stay clear of the inner border line (v=123)");
                 assertTrue(button.y() >= layout.bounds().y() + layout.bounds().height() - 16,
                         "the buttons must stay inside the painted footer rows (v>=124)");
             }
-            assertEquals(layout.rightBorderStrokeX(), fold.x() + fold.width() - 1,
-                    "the fold button must hug the right black line");
-            assertEquals(layout.bottomBorderStrokeY() - 1, fold.y() + fold.height() - 1,
-                    "both buttons must hug the bottom black line");
-            // The cap's painted columns (texture u=53..66) begin at x+w-22, so the fold button's right edge lands
-            // on u=66 and the transfer button stays inside the centre band that frame() fills by repeating the one
-            // painted centre column u=44.
-            assertEquals(layout.bounds().x() + layout.bounds().width() - 9, fold.x() + fold.width() - 1,
-                    "the fold button's right edge must land on texture u=66 (the cap's painted inner line)");
-            assertTrue(transfer.x() + transfer.width() - 1 <= layout.bounds().x() + layout.bounds().width() - 23,
+            // The user's 09-20 nudge, asserted as exact offsets from the two border lines: left 2 px, up 1 px
+            // (i.e. the buttons' bottom row is two rows above the outer black line, one row above v=138).
+            assertEquals(layout.rightBorderStrokeX() - 2, fold.x() + fold.width() - 1,
+                    "the fold button's right edge must sit exactly 2 px left of the right black line");
+            assertEquals(layout.bottomBorderStrokeY() - 2, fold.y() + fold.height() - 1,
+                    "both buttons' bottom edge must sit exactly 2 px above the bottom black line");
+            // The cap's painted columns (texture u=53..66) begin at x+w-22; with the user's 09-20 nudge (left 2 px)
+            // the fold button's right edge now sits on u=64 and the transfer button moves to u=38..50, still
+            // inside the centre band that frame() fills by repeating the one painted centre column u=44.
+            assertEquals(layout.bounds().x() + layout.bounds().width() - 11, fold.x() + fold.width() - 1,
+                    "the fold button's right edge must land on texture u=64 (2 px left of the inner line u=66)");
+            assertTrue(transfer.x() >= layout.bounds().x() + 22,
                     "the transfer button must stay inside the centre band the repeated column u=44 fills");
+            assertTrue(transfer.x() + transfer.width() - 1 <= layout.bounds().x() + layout.bounds().width() - 23,
+                    "the transfer button must not run into the right cap");
             assertEquals(fold.x() - PanelLayout.BUTTON - 1, transfer.x(),
                     "exactly one clear pixel between the two buttons");
             assertEquals(fold.y(), transfer.y(), "the two buttons share the band");
@@ -559,10 +565,11 @@ class PanelLayoutTest {
             assertEquals(0x000000, panel.getRGB(u, 139) & 0x00FFFFFF,
                     "the panel's bottom row must be the outer black line at u=" + u);
         }
-        // Measured, not assumed: in every row the buttons reach into (v=124..138) the footer art paints exactly 30
-        // columns - u=26..39 (left cap), the single centre column u=44 that frame() repeats across the whole middle
-        // band, and u=53..67 (right cap plus its inner line). So both rects sit on art, never on a transparent hole.
-        for (int v = 124; v <= 138; v++) {
+        // Measured, not assumed: in every row the buttons reach into (v=125..137, after the user's up-1 nudge) the
+        // footer art paints exactly 30 columns - u=26..39 (left cap), the single centre column u=44 that frame()
+        // repeats across the whole middle band, and u=53..67 (right cap plus its inner line). So both rects sit on
+        // art, never on a transparent hole. The rows v=124 and v=138 are painted too but deliberately left free.
+        for (int v = 125; v <= 137; v++) {
             int painted = 0;
             for (int u = 26; u <= 67; u++) if ((panel.getRGB(u, v) >>> 24) != 0) painted++;
             assertEquals(30, painted, "footer row v=" + v + " must paint exactly the 30 art columns");
