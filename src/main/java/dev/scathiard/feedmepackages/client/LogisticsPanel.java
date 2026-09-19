@@ -1634,6 +1634,13 @@ public final class LogisticsPanel {
     private static boolean send(CacheActions.Action action, int slot, int first, int second, String template) {
         ItemStack held;
         if (snapshot == null || snapshot.session() == null || waiting != 0 || cursorPending || pendingCursorChange != null || window == null) {
+            // A refused send used to be completely silent: the click did nothing and said nothing at all. One log
+            // line names the guard that closed the gate, so "the panel ignores me" is diagnosable from the client
+            // log. The visible silence itself is deliberate and stays: no message, no sound, no packet.
+            dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info(
+                    "FMP_DROP send-refused action={} slot={} snapshotNull={} sessionNull={} waiting={} cursorPending={} pendingCursorChange={} windowNull={}",
+                    action, slot, snapshot == null, snapshot != null && snapshot.session() == null, waiting, cursorPending,
+                    pendingCursorChange != null, window == null);
             return false;
         }
         boolean creative = screen instanceof CreativeModeInventoryScreen && (action == CacheActions.Action.DEPOSIT || action == CacheActions.Action.TAKE_CURSOR);
