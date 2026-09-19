@@ -392,103 +392,123 @@ class PanelLayoutTest {
     }
 
     /**
-     * The user's direction ruling, <b>proved in screen coordinates</b> instead of asserted about the code: the sheet
-     * points right, so the collect button and the hidden entry are flipped (their right-most black pixel must land
-     * LEFT of the button's centre) and the expanded fold button is drawn as-is (its right-most black pixel must land
-     * RIGHT of the centre). The landing is computed with the very function the renderer uses for its per-column
-     * blits, and the same pixels are checked the other way round as a control, so a mapping that silently stopped
-     * flipping would fail here.
+     * The user's direction ruling, proved with the two shipped sheets instead of with any runtime transform: the
+     * mod carries the right-pointing sheet (its chevron tip is the LAST black column, u=5) and the left-pointing
+     * twin (tip in the FIRST black column, u=1). Each button draws exactly one of them, and because a sheet is
+     * blitted 1:1 at the rect's origin the tip's screen x is rect.x + u - so the collect button and the hidden
+     * entry, which use the left sheet, really do read left of their centre, and the fold button, which uses the
+     * right sheet, reads right of its centre.
      */
-    @Test void theChevronPointsLeftOnCollectAndEntryAndRightOnTheFoldButton() throws Exception {
-        var url = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/button.png");
-        assertNotNull(url, "the button sheet is missing from the mod's own assets");
-        var sheet = javax.imageio.ImageIO.read(url);
-        assertNotNull(sheet);
-        var black = new java.util.ArrayList<int[]>();
-        for (int v = 0; v < sheet.getHeight(); v++) {
-            for (int u = 0; u < sheet.getWidth(); u++) {
-                if ((sheet.getRGB(u, v) & 0x00FFFFFF) == 0x000000) black.add(new int[]{u, v});
-            }
+    @Test void theTwoSheetsPointOppositeWaysAndTheButtonsPickTheRightOne() throws Exception {
+        var right = readSheet("/assets/create_feed_me_packages/textures/gui/button.png");
+        var left = readSheet("/assets/create_feed_me_packages/textures/gui/button_left.png");
+        var rightBlack = blackPixels(right);
+        var leftBlack = blackPixels(left);
+        assertEquals(10, rightBlack.size(), "the right sheet's chevron outline changed");
+        assertEquals(10, leftBlack.size(), "the left sheet's chevron outline changed");
+        assertEquals(5, maxColumn(rightBlack), "the right-pointing sheet's tip must be its last black column (x=5)");
+        assertEquals(1, minColumn(leftBlack), "the left-pointing sheet's tip must be its first black column (x=1)");
+        // The two sheets must be exact mirrors of each other, i.e. the pair the user meant.
+        var mirrored = new java.util.TreeSet<String>();
+        for (String key : rightBlack) {
+            String[] uv = key.split(",");
+            mirrored.add((6 - Integer.parseInt(uv[0])) + "," + uv[1]);
         }
-        assertEquals(10, black.size(), "the sheet's chevron outline changed");
-        int tipRow = 0;
-        for (int[] p : black) tipRow = Math.max(tipRow, p[0]);
-        assertEquals(PanelLayout.BUTTON_SHEET - 2, tipRow,
-                "the chevron's tip must be its right-most black pixel, so flipping really reverses the arrow");
-
+        assertEquals(mirrored, leftBlack, "the two sheets are not mirror images, so they are not the pair");
+        // Screen coordinates: a 1:1 blit puts source column u at rect.x + u.
         var grid = CacheGrid.forCount(16);
         var expanded = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
         var hidden = PanelLayout.hidden(480, 300, 40, grid, false);
-        record Case(String name, PanelLayout.Rect rect, boolean flipped, boolean tipLeft) {}
+        record Case(String name, PanelLayout.Rect rect, java.util.Set<String> pixels, boolean tipLeft) {}
         var cases = List.of(
-                new Case("collect (mirrored, must read <-)", expanded.collectButton(), true, true),
-                new Case("entry (mirrored, must read <-)", hidden.bounds(), true, true),
-                new Case("fold (as drawn, must read ->)", expanded.collapseButton(), false, false));
+                new Case("collect (left sheet)", expanded.collectButton(), leftBlack, true),
+                new Case("entry (left sheet)", hidden.bounds(), leftBlack, true),
+                new Case("fold (right sheet)", expanded.collapseButton(), rightBlack, false));
         for (var c : cases) {
             int centre = c.rect().x() + c.rect().width() / 2;
-            int sum = 0;
-            int apexX = Integer.MIN_VALUE;
-            int barbX = Integer.MAX_VALUE;
-            for (int[] p : black) {
-                int x = PanelLayout.buttonPixelX(c.rect(), p[0], c.flipped());
-                int y = PanelLayout.buttonPixelY(c.rect(), p[1]);
+            int apex = 0;
+            int barbs = 0;
+            for (String key : c.pixels()) {
+                int u = Integer.parseInt(key.split(",")[0]);
+                int v = Integer.parseInt(key.split(",")[1]);
+                int x = c.rect().x() + u;
+                int y = c.rect().y() + v;
+                assertTrue(x >= c.rect().x() && x < c.rect().x() + c.rect().width(),
+                        c.name() + ": a chevron pixel left the button horizontally");
                 assertTrue(y >= c.rect().y() && y < c.rect().y() + c.rect().height(),
                         c.name() + ": a chevron pixel left the button vertically");
-                assertTrue(x >= c.rect().x() && x < c.rect().x() + c.rect().width(),
-                        c.name() + ": a chevron pixel left the button horizontally at " + x);
-                sum += x;
-                // The sheet's right-most black column (u = 5) is the chevron's APEX and u = 2 the BARB ends, so
-                // comparing where those two land is exactly "which way does the arrow point".
-                if (p[0] == PanelLayout.BUTTON_SHEET - 2) apexX = Math.max(apexX, x);
-                if (p[0] == 2) barbX = Math.min(barbX, x);
+                if (c.tipLeft()) {
+                    if (u == 1) apex = x;
+                    if (u == 4) barbs = x;
+                } else {
+                    if (u == 5) apex = x;
+                    if (u == 2) barbs = x;
+                }
             }
-            int centroid = sum / black.size();
-            int fromLeft = apexX - c.rect().x();
-            int fromRight = (c.rect().x() + c.rect().width() - 1) - apexX;
             if (c.tipLeft()) {
-                assertTrue(apexX < barbX,
-                        c.name() + ": the apex (" + apexX + ") must land left of the barb ends (" + barbX + ")");
-                assertTrue(fromLeft <= 2,
-                        c.name() + ": the apex must sit in the button's left third (it is " + fromLeft + " px in)");
+                assertTrue(apex < barbs && apex < centre,
+                        c.name() + ": the tip must land left of the barbs and of the centre (tip " + apex + ")");
             } else {
-                assertTrue(apexX > barbX,
-                        c.name() + ": the apex (" + apexX + ") must land right of the barb ends (" + barbX + ")");
-                assertTrue(fromRight <= 2,
-                        c.name() + ": the apex must sit in the button's right third (it is " + fromRight + " px in)");
+                assertTrue(apex > barbs && apex > centre,
+                        c.name() + ": the tip must land right of the barbs and of the centre (tip " + apex + ")");
             }
-            // The centroid is reported for the record; the integer division makes it at best a one-pixel hint.
-            assertTrue(Math.abs(centroid - centre) <= 1, c.name() + ": the chevron is not even near the middle");
         }
-        // Control: the SAME pixels land on the other side when the flip flag is inverted, so the mapping is really
-        // doing the mirroring (and not, say, the asset happening to be symmetric).
-        var collect = expanded.collectButton();
-        int flippedRight = Integer.MIN_VALUE;
-        int plainRight = Integer.MIN_VALUE;
-        for (int[] p : black) {
-            flippedRight = Math.max(flippedRight, PanelLayout.buttonPixelX(collect, p[0], true));
-            plainRight = Math.max(plainRight, PanelLayout.buttonPixelX(collect, p[0], false));
+    }
+
+    /** The shipped sheet of the given resource path, decoded. */
+    private static java.awt.image.BufferedImage readSheet(String resource) throws Exception {
+        var url = PanelLayoutTest.class.getResource(resource);
+        assertNotNull(url, resource + " is missing from the mod's own assets");
+        var sheet = javax.imageio.ImageIO.read(url);
+        assertNotNull(sheet, resource + " is not a readable PNG");
+        assertEquals(PanelLayout.BUTTON, sheet.getWidth(), resource + " must be exactly the button size");
+        assertEquals(PanelLayout.BUTTON, sheet.getHeight());
+        return sheet;
+    }
+
+    /** The pure-black chevron pixels of a sheet, as {@code u,v} keys. */
+    private static java.util.TreeSet<String> blackPixels(java.awt.image.BufferedImage sheet) {
+        var black = new java.util.TreeSet<String>();
+        for (int v = 0; v < sheet.getHeight(); v++) {
+            for (int u = 0; u < sheet.getWidth(); u++) {
+                if ((sheet.getRGB(u, v) & 0x00FFFFFF) == 0x000000) black.add(u + "," + v);
+            }
         }
-        assertEquals(collect.x() + PanelLayout.BUTTON_SHEET - 2, plainRight,
-                "as drawn, the apex (source column 5) is the right-most black pixel");
-        assertEquals(collect.x() + PanelLayout.BUTTON_SHEET - 1 - 2, flippedRight,
-                "flipped, the BARB ends (source column 2) become the right-most black pixels - the apex moved left");
-        assertTrue(flippedRight < plainRight, "flipping must move the same pixels to the left");
+        return black;
+    }
+
+    private static int minColumn(java.util.Set<String> pixels) {
+        return pixels.stream().mapToInt(key -> Integer.parseInt(key.split(",")[0])).min().orElseThrow();
+    }
+
+    private static int maxColumn(java.util.Set<String> pixels) {
+        return pixels.stream().mapToInt(key -> Integer.parseInt(key.split(",")[0])).max().orElseThrow();
     }
 
     /**
-     * "The fold button is still invisible" - the code-level half. No negative pose scale anywhere (that path
-     * renders nothing in this project, which is why the mirrored fold button vanished), and the button draw calls
-     * must be the last thing {@code render} does, so nothing drawn afterwards can cover that rect.
+     * The code-level half of the direction ruling and of "the fold button is still invisible": the two sheets are
+     * chosen by name at the three call sites (collect and entry the left one, fold the right one), there is no
+     * negative scale and no mirroring helper left anywhere, and the button draw calls are the last thing
+     * {@code render} does so nothing drawn afterwards can cover that rect.
      */
     @Test void theButtonDrawPathIsSingleAndIsTheLastThingRenderDraws() throws Exception {
         var source = java.nio.file.Path.of("src/main/java/dev/scathiard/feedmepackages/client/LogisticsPanel.java");
         assertTrue(java.nio.file.Files.exists(source), "run the tests from the project directory: " + source);
         String code = java.nio.file.Files.readString(source, java.nio.charset.StandardCharsets.UTF_8);
         assertFalse(code.contains("scale(-1"), "no negative scale (mirror) may come back");
-        assertTrue(code.contains("PanelLayout.buttonPixelX(r, u, flipped)"),
-                "the sheet must be drawn column by column through the shared mapping");
+        assertFalse(code.contains("buttonPixelX") || code.contains("boolean flipped"),
+                "no mirroring helper or direction flag may come back - direction comes from the asset");
+        assertTrue(code.contains("buttonSheet(GuiGraphics g, PanelLayout.Rect r, ResourceLocation texture)"),
+                "the sheet must be chosen by texture, not transformed");
+        assertTrue(code.contains(
+                "LogisticsPanel.iconButton(g, layout.collectButton(), BUTTON_LEFT_TEXTURE, \"collect_button\","),
+                "the collect button must draw the left-pointing sheet");
+        assertTrue(code.contains("LogisticsPanel.iconButton(g, layout.collapseButton(), BUTTON_LEFT_TEXTURE, \"unfold_button\", true);"),
+                "the hidden entry must draw the left-pointing sheet");
+        assertTrue(code.contains("layout.hidden() ? BUTTON_LEFT_TEXTURE : BUTTON_TEXTURE"),
+                "the fold button must draw the right-pointing sheet while expanded");
         assertFalse(code.contains("private static final int BUTTON_SHEET"),
-                "the sheet edge must live in PanelLayout only, so the renderer and this proof share one source");
+                "the sheet edge must live in PanelLayout only, so the renderer and the assertions share one source");
         int hiddenBranch = code.indexOf("if (layout.hidden()) {");
         int hiddenReturn = code.indexOf("return;", hiddenBranch);
         String hidden = code.substring(hiddenBranch, hiddenReturn);
