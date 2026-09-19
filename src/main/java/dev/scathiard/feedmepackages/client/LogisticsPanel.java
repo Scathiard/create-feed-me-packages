@@ -5,6 +5,7 @@ import com.simibubi.create.foundation.gui.AllGuiTextures;
 import dev.scathiard.feedmepackages.client.PanelLayout;
 import dev.scathiard.feedmepackages.client.SupplyCreativeScreen;
 import dev.scathiard.feedmepackages.client.SupplyInventoryScreen;
+import dev.scathiard.feedmepackages.domain.CacheDropTarget;
 import dev.scathiard.feedmepackages.domain.CacheGrid;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
@@ -1105,7 +1106,46 @@ public final class LogisticsPanel {
             }
             return true;
         }
+        // A stack clicked down anywhere in the panel body (not on a cell, not on a widget) is a drop:
+        // the item names its cell, so no aiming is needed. See depositOntoPanel.
+        if (LogisticsPanel.canDeposit(button, x, y)) LogisticsPanel.depositOntoPanel(button);
         return true;
+    }
+
+    /** True when this press/release may move the cursor's stack into the cache. */
+    private static boolean canDeposit(int button, double x, double y) {
+        return LogisticsPanel.active() && (button == 0 || button == 1) && snapshot != null
+                && !LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()
+                && (layout == null || layout.slider() == null || !layout.slider().contains(x, y));
+    }
+
+    /**
+     * A stack dropped anywhere on the panel: a cache holds at most one cell per exact item, so the item
+     * itself names the target cell (the one that already filters it, else the first empty one). This sends
+     * the ordinary {@code DEPOSIT} to that cell - no new action, no new packet - and the server keeps
+     * validating it ({@code DUPLICATE_FILTER} / {@code FILTER_OCCUPIED} / {@code NO_SPACE} stay the net).
+     * A drop with nowhere to go says so instead of doing nothing.
+     */
+    private static void depositOntoPanel(int button) {
+        String carried;
+        try {
+            carried = ItemVariantKey.of(LogisticsPanel.MC.player.containerMenu.getCarried(),
+                    LogisticsPanel.MC.player.registryAccess()).encoded();
+        } catch (IllegalArgumentException invalid) {
+            LogisticsPanel.notice("result.invalid_item");
+            return;
+        }
+        int groupCapacity = Math.max(1, snapshot.capacity() / 64);
+        List<CacheDropTarget.Cell> cells = new ArrayList<>(snapshot.cells().size());
+        for (PanelPackets.CellView cell : snapshot.cells())
+            cells.add(new CacheDropTarget.Cell(cell.template(),
+                    cell.amount() >= groupCapacity * Math.max(1, cell.stackSize())));
+        CacheDropTarget.Target target = CacheDropTarget.resolve(cells, carried);
+        if (!target.hasTarget()) {
+            LogisticsPanel.notice("result.no_space");
+            return;
+        }
+        LogisticsPanel.send(CacheActions.Action.DEPOSIT, target.slot(), button == 1 ? 1 : 0, -1, "");
     }
 
     private static boolean release(double x, double y, int button) {
@@ -1156,12 +1196,15 @@ public final class LogisticsPanel {
             return true;
         }
         if (layout.bounds().contains(x, y)) {
-            if (!(!LogisticsPanel.active() || button != 0 && button != 1 || LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty() || layout.slider() != null && layout.slider().contains(x, y))) {
-                for (PanelLayout.CellBox box : layout.cells()) {
-                    if (!box.bounds().contains(x, y)) continue;
-                    LogisticsPanel.send(CacheActions.Action.DEPOSIT, box.slot(), button == 1 ? 1 : 0, -1, "");
-                }
+            boolean depositable = LogisticsPanel.canDeposit(button, x, y);
+            boolean onCell = false;
+            if (depositable) for (PanelLayout.CellBox box : layout.cells()) {
+                if (!box.bounds().contains(x, y)) continue;
+                LogisticsPanel.send(CacheActions.Action.DEPOSIT, box.slot(), button == 1 ? 1 : 0, -1, "");
+                onCell = true;
             }
+            // Released over empty panel space: same drop-anywhere rule as a press there.
+            if (depositable && !onCell) LogisticsPanel.depositOntoPanel(button);
             return true;
         }
         return false;
