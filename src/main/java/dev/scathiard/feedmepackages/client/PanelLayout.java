@@ -37,10 +37,6 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     }
     /** Width of the panel for a level's own arrangement (used before a layout exists). */
     public static int preferredWidth(CacheGrid grid) { return grid.columns() * ROW + 2 * SIDE; }
-    /** Legacy flowing arrangement, used only when the level's own rectangle cannot fit the screen width. */
-    private static int flowingColumns(int count) {
-        return Math.max(2, (Math.max(0, count) + MAX_ROWS - 1) / MAX_ROWS);
-    }
     /** Offset of the LAST painted track pixel from the track's first pixel. The track is
      *  {@code width - 2*TRACK_INSET} pixels wide, so this is that width minus one. */
     public static int sliderTrackSpan(int width) { return Math.max(1, width - 2 * TRACK_INSET - 1); }
@@ -78,10 +74,16 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     }
 
     /**
-     * Layout for a level's arrangement. Cells are placed at the (row, column) the grid assigns them, so
-     * an index that already existed does not move when the level grows (see {@link CacheGrid}); only when
-     * the level's own rectangle cannot fit the available width does this fall back to the legacy flowing
-     * arrangement, which matches the old behaviour on screens that never fitted those columns anyway.
+     * Layout for a level's own coordinate table. Cells are drawn at the (row, column) the table assigns them, so
+     * an index that already existed never moves when the level grows (see {@link CacheGrid}).
+     *
+     * <p><b>The one fallback, and when it can happen:</b> 0.2.2 wrapped the cells into fewer columns when the
+     * panel did not fit the window, and that wrap is kept here for exactly the same situation — it triggers
+     * only when {@code left < columns * ROW + GAP + MARGIN + 2 * SIDE (+ BOOK_WIDTH when the recipe book is
+     * open)}, i.e. when the panel's own left edge would fall outside the screen. The panel is then drawn
+     * {@code fittingColumns} wide and scrolls its extra rows, precisely as 0.2.2 did. At the vanilla minimum
+     * window (854x480, GUI scale 1, no book) the inventory screen's left edge is 339 px and level 5 needs
+     * 160 px, so the wrap is not reachable there; the test pins the boundary at every level.
      */
     public static PanelLayout compute(int screenHeight, int left, int top, CacheGrid grid,
             int firstRow, int expanded, boolean bookOpen) {
@@ -95,7 +97,7 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
                     0, 0, Math.max(1, (count + 1) / 2), y, true);
         }
         boolean canonical = grid.columns() <= fittingColumns;
-        int columns = canonical ? grid.columns() : flowingColumns(count);
+        int columns = canonical ? grid.columns() : fittingColumns;
         int width = columns * ROW + 2 * SIDE;
         int x = left - book - GAP - width;
         int total = canonical ? grid.rows() : Math.max(1, (count + columns - 1) / columns);

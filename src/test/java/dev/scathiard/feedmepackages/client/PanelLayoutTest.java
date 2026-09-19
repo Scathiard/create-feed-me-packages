@@ -151,4 +151,64 @@ class PanelLayoutTest {
 
         assertEquals(16, PanelLayout.sliderValue(sliderX, width, midpoint, groupCap));
     }
+
+    /** Ten future plugin coordinates (order: "为未来的的拓展性做考虑") must move nothing and stay coherent. */
+    @Test void tenFuturePluginCoordinatesKeepThePanelCoherent() {
+        CacheGrid base = CacheGrid.forLevel(5);
+        CacheGrid grown = base.withExtraSlots(10);
+        assertEquals(46, grown.count(), "36 shipped cells + 10 future plugin cells");
+        var layout = PanelLayout.compute(1080, 400, 40, grown, 0, -1, false);
+        assertFalse(layout.compact());
+        assertEquals(46, layout.cells().size(), "every future cell must be drawn");
+        assertEquals(grown.columns() * PanelLayout.ROW + 2 * PanelLayout.SIDE, layout.bounds().width(),
+                "the panel box follows the coordinate table");
+        for (var box : layout.cells()) {
+            assertTrue(layout.bounds().contains(box.bounds().x(), box.bounds().y()));
+            assertTrue(box.bounds().x() + box.bounds().width() <= layout.bounds().x() + layout.bounds().width());
+            assertTrue(box.bounds().y() + box.bounds().height() <= layout.footerY(), "cell left the scroll area");
+            for (var other : layout.cells())
+                if (box.slot() != other.slot()) assertFalse(intersects(box.bounds(), other.bounds()));
+        }
+        var scrollbar = layout.scrollbar();
+        assertTrue(layout.bounds().contains(scrollbar.x(), scrollbar.y()));
+        assertTrue(scrollbar.y() + scrollbar.height() <= layout.bounds().y() + layout.bounds().height());
+        var shipped = PanelLayout.compute(1080, 400, 40, base, 0, -1, false);
+        for (int slot = 0; slot < base.count(); slot++) {
+            var before = cell(shipped, slot).bounds();
+            var after = cell(layout, slot).bounds();
+            assertEquals(before.x() - shipped.bounds().x(), after.x() - layout.bounds().x(), "column moved for slot " + slot);
+            assertEquals(before.y() - shipped.bounds().y(), after.y() - layout.bounds().y(), "row moved for slot " + slot);
+        }
+    }
+
+    /**
+     * The fixed table is used whenever the panel actually fits, and the position of every cell is exactly the
+     * one the table gives. The 0.2.2 wrap survives only one pixel further left, which is where the panel's own
+     * left edge would leave the screen — that is the documented trigger condition, not a normal size.
+     */
+    @Test void theFixedTableDecidesEveryCellWheneverThePanelFits() {
+        for (int count : new int[]{9, 16, 24, 30, 36}) {
+            CacheGrid grid = CacheGrid.forCount(count);
+            int side = 2 * PanelLayout.SIDE;
+            // left = width + GAP + MARGIN is the exact pixel where the panel's left edge reaches the screen edge.
+            int left = grid.columns() * PanelLayout.ROW + side + PanelLayout.GAP + PanelLayout.MARGIN;
+            for (int height : new int[]{208, 240, 480, 1080}) {
+                var layout = PanelLayout.compute(height, left, 40, grid, 0, -1, false);
+                assertFalse(layout.compact(), "count " + count + " must not collapse at the fitting width");
+                assertEquals(grid.columns() * PanelLayout.ROW + side, layout.bounds().width(), "the panel follows the table");
+                assertEquals(grid.rows(), layout.totalRows(), "the table's own row count");
+                assertEquals(count, layout.cells().size(), "every cell must be drawn at the fitting width");
+                for (var box : layout.cells()) {
+                    assertEquals(layout.bounds().x() + PanelLayout.SIDE + grid.column(box.slot()) * PanelLayout.ROW,
+                            box.bounds().x(), "slot " + box.slot() + " ignores the table's column");
+                    assertEquals(layout.bounds().y() + PanelLayout.HEADER + grid.row(box.slot()) * PanelLayout.ROW,
+                            box.bounds().y(), "slot " + box.slot() + " ignores the table's row");
+                }
+                var narrower = PanelLayout.compute(height, left - 1, 40, grid, 0, -1, false);
+                assertTrue(narrower.bounds().width() < layout.bounds().width(),
+                        "one pixel narrower is where the 0.2.2 wrap takes over at count " + count);
+                if (narrower.totalRows() > narrower.visibleRows()) assertNotNull(narrower.scrollbar());
+            }
+        }
+    }
 }

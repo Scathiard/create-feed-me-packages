@@ -21,6 +21,8 @@ import java.util.UUID;
  * User report: "升级的时候，原本缓存里放号的物品位置会错位。让加槽位的逻辑变成加行加列吧，而不是顺序顺延".
  * This drives a REAL {@link CacheLedger} — nine seeded cells, a real ordinary upgrade to level 2 — and pins that
  * nothing in an existing cell moves: same cell index, same filter, same amounts, same (row, column).
+ * The cells' coordinates come from the fixed table in {@link CacheGrid} (0.2.2's panel layout, stable across
+ * upgrades); the ledger itself only ever appends empty cells, so no migration is involved.
  */
 @GameTestHolder(FeedMePackages.MOD_ID)
 @PrefixGameTestTemplate(false)
@@ -54,7 +56,7 @@ public final class CacheUpgradeGridTests {
         helper.assertTrue(after.state().cells().size() == CacheLevel.of(2).slots(),
                 "the cell count did not follow the level");
         helper.assertTrue(after.state().cells().size() - slotsBefore == 7,
-                "the upgrade did not add exactly the new row and column of the bigger rectangle");
+                "the upgrade did not add exactly the new coordinates of level 2");
         CacheGrid was = CacheGrid.forLevel(1);
         CacheGrid now = CacheGrid.forLevel(2);
         int changed = 0, moved = 0, emptied = 0;
