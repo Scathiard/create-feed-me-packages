@@ -313,4 +313,38 @@ class PanelLayoutTest {
         for (var fill : unfold)
             assertTrue(mirrored.contains(fill.x() + "," + fill.y()), "unfold is not the mirror of fold at " + fill.x() + "," + fill.y());
     }
+
+    /**
+     * Evidence for "hiding never puts the panel (or its entry) somewhere wrong": across the screen geometries
+     * and container screens this panel actually meets (vanilla inventory, creative inventory, crafting table all
+     * centre the GUI the same way, but the panel must not ASSUME that - it takes {@code left}/{@code top} as
+     * given), the entry lands exactly where the fold button was, stays on screen, and never reaches into the
+     * inventory area. Nothing has to be moved to hide: the same input position produces the entry.
+     */
+    @Test void hidingKeepsTheEntryWhereTheFoldButtonWasOnEveryScreenGeometry() {
+        int[][] screens = {{854, 480}, {1280, 720}, {1920, 1080}, {640, 400}, {480, 320}};
+        int[] guiWidths = {176, 176, 176, 176, 176};   // vanilla inventory, creative and crafting screens
+        for (int index = 0; index < screens.length; index++) {
+            int width = screens[index][0];
+            int height = screens[index][1];
+            int guiLeft = (width - guiWidths[index]) / 2;
+            for (int top : new int[]{40, 90, 200, height / 2}) {
+                for (int count : new int[]{9, 16, 24, 30, 36}) {
+                    var grid = CacheGrid.forCount(count);
+                    var expanded = PanelLayout.compute(height, guiLeft, top, grid, 0, -1, false);
+                    var hidden = PanelLayout.hidden(height, guiLeft, top, grid, false);
+                    assertTrue(hidden.hidden());
+                    assertEquals(expanded.collapseButton(), hidden.bounds(),
+                            "the entry moved on a " + width + "x" + height + " screen at top " + top);
+                    assertTrue(hidden.bounds().x() >= 0 && hidden.bounds().y() >= 0,
+                            "the entry left the screen at " + width + "x" + height);
+                    assertTrue(hidden.bounds().x() + hidden.bounds().width() <= width);
+                    assertTrue(hidden.bounds().y() + hidden.bounds().height() <= height);
+                    // It never reaches into the inventory screen - whatever screen that is.
+                    assertTrue(hidden.bounds().x() + hidden.bounds().width() <= guiLeft - PanelLayout.GAP,
+                            "the entry reaches into the GUI area on a " + width + "x" + height + " screen");
+                }
+            }
+        }
+    }
 }
