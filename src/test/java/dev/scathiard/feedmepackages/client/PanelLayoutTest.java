@@ -1,10 +1,36 @@
 package dev.scathiard.feedmepackages.client;
 
+import dev.scathiard.feedmepackages.domain.CacheGrid;
 import org.junit.jupiter.api.Test;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PanelLayoutTest {
+    /** The panel shifts left as the grid widens, so "the same place" means the same offset inside the grid. */
+    @Test void anUpgradeKeepsEveryExistingCellWhereThePlayerSawIt() {
+        for (int level = 1; level < 5; level++) {
+            CacheGrid before = CacheGrid.forLevel(level);
+            CacheGrid after = CacheGrid.forLevel(level + 1);
+            var small = PanelLayout.compute(480, 400, 20, before, 0, -1, false);
+            var bigger = PanelLayout.compute(480, 400, 20, after, 0, -1, false);
+            assertFalse(small.compact()); assertFalse(bigger.compact());
+            assertEquals(before.count(), small.cells().size(), "level " + level + " must draw every cell");
+            assertEquals(after.count(), bigger.cells().size(), "level " + (level + 1) + " must draw every cell");
+            int smallX = small.cells().stream().mapToInt(cell -> cell.bounds().x()).min().orElseThrow();
+            int smallY = small.cells().stream().mapToInt(cell -> cell.bounds().y()).min().orElseThrow();
+            int bigX = bigger.cells().stream().mapToInt(cell -> cell.bounds().x()).min().orElseThrow();
+            int bigY = bigger.cells().stream().mapToInt(cell -> cell.bounds().y()).min().orElseThrow();
+            for (int slot = 0; slot < before.count(); slot++) {
+                var was = cell(small, slot).bounds();
+                var now = cell(bigger, slot).bounds();
+                assertEquals(was.x() - smallX, now.x() - bigX, "column moved on " + level + " -> " + (level + 1) + " slot " + slot);
+                assertEquals(was.y() - smallY, now.y() - bigY, "row moved on " + level + " -> " + (level + 1) + " slot " + slot);
+            }
+        }
+    }
+    private static PanelLayout.CellBox cell(PanelLayout layout, int slot) {
+        return layout.cells().stream().filter(candidate -> candidate.slot() == slot).findFirst().orElseThrow();
+    }
     @Test void everyUnlockedCellCanBeReachedWithoutShrinkingOrOverlap() {
         for (int count : new int[]{9, 16, 24, 30, 36}) for (int height : new int[]{208, 240, 360, 480, 1080}) {
             Set<Integer> reached = new HashSet<>();

@@ -1,5 +1,7 @@
 package dev.scathiard.feedmepackages.client;
 
+import dev.scathiard.feedmepackages.domain.CacheGrid;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,10 +35,12 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
         return new Rect(bounds.x() + bounds.width() - 13, bounds.y() + HEADER,
                 2, visibleRows * ROW);
     }
-    public static int preferredColumns(int count) {
+    /** Width of the panel for a level's own arrangement (used before a layout exists). */
+    public static int preferredWidth(CacheGrid grid) { return grid.columns() * ROW + 2 * SIDE; }
+    /** Legacy flowing arrangement, used only when the level's own rectangle cannot fit the screen width. */
+    private static int flowingColumns(int count) {
         return Math.max(2, (Math.max(0, count) + MAX_ROWS - 1) / MAX_ROWS);
     }
-    public static int preferredWidth(int count) { return preferredColumns(count) * ROW + 2 * SIDE; }
     /** Offset of the LAST painted track pixel from the track's first pixel. The track is
      *  {@code width - 2*TRACK_INSET} pixels wide, so this is that width minus one. */
     public static int sliderTrackSpan(int width) { return Math.max(1, width - 2 * TRACK_INSET - 1); }
@@ -67,9 +71,21 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     }
     private static int clamp(int value, int min, int max) { return Math.max(min, Math.min(value, max)); }
 
+    /** Layout for a cell count, using that count's own arrangement. */
     public static PanelLayout compute(int screenHeight, int left, int top, int count,
             int firstRow, int expanded, boolean bookOpen) {
-        count = Math.max(0, count);
+        return compute(screenHeight, left, top, CacheGrid.forCount(count), firstRow, expanded, bookOpen);
+    }
+
+    /**
+     * Layout for a level's arrangement. Cells are placed at the (row, column) the grid assigns them, so
+     * an index that already existed does not move when the level grows (see {@link CacheGrid}); only when
+     * the level's own rectangle cannot fit the available width does this fall back to the legacy flowing
+     * arrangement, which matches the old behaviour on screens that never fitted those columns anyway.
+     */
+    public static PanelLayout compute(int screenHeight, int left, int top, CacheGrid grid,
+            int firstRow, int expanded, boolean bookOpen) {
+        int count = grid.count();
         int book = bookOpen ? BOOK_WIDTH : 0;
         int fittingColumns = (left - book - GAP - MARGIN - 2 * SIDE) / ROW;
         int fittingRows = (screenHeight - 2 * MARGIN - HEADER - BAR - FOOTER) / ROW;
@@ -78,34 +94,34 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
             return new PanelLayout(new Rect(MARGIN, y, ROW, ROW), List.of(), null, null,
                     0, 0, Math.max(1, (count + 1) / 2), y, true);
         }
-        int columns = Math.min(preferredColumns(count), fittingColumns);
+        boolean canonical = grid.columns() <= fittingColumns;
+        int columns = canonical ? grid.columns() : flowingColumns(count);
         int width = columns * ROW + 2 * SIDE;
         int x = left - book - GAP - width;
-        int total = Math.max(1, (count + columns - 1) / columns);
+        int total = canonical ? grid.rows() : Math.max(1, (count + columns - 1) / columns);
         int rows = Math.min(Math.min(total, MAX_ROWS), fittingRows);
         int height = HEADER + rows * ROW + BAR + FOOTER;
         int y = clamp(top, MARGIN, screenHeight - MARGIN - height);
         int first = clamp(firstRow, 0, total - rows);
         boolean hasSelection = expanded >= 0 && expanded < count;
-        if (hasSelection) {
-            int selectedRow = expanded / columns;
+        int selectedRow = hasSelection ? (canonical ? grid.row(expanded) : expanded / columns) : -1;
+        int selectedColumn = hasSelection ? (canonical ? grid.column(expanded) : expanded % columns) : -1;
+        if (hasSelection)
             first = clamp(first, Math.max(0, selectedRow - rows + 1), Math.min(selectedRow, total - rows));
-        }
         List<CellBox> cells = new ArrayList<>();
         Rect slider = null;
         int gridBottom = y + HEADER + rows * ROW;
         for (int row = first; row < first + rows; row++) {
             int cy = y + HEADER + (row - first) * ROW;
             for (int column = 0; column < columns; column++) {
-                int slot = row * columns + column;
-                if (slot < count) cells.add(new CellBox(slot,
-                        new Rect(x + SIDE + column * ROW, cy, ROW, ROW)));
+                int slot = canonical ? grid.slot(row, column) : row * columns + column;
+                if (slot < 0 || slot >= count) continue;
+                cells.add(new CellBox(slot, new Rect(x + SIDE + column * ROW, cy, ROW, ROW)));
             }
-            if (hasSelection && row == expanded / columns) {
+            if (hasSelection && row == selectedRow) {
                 // Keep the popup attached to its cell, including the last row/column.
                 // The footer has room for its bottom-row overhang; input goes to the popup first.
-                slider = new Rect(x + SIDE + (expanded % columns) * ROW - ROW / 2,
-                        cy + ROW + 2, 2 * ROW, SLIDER);
+                slider = new Rect(x + SIDE + selectedColumn * ROW - ROW / 2, cy + ROW + 2, 2 * ROW, SLIDER);
             }
         }
         // The label is already part of the bottom end caps (source rows 99..116).

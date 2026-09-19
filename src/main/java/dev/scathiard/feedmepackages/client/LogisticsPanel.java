@@ -5,6 +5,7 @@ import com.simibubi.create.foundation.gui.AllGuiTextures;
 import dev.scathiard.feedmepackages.client.PanelLayout;
 import dev.scathiard.feedmepackages.client.SupplyCreativeScreen;
 import dev.scathiard.feedmepackages.client.SupplyInventoryScreen;
+import dev.scathiard.feedmepackages.domain.CacheGrid;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.item.PendantItem;
@@ -548,8 +549,9 @@ public final class LogisticsPanel {
             return;
         }
         int count = LogisticsPanel.active() ? snapshot.cells().size() : 0;
+        CacheGrid grid = CacheGrid.forCount(count);
         int availableColumns = Math.max(2, (LogisticsPanel.screen.width - screen.getXSize() - 12 - 2 * PanelLayout.SIDE) / PanelLayout.ROW);
-        int width = Math.min(PanelLayout.preferredWidth(count), availableColumns * PanelLayout.ROW + 2 * PanelLayout.SIDE);
+        int width = Math.min(PanelLayout.preferredWidth(grid), availableColumns * PanelLayout.ROW + 2 * PanelLayout.SIDE);
         if (!LogisticsPanel.bookOpen() && screen.getGuiLeft() < width + 8 && LogisticsPanel.screen.width >= screen.getXSize() + width + 12) {
             int old = screen.getGuiLeft();
             int next = width + 8;
@@ -561,7 +563,7 @@ public final class LogisticsPanel {
                 widget.setX(widget.getX() + delta);
             }
         }
-        layout = PanelLayout.compute(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop(), count, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
+        layout = PanelLayout.compute(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
         int availableHeight = LogisticsPanel.screen.height - overlayBottomInset;
         for (GuiEventListener child : screen.children()) {
             if (!(child instanceof AbstractWidget)) continue;
@@ -572,7 +574,7 @@ public final class LogisticsPanel {
             availableHeight = Math.min(availableHeight, widget.getY() - 2);
         }
         if (availableHeight != LogisticsPanel.screen.height) {
-            layout = PanelLayout.compute(availableHeight, screen.getGuiLeft(), screen.getGuiTop(), count, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
+            layout = PanelLayout.compute(availableHeight, screen.getGuiLeft(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
         }
         firstRow = layout.firstRow();
     }
