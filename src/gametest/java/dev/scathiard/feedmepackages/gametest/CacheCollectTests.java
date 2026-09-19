@@ -152,6 +152,21 @@ public final class CacheCollectTests {
         helper.assertTrue(ledger.find(cacheId).state().cells().equals(afterNothing.cells()), "a refused collect still moved items");
         helper.assertTrue(player.getInventory().getItem(1).getCount() == 10, "a refused collect emptied the stack");
         helper.assertTrue(ledger.find(cacheId).state().cells().get(cell).amount() == 4, "the seeded cell changed");
+
+        // A cell that is already at its own capacity takes nothing and keeps the stack in the bag. Together with
+        // the unmatched case above this is the "zero message" side of the silence rule (user, 2026-09-19): the
+        // player is told only when something actually moved, and the report decision is pinned in CollectPlan.
+        seed(player, stone, CacheLevel.of(1).groupCapacity() * 64);
+        helper.assertTrue(ledger.find(cacheId).state().cells().get(cell).amount() == CacheLevel.of(1).groupCapacity() * 64,
+                "fixture could not fill the cell to capacity");
+        carry(player, 2, new ItemStack(Items.STONE, 32));
+        var beforeFull = ledger.find(cacheId).state();
+        helper.assertTrue(collect(player) == Result.OK, "a full cell is not a failure");
+        helper.assertTrue(ledger.find(cacheId).state().cells().equals(beforeFull.cells()),
+                "a full cell took stock it cannot hold");
+        helper.assertTrue(ledger.find(cacheId).state().revision() == beforeFull.revision(),
+                "a collect that moved nothing still bumped the revision");
+        helper.assertTrue(player.getInventory().getItem(2).getCount() == 32, "the stack did not stay in the bag");
         helper.succeed();
     }
 }

@@ -212,21 +212,63 @@ class PanelLayoutTest {
         }
     }
 
-    /** The one-key collect button: in the right-hand end cap, vertically centred, never on top of a cell. */
-    @Test void theCollectButtonFollowsThePanelBoxAndNeverCoversACell() {
+    /**
+     * The two small buttons: derived from the existing constants, inside the border band, sharing one column,
+     * clearing every cell and each other.
+     */
+    @Test void theTwoSmallButtonsSitInTheBorderBandClearOfEveryCell() {
+        assertEquals(PanelLayout.ROW - 2 * PanelLayout.MARGIN, PanelLayout.BUTTON);
         for (int count : new int[]{9, 16, 24, 30, 36}) {
             var grid = CacheGrid.forCount(count);
             var layout = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
-            var button = layout.collectButton();
-            assertEquals(PanelLayout.BUTTON, button.width(), "the button is one grid cell across");
-            assertEquals(PanelLayout.BUTTON, button.height());
-            assertTrue(layout.bounds().contains(button.x(), button.y()));
-            assertTrue(button.x() + button.width() <= layout.bounds().x() + layout.bounds().width());
-            assertEquals(layout.bounds().y() + (layout.bounds().height() - PanelLayout.BUTTON) / 2, button.y(),
-                    "the button must be vertically centred on the panel");
-            assertEquals(layout.bounds().x() + layout.bounds().width() - PanelLayout.SIDE + 2, button.x(),
-                    "the button lives in the right-hand end cap");
-            for (var box : layout.cells()) assertFalse(intersects(button, box.bounds()), "the button covers a cell");
+            assertFalse(layout.collapsed());
+            var collect = layout.collectButton();
+            var collapse = layout.collapseButton();
+            for (var button : List.of(collect, collapse)) {
+                assertEquals(PanelLayout.BUTTON, button.width(), "the buttons are one small square");
+                assertEquals(PanelLayout.BUTTON, button.height());
+                assertTrue(layout.bounds().contains(button.x(), button.y()));
+                assertTrue(button.x() + button.width() <= layout.bounds().x() + layout.bounds().width());
+                assertTrue(button.x() >= layout.bounds().x() + layout.bounds().width() - PanelLayout.SIDE,
+                        "the button escaped the border band");
+            }
+            assertEquals(collect.x(), collapse.x(), "both buttons share the same column");
+            assertEquals(layout.bounds().y() + (layout.bounds().height() - PanelLayout.BUTTON) / 2, collect.y(),
+                    "the collect button is vertically centred");
+            assertTrue(collapse.y() >= layout.bounds().y() + layout.bounds().height() - PanelLayout.FOOTER,
+                    "the fold button lives in the bottom-right footer band");
+            assertTrue(collapse.y() + collapse.height() <= layout.bounds().y() + layout.bounds().height());
+            assertFalse(intersects(collect, collapse), "the two buttons overlap");
+            for (var box : layout.cells()) {
+                assertFalse(intersects(collect, box.bounds()), "the collect button covers a cell");
+                assertFalse(intersects(collapse, box.bounds()), "the fold button covers a cell");
+            }
+        }
+    }
+
+    /** Folding the panel away hides the grid without touching it: unfolding is cell-for-cell identical. */
+    @Test void foldingThePanelAwayKeepsTheGridUntouched() {
+        for (int count : new int[]{9, 16, 24, 30, 36}) {
+            var grid = CacheGrid.forCount(count);
+            var expanded = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
+            var folded = PanelLayout.collapsed(480, 300, 40);
+            assertTrue(folded.collapsed());
+            assertEquals(PanelLayout.SIDE, folded.bounds().width(), "the strip is one end-cap band wide");
+            assertEquals(PanelLayout.STRIP_HEIGHT, folded.bounds().height());
+            assertTrue(folded.cells().isEmpty(), "nothing is drawn from the grid while folded");
+            assertEquals(0, folded.totalRows());
+            // The strip sits left of the inventory screen and never reaches into it.
+            assertEquals(300 - PanelLayout.GAP - PanelLayout.SIDE, folded.bounds().x());
+            assertEquals(folded.bounds().x() + folded.bounds().width(), 300 - PanelLayout.GAP);
+            // Both buttons stay usable while folded.
+            assertTrue(folded.bounds().contains(folded.collectButton().x(), folded.collectButton().y()));
+            assertTrue(folded.bounds().contains(folded.collapseButton().x(), folded.collapseButton().y()));
+            assertEquals(folded.collectButton().x(), folded.collapseButton().x());
+            assertFalse(intersects(folded.collectButton(), folded.collapseButton()));
+            // Unfolding gives back exactly the same grid as before folding.
+            var again = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
+            assertEquals(expanded.bounds(), again.bounds());
+            assertEquals(expanded.cells(), again.cells(), "unfolding must be cell for cell identical");
         }
     }
 }

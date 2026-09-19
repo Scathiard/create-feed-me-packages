@@ -7,15 +7,22 @@ import java.util.List;
 
 /** Geometry in GUI pixels; shared by rendering, mouse routing and JEI. */
 public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect returnBar,
-        int firstRow, int visibleRows, int totalRows, int footerY, boolean compact) {
+        int firstRow, int visibleRows, int totalRows, int footerY, boolean compact, boolean collapsed) {
     // panel.png: two 22-pixel end caps surround the 18-pixel inventory cells.
     public static final int ROW = 18, SIDE = 22, WIDTH = 2 * ROW + 2 * SIDE;
     public static final int HEADER = 18, BAR = 18, FOOTER = 24, SLIDER = 19;
     // Geometry of the visible artwork, not only the surrounding popup rectangle.
     public static final int TRACK_INSET = 5, TRACK_Y = 4, MIN_THUMB_Y = 8, MAX_THUMB_Y = 0, LABEL_Y = 11;
     public static final int MARGIN = 4, GAP = 4, BOOK_WIDTH = 177, MAX_ROWS = 6;
-    /** The one-key collect button is exactly one grid cell across, so it follows the same unit as the cells. */
-    public static final int BUTTON = ROW;
+    /**
+     * The two small square buttons (collect / collapse) are <b>smaller than one cell</b> and live entirely
+     * inside the border band, derived from existing constants only: {@code ROW - 2 * MARGIN}. The user asked
+     * for "与面板白色边框齐平的小方块 … 不超出边框带、不压格子、不占格子空间" after the first 18x18 version
+     * felt too big.
+     */
+    public static final int BUTTON = ROW - 2 * MARGIN;
+    /** Height of the folded-away strip: two button rows plus their margins. */
+    public static final int STRIP_HEIGHT = 2 * ROW;
 
     public record Rect(int x, int y, int width, int height) {
         public boolean contains(double mx, double my) {
@@ -37,17 +44,31 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
         return new Rect(bounds.x() + bounds.width() - 13, bounds.y() + HEADER,
                 2, visibleRows * ROW);
     }
+    /** The column the two buttons share: centred in the right-hand end-cap band. */
+    private int buttonX() { return bounds.x() + bounds.width() - SIDE + (SIDE - BUTTON) / 2; }
+
     /**
-     * The one-key collect button (user request: "放在面板右边的中间"): inside the panel's right-hand end cap,
-     * vertically centred on the panel. Derived from the panel box the coordinate table decided plus the same
-     * unit constants everything else uses - no pixel is written down here. It is tested before the scrollbar
-     * in {@code press}, so the thin rail stays clickable above and below the button; the mouse wheel is
-     * unaffected.
+     * The one-key collect button (user: "放在面板右边的中间"): a small square inside the right-hand end-cap
+     * band, vertically centred; when the panel is folded away it sits at the top of the strip. Derived from the
+     * panel box plus the existing unit constants - no pixel is written down here. It is tested before the
+     * scrollbar in {@code press}, so the thin rail stays clickable above and below the button; the mouse wheel
+     * is unaffected.
      */
     public Rect collectButton() {
-        int x = bounds.x() + bounds.width() - SIDE + (SIDE - BUTTON) / 2;
-        int y = bounds.y() + (bounds.height() - BUTTON) / 2;
-        return new Rect(x, y, BUTTON, BUTTON);
+        int y = collapsed ? bounds.y() + MARGIN : bounds.y() + (bounds.height() - BUTTON) / 2;
+        return new Rect(buttonX(), y, BUTTON, BUTTON);
+    }
+
+    /**
+     * The fold-away button (user: "位置放在转移按钮同列，放右下角"): same column as the collect button, at the
+     * <b>bottom-right corner</b> of the panel - inside the footer band when expanded, at the bottom of the strip
+     * when already folded. Pressing it folds the panel into {@link #collapsed()} / unfolds it again.
+     */
+    public Rect collapseButton() {
+        int y = collapsed
+                ? bounds.y() + bounds.height() - MARGIN - BUTTON
+                : bounds.y() + bounds.height() - FOOTER + (FOOTER - BUTTON) / 2;
+        return new Rect(buttonX(), y, BUTTON, BUTTON);
     }
     /** Width of the panel for a level's own arrangement (used before a layout exists). */
     public static int preferredWidth(CacheGrid grid) { return grid.columns() * ROW + 2 * SIDE; }
@@ -108,7 +129,7 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
         if (fittingColumns < 2 || fittingRows < 1) {
             int y = Math.max(MARGIN, Math.min(top, screenHeight - MARGIN - ROW));
             return new PanelLayout(new Rect(MARGIN, y, ROW, ROW), List.of(), null, null,
-                    0, 0, Math.max(1, (count + 1) / 2), y, true);
+                    0, 0, Math.max(1, (count + 1) / 2), y, true, false);
         }
         boolean canonical = grid.columns() <= fittingColumns;
         int columns = canonical ? grid.columns() : fittingColumns;
@@ -144,6 +165,20 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
         Rect returnBar = new Rect(x + 15, gridBottom + 1, width - 32, BAR);
         // Retain the record ABI; footerY now marks the end of the scrollable grid.
         return new PanelLayout(new Rect(x, y, width, height), cells, slider, returnBar,
-                first, rows, total, gridBottom, false);
+                first, rows, total, gridBottom, false, false);
+    }
+
+    /**
+     * The folded-away panel (user: "面板太大，会挤占掉我的 jei 收藏夹"): a narrow strip in the same column as
+     * the buttons, anchored where the panel would be. <b>No cell is drawn and no cell is moved</b> - the
+     * coordinate table, the ledger and {@link #compute} are untouched, so unfolding shows exactly the same
+     * grid, cell for cell. The strip is one end-cap band wide, so it never reaches into the inventory screen.
+     */
+    public static PanelLayout collapsed(int screenHeight, int left, int top) {
+        int width = SIDE;
+        int x = left - GAP - width;
+        int y = clamp(top, MARGIN, screenHeight - MARGIN - STRIP_HEIGHT);
+        return new PanelLayout(new Rect(x, y, width, STRIP_HEIGHT), List.of(), null, null,
+                0, 0, 0, y + STRIP_HEIGHT, false, true);
     }
 }

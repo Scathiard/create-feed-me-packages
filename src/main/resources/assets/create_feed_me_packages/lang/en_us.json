@@ -105,5 +105,7 @@
   "message.create_feed_me_packages.growth.storage_locked": "Ledger locked",
   "message.create_feed_me_packages.growth.committed_sync_error": "Sync failed; reopen the screen",
   "gui.create_feed_me_packages.collect_button": "Collect matching items from your inventory into their cells",
-  "message.create_feed_me_packages.collect": "Collected %s; %s kind(s) have no matching cell; %s kind(s) are full"
+  "gui.create_feed_me_packages.fold_button": "Fold the panel away (stops it pushing JEI's bookmarks)",
+  "gui.create_feed_me_packages.unfold_button": "Unfold the panel",
+  "message.create_feed_me_packages.collect": "Collected %s"
 }

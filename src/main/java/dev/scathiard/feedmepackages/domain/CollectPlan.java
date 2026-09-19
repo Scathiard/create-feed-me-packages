@@ -60,6 +60,13 @@ public final class CollectPlan {
     public record Plan(List<Move> moves, int moved, int noCell, int full, int carried) {
         public Plan { moves = List.copyOf(moves); }
         public boolean isEmpty() { return moves.isEmpty(); }
+
+        /**
+         * The silence rule (user, 2026-09-19: "没有物品可转移／已满／一切失败路径 ⇒ 一律不发任何消息"): the
+         * player is told <b>only</b> when something actually moved, and then exactly once. Nothing to move, a
+         * cell that is full, an unmatched kind and every refused command all stay silent.
+         */
+        public boolean shouldReport() { return moved > 0; }
     }
 
     private CollectPlan() {}

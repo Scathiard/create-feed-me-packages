@@ -114,4 +114,23 @@ class CollectPlanTest {
         assertThrows(IllegalArgumentException.class,
                 () -> CollectPlan.simulate(List.of(cell(0, STONE, 0)), List.of(), 0));
     }
+
+    /**
+     * The silence rule (user, 2026-09-19): "没有物品可转移／已满／一切失败路径 ⇒ 一律不发任何消息", and when
+     * something did move the player gets exactly one line. This predicate is the single gate the server reads.
+     */
+    @Test void thePlayerIsToldOnlyWhenSomethingActuallyMoved() {
+        assertFalse(CollectPlan.simulate(List.of(cell(0, STONE, 0)),
+                List.of(new CollectPlan.Source(0, IRON, 64)), 2).shouldReport(), "an unmatched kind is silent");
+        assertFalse(CollectPlan.simulate(List.of(cell(0, STONE, 128)),
+                List.of(new CollectPlan.Source(0, STONE, 64)), 2).shouldReport(), "a full cell is silent");
+        assertFalse(CollectPlan.simulate(List.of(cell(0, STONE, 0)),
+                List.of(new CollectPlan.Source(0, STONE, 0)), 2).shouldReport(), "an empty inventory is silent");
+        assertFalse(CollectPlan.simulate(List.of(cell(0, STONE, 0)),
+                List.of(new CollectPlan.Source(0, null, 64)), 2).shouldReport(), "an unreadable stack is silent");
+        assertTrue(CollectPlan.simulate(List.of(cell(0, STONE, 0)),
+                List.of(new CollectPlan.Source(0, STONE, 3)), 2).shouldReport(), "a move is reported once");
+        assertTrue(CollectPlan.simulate(List.of(cell(0, STONE, 126)),
+                List.of(new CollectPlan.Source(0, STONE, 64)), 2).shouldReport(), "a partial move is reported");
+    }
 }

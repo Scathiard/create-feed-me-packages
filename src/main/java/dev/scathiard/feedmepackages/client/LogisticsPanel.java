@@ -51,13 +51,17 @@ import top.theillusivec4.curios.api.type.capability.ICuriosItemHandler;
 /** Recovered from test.42; pixel-atlas and layout corrections only. */
 public final class LogisticsPanel {
     private static final Minecraft MC = Minecraft.getInstance();
-    /** The one-key collect icon: the vanilla furnace arrow sprite, mirrored (no new texture is shipped). */
-    private static final ResourceLocation ARROW = ResourceLocation.fromNamespaceAndPath("minecraft",
-            "textures/gui/sprites/container/furnace/burn_progress.png");
-    private static final int ARROW_TEXTURE_WIDTH = 24, ARROW_TEXTURE_HEIGHT = 16;
-    /** 16x16 window of that 24x16 arrow: the tip plus the shaft, so the mirrored arrow still reads. */
-    private static final float ARROW_U = 8.0f, ARROW_V = 0.0f;
-    private static final int ARROW_SIZE = 16, ARROW_INSET = 1;
+    /**
+     * The button glyphs are <b>font characters, not textures</b>. The first version mirrored the vanilla
+     * furnace arrow sprite; the user reports it never became visible in game ("就是个灰方块、没有箭头"), so
+     * the icons are now plain glyphs the font always has: {@code ←} for the one-key collect (user: "icon 是
+     * 朝左的箭头"), {@code »} to fold the panel away and {@code «} to unfold it.
+     */
+    private static final String GLYPH_COLLECT = "\u2190", GLYPH_FOLD = "\u00bb", GLYPH_UNFOLD = "\u00ab";
+    /** Button background: flat fills only, so nothing depends on a texture being present. */
+    private static final int BUTTON_FACE = 0xC0202020, BUTTON_FACE_HOVER = 0xD0505050;
+    private static final int BUTTON_GLYPH = 0xFFE6E6E6, BUTTON_GLYPH_OFF = 0xFF7F7F7F;
+
     private static AbstractContainerScreen<?> screen;
     private static UUID window;
     private static PanelPackets.Snapshot snapshot;
@@ -85,6 +89,17 @@ public final class LogisticsPanel {
     private static int pendingThresholdMaximum = -2;
     private static int capturedButton;
     private static int passthroughReleaseButton = -1;
+    /**
+     * Folded-away state of the panel. It is a view toggle only: it changes <b>nothing</b> about the cells, the
+     * coordinate table or the ledger - unfolding shows exactly the same grid.
+     *
+     * <p>Kept in memory for the client session ("本次会话内记住"). The server-side preference action exists
+     * ({@code CacheActions.Action.PREFERENCE}) but is <b>rejected</b> by the server, so there is no cross-session
+     * path to carry it; inventing a client config file was not asked for and was not done.
+     */
+    private static boolean collapsed;
+    /** The sequence whose result must stay silent: the one-key collect (user's silence rule). */
+    private static int silentCollectSequence;
     private static boolean returnEditing;
     private static String returnBuffer;
     private static int pendingReturnSequence;
@@ -486,7 +501,8 @@ public final class LogisticsPanel {
             waiting = 0;
             predict = null;
             if (incoming.result() != CacheActions.Result.OK) {
-                notice("result." + incoming.result().name().toLowerCase(Locale.ROOT));
+                if (incoming.acknowledged() != silentCollectSequence)
+                    notice("result." + incoming.result().name().toLowerCase(Locale.ROOT));
                 if (LogisticsPanel.pendingReturnMatches(incoming)) {
                     returnEditing = true;
                     returnBuffer = pendingReturnBuffer == null ? "" : pendingReturnBuffer;
@@ -518,10 +534,12 @@ public final class LogisticsPanel {
         }
         if (incoming.acknowledged() != 0 && incoming.acknowledged() == waiting) {
             waiting = 0;
-            if (incoming.result() != CacheActions.Result.OK) {
+            if (incoming.result() != CacheActions.Result.OK
+                    && incoming.acknowledged() != silentCollectSequence) {
                 LogisticsPanel.notice("result." + incoming.result().name().toLowerCase(Locale.ROOT));
             }
         }
+        if (incoming.acknowledged() == silentCollectSequence) silentCollectSequence = 0;
         if (!LogisticsPanel.active()) {
             selected = -1;
             draggingSlider = false;
@@ -556,20 +574,20 @@ public final class LogisticsPanel {
             layout = null;
             return;
         }
+        if (collapsed) {
+            // Put the inventory screen back where vanilla placed it: the whole point of folding the panel away
+            // is that it stops pushing the GUI (and JEI's bookmark column) across the window.
+            LogisticsPanel.shiftScreenTo((LogisticsPanel.screen.width - screen.getXSize()) / 2);
+            layout = PanelLayout.collapsed(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop());
+            firstRow = 0;
+            return;
+        }
         int count = LogisticsPanel.active() ? snapshot.cells().size() : 0;
         CacheGrid grid = CacheGrid.forCount(count);
         int availableColumns = Math.max(2, (LogisticsPanel.screen.width - screen.getXSize() - 12 - 2 * PanelLayout.SIDE) / PanelLayout.ROW);
         int width = Math.min(PanelLayout.preferredWidth(grid), availableColumns * PanelLayout.ROW + 2 * PanelLayout.SIDE);
         if (!LogisticsPanel.bookOpen() && screen.getGuiLeft() < width + 8 && LogisticsPanel.screen.width >= screen.getXSize() + width + 12) {
-            int old = screen.getGuiLeft();
-            int next = width + 8;
-            int delta = next - old;
-            ((ContainerScreenAccess)screen).fmp$setLeft(next);
-            for (GuiEventListener child : screen.children()) {
-                AbstractWidget widget;
-                if (!(child instanceof AbstractWidget) || (widget = (AbstractWidget)child).getX() < old || widget.getX() >= old + screen.getXSize()) continue;
-                widget.setX(widget.getX() + delta);
-            }
+            LogisticsPanel.shiftScreenTo(width + 8);
         }
         layout = PanelLayout.compute(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
         int availableHeight = LogisticsPanel.screen.height - overlayBottomInset;
@@ -585,6 +603,25 @@ public final class LogisticsPanel {
             layout = PanelLayout.compute(availableHeight, screen.getGuiLeft(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
         }
         firstRow = layout.firstRow();
+    }
+
+    /** Move the inventory screen - and the widgets that live inside it - to {@code next}, keeping them aligned. */
+    private static void shiftScreenTo(int next) {
+        int old = screen.getGuiLeft();
+        if (old == next) return;
+        int delta = next - old;
+        ((ContainerScreenAccess)screen).fmp$setLeft(next);
+        for (GuiEventListener child : screen.children()) {
+            AbstractWidget widget;
+            if (!(child instanceof AbstractWidget) || (widget = (AbstractWidget)child).getX() < old || widget.getX() >= old + screen.getXSize()) continue;
+            widget.setX(widget.getX() + delta);
+        }
+    }
+
+    /** Fold the panel into its strip, or unfold it. View state only - no cell, coordinate or ledger change. */
+    private static void toggleCollapsed() {
+        LogisticsPanel.collapsed = !LogisticsPanel.collapsed;
+        LogisticsPanel.updateLayout();
     }
 
     private static void foreground(ContainerScreenEvent.Render.Foreground event) {
@@ -620,6 +657,14 @@ public final class LogisticsPanel {
         PanelLayout.Rect b = layout.bounds();
         int x = b.x();
         int y = b.y();
+        if (layout.collapsed()) {
+            // Folded away: a narrow strip with the two buttons and nothing else. No cell is drawn, so nothing
+            // of the grid is hidden behind it either - unfolding restores the layout cell for cell.
+            LogisticsPanel.overlay(g, x, y, b.width(), b.height(), BUTTON_FACE);
+            LogisticsPanel.renderCollectButton(g);
+            LogisticsPanel.renderCollapseButton(g);
+            return;
+        }
         LogisticsPanel.frame(g, b);
         PanelLayout.Rect copy = layout.address();
         String address = snapshot.address();
@@ -670,40 +715,43 @@ public final class LogisticsPanel {
         }
         if (!layout.compact()) {
             LogisticsPanel.renderCollectButton(g);
+            LogisticsPanel.renderCollapseButton(g);
         }
     }
 
     /**
-     * The one-key collect button (user request: right edge, vertically centred, left-pointing arrow). It is
-     * disabled - greyed and inert - exactly when the cache cannot be used right now, and while the client owns
-     * the creative inventory stacks (the server refuses that case too).
+     * The one-key collect button: a small square in the right-hand end-cap band, showing {@code ←}. Disabled -
+     * greyed and inert - exactly when the cache cannot be used right now, and while the client owns the creative
+     * inventory stacks (the server refuses that case too).
      */
     private static void renderCollectButton(GuiGraphics g) {
         PanelLayout.Rect r = layout.collectButton();
         boolean enabled = LogisticsPanel.collectEnabled();
-        boolean hover = enabled && r.contains(mouseX, mouseY);
-        (hover ? AllGuiTextures.BUTTON_HOVER : AllGuiTextures.BUTTON).render(g, r.x(), r.y());
-        LogisticsPanel.drawCollectArrow(g, r.x() + ARROW_INSET, r.y() + ARROW_INSET);
-        if (!enabled) {
-            LogisticsPanel.overlay(g, r.x(), r.y(), r.width(), r.height(), -1728053248);
-            return;
-        }
-        if (r.contains(mouseX, mouseY)) {
-            tooltip = List.of(LogisticsPanel.tr("collect_button", new Object[0]));
-        }
+        LogisticsPanel.glyphButton(g, r, GLYPH_COLLECT, "collect_button", enabled);
     }
 
-    /** The mirrored vanilla arrow: a left-pointing arrow without shipping a new texture. */
-    private static void drawCollectArrow(GuiGraphics g, int x, int y) {
-        com.mojang.blaze3d.systems.RenderSystem.enableBlend();
-        com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
-        g.pose().pushPose();
-        g.pose().translate((float)(x + ARROW_SIZE), (float)y, 0.0f);
-        g.pose().scale(-1.0f, 1.0f, 1.0f);
-        g.blit(ARROW, 0, 0, ARROW_U, ARROW_V, ARROW_SIZE, ARROW_SIZE,
-                ARROW_TEXTURE_WIDTH, ARROW_TEXTURE_HEIGHT);
-        g.pose().popPose();
-        com.mojang.blaze3d.systems.RenderSystem.disableBlend();
+    /**
+     * The fold-away button: same column as the collect button, at the panel's bottom-right corner; {@code »}
+     * folds the panel into a narrow strip (so it stops pushing the inventory screen - and JEI's bookmark column
+     * - across the window) and {@code «} unfolds it again. Always usable: it is a view toggle, not a cache
+     * action.
+     */
+    private static void renderCollapseButton(GuiGraphics g) {
+        PanelLayout.Rect r = layout.collapseButton();
+        LogisticsPanel.glyphButton(g, r, layout.collapsed() ? GLYPH_UNFOLD : GLYPH_FOLD,
+                layout.collapsed() ? "unfold_button" : "fold_button", true);
+    }
+
+    /** A texture-free button: a flat fill plus one centred font glyph, with hover and disabled states. */
+    private static void glyphButton(GuiGraphics g, PanelLayout.Rect r, String glyph, String help, boolean enabled) {
+        boolean hover = enabled && r.contains(mouseX, mouseY);
+        LogisticsPanel.overlay(g, r.x(), r.y(), r.width(), r.height(), hover ? BUTTON_FACE_HOVER : BUTTON_FACE);
+        int width = LogisticsPanel.MC.font.width(glyph);
+        LogisticsPanel.text(g, glyph, r.x() + (r.width() - width) / 2, r.y() + (r.height() - 8) / 2,
+                enabled ? BUTTON_GLYPH : BUTTON_GLYPH_OFF);
+        if (enabled && r.contains(mouseX, mouseY)) {
+            tooltip = List.of(LogisticsPanel.tr(help, new Object[0]));
+        }
     }
 
     /** True when the one-key collect may be sent: a live cache, and no creative inventory stack ownership. */
@@ -1114,6 +1162,23 @@ public final class LogisticsPanel {
             LogisticsPanel.updateLayout();
             return true;
         }
+        // The two small buttons come first, while folded or not: the fold toggle works in both states, the
+        // collect only when the cache is usable. A disabled collect still swallows the click instead of letting
+        // it fall through to a drop. Both are answered before the 2-pixel scrollbar rail so its thin band does
+        // not steal them; elsewhere the rail behaves exactly as before.
+        if (inputLayout.collapseButton().contains(x, y)) {
+            LogisticsPanel.toggleCollapsed();
+            return true;
+        }
+        if (inputLayout.collectButton().contains(x, y)) {
+            if (LogisticsPanel.collectEnabled()) {
+                LogisticsPanel.send(CacheActions.Action.COLLECT_MATCHING, -1, 0, -1, "");
+            }
+            return true;
+        }
+        if (inputLayout.collapsed()) {
+            return true;   // folded away: the strip has nothing else to offer
+        }
         int px = layout.bounds().x();
         int py = layout.bounds().y();
         if (inputLayout.address().contains(x, y)) {
@@ -1122,14 +1187,7 @@ public final class LogisticsPanel {
             return true;
         }
         // The one-key collect button sits in the right-hand cap. It is answered before the scrollbar rail so
-        // its 18-pixel band is not stolen by the 2-pixel rail; elsewhere the rail behaves as before. A
-        // disabled button still swallows the click instead of letting it fall through to a drop.
-        if (inputLayout.collectButton().contains(x, y)) {
-            if (LogisticsPanel.collectEnabled()) {
-                LogisticsPanel.send(CacheActions.Action.COLLECT_MATCHING, -1, 0, -1, "");
-            }
-            return true;
-        }
+        // its band is not stolen by the 2-pixel rail; elsewhere the rail behaves as before.
         PanelLayout.Rect rail = inputLayout.scrollbar();
         if (inputLayout.totalRows() > inputLayout.visibleRows() && rail.contains(x, y)) {
             firstRow = (int) Math.round((y - rail.y()) * (inputLayout.totalRows() - inputLayout.visibleRows())
@@ -1483,6 +1541,9 @@ public final class LogisticsPanel {
         CacheActions.Intent intent = new CacheActions.Intent(snapshot.session(), snapshot.revision(), action, slot, first, second, template);
         waiting = ++sequence;
         waitingSince = tick;
+        // The one-key collect is silent on every non-OK result (user's silence rule): its answer is only ever
+        // the server's own action-bar line when something actually moved.
+        if (action == CacheActions.Action.COLLECT_MATCHING) silentCollectSequence = waiting;
         recordPredict(action, slot, first, template, waiting);
         if (creative) {
             cursorSession = snapshot.session(); cursorOperation = waiting;

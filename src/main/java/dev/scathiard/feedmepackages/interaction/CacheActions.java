@@ -198,7 +198,12 @@ public final class CacheActions {
      * One-key collect (user request): move what the player carries into the cells that <b>already filter those
      * exact items</b>. Plan first, commit once — the inventory delta is simulated on copies and validated, then
      * the ledger is replaced, then the inventory is written; a changed or unreadable inventory changes nothing
-     * at all. The player is always told what happened ({@code message.create_feed_me_packages.collect}).
+     * at all.
+     *
+     * <p><b>Silence rule (user, 2026-09-19).</b> The player is told <b>only when something actually moved</b>,
+     * and then exactly once ({@code message.create_feed_me_packages.collect}). Nothing to move, a full cell, an
+     * unmatched kind, a stale revision and every other refusal are <b>silent</b> - this supersedes the earlier
+     * "must always speak" wording.
      */
     private static Result collect(ServerPlayer player, AccessGate.Result access, CacheRecord before, CacheLedger ledger) {
         var inventory = player.getInventory();
@@ -220,7 +225,7 @@ public final class CacheActions {
             if (held.filter() != null) targets.add(new CollectPlan.Target(cell, held.filter(), held.amount(), held.maximum()));
         }
         CollectPlan.Plan plan = CollectPlan.simulate(targets, sources, CacheLevel.of(state.level()).groupCapacity());
-        if (plan.isEmpty()) { collectReport(player, plan); return Result.OK; }
+        if (plan.isEmpty()) return Result.OK;   // nothing moved, nothing to say (silence rule)
         InventoryTransfer.Plan inventoryPlan = InventoryTransfer.take(inventory, plan.moves());
         if (!inventoryPlan.stillValid(inventory)) return Result.STALE;
         var edit = state.edit();
@@ -232,14 +237,17 @@ public final class CacheActions {
         ledger.replace(access.handle(), state.revision(), before.withState(edit.finish()));
         inventoryPlan.commit(inventory);
         player.containerMenu.broadcastChanges();
-        collectReport(player, plan);
+        if (plan.shouldReport()) collectReport(player, plan);   // told once, only when something moved
         return Result.OK;
     }
 
-    /** Never silent: how much moved, and what had nowhere to go. */
+    /**
+     * One action-bar line: how much moved - and nothing else. Only ever called when something actually moved,
+     * so "nothing to collect", a full cell and every refusal stay silent (user's silence rule).
+     */
     private static void collectReport(ServerPlayer player, CollectPlan.Plan plan) {
         player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
-                "message.create_feed_me_packages.collect", plan.moved(), plan.noCell(), plan.full()), true);
+                "message.create_feed_me_packages.collect", plan.moved()), true);
     }
 
     private static void cursor(ServerPlayer player, ItemStack next, boolean creative, UUID session, int sequence) {        var menu = player.containerMenu;
