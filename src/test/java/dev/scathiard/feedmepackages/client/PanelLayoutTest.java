@@ -288,37 +288,64 @@ class PanelLayoutTest {
     }
 
     /**
-     * The button icon is ONE 16x16 RGBA sheet in our own namespace, drawn at half scale (user: "画一个16x16的箭头，
-     * 然后游戏内按比例缩放到8x8，两个箭头复用一份素材"). This test reads the real shipped PNG out of the build
-     * output - not a reference - and pins the properties that make it readable when halved: 16x16, an alpha
-     * channel, and a <b>clean solid</b> arrow (every pixel either fully transparent or fully opaque white, so
-     * halving cannot produce the grey fringe the user complained about), with nothing clipped at the edges.
+     * The button is ONE 32x32 texture supplied by the user ({@code 参考/Button.png}), copied byte for byte into our
+     * own namespace. This test reads the <b>shipped</b> PNG out of the build output and pins what the user's asset
+     * actually contains, so a silent replacement or a corrupt copy fails the build: a 1 px black frame all round,
+     * a grey face, and an arrow baked into the middle whose tip reaches the right half (the direction the user
+     * supplied). Nothing may touch the frame: the arrow stays inside the 1 px border.
      */
-    @Test void theArrowSheetIsACleanSixteenPixelRgbaArrow() throws Exception {
-        var url = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/arrow.png");
-        assertNotNull(url, "the arrow sheet is missing from the mod's own assets");
+    @Test void theButtonSheetIsTheUsersThirtyTwoPixelButtonWithAnArrowInsideItsFrame() throws Exception {
+        var url = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/button.png");
+        assertNotNull(url, "the button sheet is missing from the mod's own assets");
         var sheet = javax.imageio.ImageIO.read(url);
-        assertNotNull(sheet, "the arrow sheet is not a readable PNG");
-        assertEquals(16, sheet.getWidth(), "the sheet must be 16x16 so that half scale gives 8x8");
-        assertEquals(16, sheet.getHeight());
+        assertNotNull(sheet, "the button sheet is not a readable PNG");
+        assertEquals(32, sheet.getWidth(), "the user's sheet is 32x32 and is scaled to the button rect");
+        assertEquals(32, sheet.getHeight());
         assertTrue(sheet.getColorModel().hasAlpha(), "the sheet needs an alpha channel (RGBA)");
-        int opaque = 0;
-        for (int y = 0; y < sheet.getHeight(); y++) {
-            for (int x = 0; x < sheet.getWidth(); x++) {
-                int argb = sheet.getRGB(x, y);
-                int alpha = argb >>> 24;
-                assertTrue(alpha == 0 || alpha == 255,
-                        "anti-aliased pixel at " + x + "," + y + " would show as a fringe (alpha " + alpha + ")");
-                if (alpha == 0) continue;
-                assertEquals(0x00FFFFFF, argb & 0x00FFFFFF, "the arrow must be pure white at " + x + "," + y);
-                assertTrue(x > 0 && y > 0 && x < 15 && y < 15,
-                        "the arrow is clipped at the sheet edge at " + x + "," + y);
-                opaque++;
+        int face = 0;
+        int frame = 0;
+        int left = 32, right = -1, top = 32, bottom = -1;
+        for (int y = 0; y < 32; y++) {
+            for (int x = 0; x < 32; x++) {
+                int rgb = sheet.getRGB(x, y) & 0x00FFFFFF;
+                boolean border = x == 0 || y == 0 || x == 31 || y == 31;
+                if (border) {
+                    assertEquals(0x000000, rgb, "the 1 px frame must be black at " + x + "," + y);
+                    continue;
+                }
+                if (rgb == 0x8D8F8D) { face++; continue; }               // (141,143,141) the face
+                if (rgb == 0x000000) continue;                            // frame-adjacent / arrow outline
+                if (rgb == 0x9AA49D || rgb == 0x404543) continue;         // inner edge / inner shadow
+                frame++;
+                left = Math.min(left, x);
+                right = Math.max(right, x);
+                top = Math.min(top, y);
+                bottom = Math.max(bottom, y);
             }
         }
-        assertTrue(opaque >= 40, "the arrow is too small to read when halved (" + opaque + " opaque pixels)");
-        assertTrue(sheet.getWidth() * 0.5f == PanelLayout.BUTTON,
-                "the sheet must scale exactly onto the button");
+        assertTrue(face >= 300, "the grey face is missing (" + face + " px)");
+        assertTrue(frame >= 100, "no arrow inside the frame (" + frame + " px)");
+        assertTrue(right - left >= 16, "the arrow is too small to read (" + (right - left) + " px wide)");
+        assertTrue(right >= 24, "the arrow must reach the right half of the sheet (rightmost " + right + ")");
+        assertTrue(left >= 2 && top >= 2 && right <= 29 && bottom <= 29,
+                "the arrow touches the frame: " + left + "," + top + ".." + right + "," + bottom);
+    }
+
+    /**
+     * The shipped bytecode must draw THAT one sheet and must no longer carry the fill-based glyph path. This is the
+     * artifact-level half of the "grey square, no arrow" post-mortem: the previous build drew a face fill at a
+     * raised z and the icon at z = 0, so the icon was hidden. There is now only one texture blit per button.
+     */
+    @Test void theShippedButtonCodeDrawsTheOneSheetAndHasNoFillGlyphPathLeft() throws Exception {
+        try (var in = PanelLayoutTest.class
+                .getResourceAsStream("/dev/scathiard/feedmepackages/client/LogisticsPanel.class")) {
+            assertNotNull(in, "the compiled panel class must be on the test classpath");
+            String code = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.ISO_8859_1);
+            assertTrue(code.contains("textures/gui/button.png"), "the shipped code does not load the button sheet");
+            for (String gone : new String[]{"glyphFills", "BUTTON_GLYPH", "textures/gui/arrow.png", "drawArrow"}) {
+                assertFalse(code.contains(gone), "the old fill/glyph path is still in the shipped class: " + gone);
+            }
+        }
     }
 
     /**

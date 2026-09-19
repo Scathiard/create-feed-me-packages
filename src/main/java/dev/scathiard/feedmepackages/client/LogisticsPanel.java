@@ -52,19 +52,27 @@ import top.theillusivec4.curios.api.type.capability.ICuriosItemHandler;
 public final class LogisticsPanel {
     private static final Minecraft MC = Minecraft.getInstance();
     /**
-     * The button icon is ONE 16x16 RGBA sheet ({@code textures/gui/arrow.png}) drawn at <b>half scale</b>
-     * (user: "画一个16x16的箭头，然后游戏内按比例缩放到8x8，两个箭头复用一份素材"), so the drawn arrow is 8x8.
-     * Collect and the hidden entry show it as-is (pointing left); the fold button <b>mirrors the same sheet</b>
-     * horizontally (pointing right) instead of shipping a second texture. No font glyph and no procedural fills
-     * are involved any more.
+     * The button IS one 32x32 texture supplied by the user ({@code 参考/Button.png}): 1 px black frame, grey
+     * face, right/bottom inner shadow and the arrow baked into the face. It replaces the previous arrow-only
+     * sheet, so the mod still ships exactly <b>one</b> button texture. Because the frame, the face and the arrow
+     * are a single image there is no separate face fill any more - which makes "the face covers the arrow"
+     * structurally impossible now. That is exactly what the user's "grey square, no arrow" report was:
+     * {@link #overlay} draws at {@link #BUTTON_Z} while the icon was drawn at z = 0 and stayed behind it.
+     * Drawn at whatever size the layout rect has (uniform scale) and mirrored for the collect/entry direction.
      */
-    private static final ResourceLocation BUTTON_ARROW = ResourceLocation.fromNamespaceAndPath(
-            "create_feed_me_packages", "textures/gui/arrow.png");
-    /** Source sheet edge in pixels. The sheet is 16x16 and is always drawn through {@link #ARROW_SCALE}. */
-    private static final int ARROW_SHEET = 16;
-    /** Uniform scale applied to the sheet: {@code ARROW_SHEET * ARROW_SCALE} = the 8x8 button. */
-    private static final float ARROW_SCALE = 0.5f;
-    private static final int BUTTON_FACE = 0xC0202020, BUTTON_FACE_HOVER = 0xD0505050;
+    private static final ResourceLocation BUTTON_TEXTURE = ResourceLocation.fromNamespaceAndPath(
+            "create_feed_me_packages", "textures/gui/button.png");
+    /** Source sheet edge in pixels (the user's file). The on-screen size comes from the layout rect. */
+    private static final int BUTTON_SHEET = 32;
+    /**
+     * The layer the panel's own buttons and flat overlays live on. {@link #overlay} has always drawn here, and
+     * the button sheet must use the SAME layer: the "grey square, no arrow" bug was an icon drawn at z = 0
+     * underneath a face fill at {@code +BUTTON_Z}.
+     */
+    static final float BUTTON_Z = 190.0f;
+    /** Hover highlight / disabled veil sit strictly above the sheet, so they can never hide it. */
+    static final float BUTTON_MARK_Z = 191.0f;
+    private static final int BUTTON_HOVER_MARK = 0x28FFFFFF;
     /** Veil over the whole button when the action is unavailable (keeps the old "greyed out" reading). */
     private static final int BUTTON_DISABLED_VEIL = 0xB0000000;
 
@@ -750,38 +758,51 @@ public final class LogisticsPanel {
     }
 
     /**
-     * A button: a flat face plus the shared arrow sheet drawn at half scale, with hover and disabled states.
-     * {@code mirrored} flips the SAME sheet horizontally (fold points right, collect/entry point left).
+     * A button, drawn as <b>one image</b>: {@link #BUTTON_TEXTURE} already contains its own frame, face and
+     * arrow, so nothing is filled underneath it and nothing can cover it. The only marks drawn here come
+     * <b>after</b> the sheet and strictly above it ({@link #BUTTON_MARK_Z}): a hover highlight, or the disabled
+     * veil. {@code mirrored} flips the SAME sheet horizontally (fold as supplied; collect/entry mirrored).
      */
     private static void iconButton(GuiGraphics g, PanelLayout.Rect r, boolean mirrored, String help,
             boolean enabled) {
         if (r.width() <= 0 || r.height() <= 0) return;   // no button in this state (e.g. collect while hidden)
         boolean hover = enabled && r.contains(mouseX, mouseY);
-        LogisticsPanel.overlay(g, r.x(), r.y(), r.width(), r.height(), hover ? BUTTON_FACE_HOVER : BUTTON_FACE);
-        LogisticsPanel.drawArrow(g, r, mirrored);
-        if (!enabled) LogisticsPanel.overlay(g, r.x(), r.y(), r.width(), r.height(), BUTTON_DISABLED_VEIL);
+        LogisticsPanel.buttonSheet(g, r, mirrored);
+        if (!enabled) LogisticsPanel.mark(g, r, BUTTON_DISABLED_VEIL);
+        else if (hover) LogisticsPanel.mark(g, r, BUTTON_HOVER_MARK);
         if (hover) tooltip = List.of(LogisticsPanel.tr(help, new Object[0]));
     }
 
     /**
-     * Draw the shared 16x16 sheet scaled to {@link #ARROW_SHEET} * {@link #ARROW_SCALE} (8x8). The mirror is a
-     * negative x-scale about the button's right edge, so the SAME texture reads as "fold" with no second asset.
-     * Blending is on because the sheet has transparent pixels; the pose is always popped and blending restored.
+     * Draw the single button sheet at the rect's size, on the SAME layer as {@link #overlay} (see
+     * {@link #BUTTON_Z} - drawing it at z = 0 was the "grey square" bug). The mirror is a negative x-scale
+     * about the button's right edge, so one asset serves both directions. Pose is always popped; blending is
+     * left as it was found.
      */
-    private static void drawArrow(GuiGraphics g, PanelLayout.Rect r, boolean mirrored) {
+    private static void buttonSheet(GuiGraphics g, PanelLayout.Rect r, boolean mirrored) {
+        float scale = (float) r.width() / BUTTON_SHEET;
         com.mojang.blaze3d.systems.RenderSystem.enableBlend();
         com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
         g.pose().pushPose();
+        g.pose().translate(0.0f, 0.0f, BUTTON_Z);
         if (mirrored) {
             g.pose().translate((float)(r.x() + r.width()), (float)r.y(), 0.0f);
-            g.pose().scale(-ARROW_SCALE, ARROW_SCALE, 1.0f);
+            g.pose().scale(-scale, scale, 1.0f);
         } else {
             g.pose().translate((float)r.x(), (float)r.y(), 0.0f);
-            g.pose().scale(ARROW_SCALE, ARROW_SCALE, 1.0f);
+            g.pose().scale(scale, scale, 1.0f);
         }
-        g.blit(BUTTON_ARROW, 0, 0, 0.0f, 0.0f, ARROW_SHEET, ARROW_SHEET, ARROW_SHEET, ARROW_SHEET);
+        g.blit(BUTTON_TEXTURE, 0, 0, 0.0f, 0.0f, BUTTON_SHEET, BUTTON_SHEET, BUTTON_SHEET, BUTTON_SHEET);
         g.pose().popPose();
         com.mojang.blaze3d.systems.RenderSystem.disableBlend();
+    }
+
+    /** A state mark (hover highlight / disabled veil) drawn strictly above the sheet. */
+    private static void mark(GuiGraphics g, PanelLayout.Rect r, int color) {
+        g.pose().pushPose();
+        g.pose().translate(0.0f, 0.0f, BUTTON_MARK_Z);
+        g.fill(r.x(), r.y(), r.x() + r.width(), r.y() + r.height(), color);
+        g.pose().popPose();
     }
 
     /** True when the one-key collect may be sent: a live cache. Creative mode is allowed (narrow server door). */
@@ -1017,7 +1038,7 @@ public final class LogisticsPanel {
 
     private static void overlay(GuiGraphics g, int x, int y, int w, int h, int color) {
         g.pose().pushPose();
-        g.pose().translate(0.0f, 0.0f, 190.0f);
+        g.pose().translate(0.0f, 0.0f, BUTTON_Z);
         g.fill(x, y, x + w, y + h, color);
         g.pose().popPose();
     }
