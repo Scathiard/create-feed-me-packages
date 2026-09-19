@@ -45,9 +45,14 @@ public final class ReturnThenCollectDiagnosisTests {
         var tests = new ArrayList<TestFunction>();
         tests.add(new TestFunction("diagnosis", "fmp_return_then_collect_numbers", FeedMePackages.MOD_ID + ":empty",
                 1200, 0, true, ReturnThenCollectDiagnosisTests::numbersWithoutTransport));
-        if (ModList.get().isLoaded("create_mobile_packages"))
+        tests.add(new TestFunction("diagnosis", "fmp_both_policies_net_change", FeedMePackages.MOD_ID + ":empty",
+                1200, 0, true, ReturnThenCollectDiagnosisTests::bothPolicies));
+        if (ModList.get().isLoaded("create_mobile_packages")) {
             tests.add(new TestFunction("diagnosis", "fmp_return_then_collect_real_dispatch", FeedMePackages.MOD_ID + ":empty",
                     2400, 0, true, ReturnThenCollectDiagnosisTests::numbersWithRealReturn));
+            tests.add(new TestFunction("diagnosis", "fmp_user_policy_then_return_ships_it_away", FeedMePackages.MOD_ID + ":empty",
+                    2400, 0, true, ReturnThenCollectDiagnosisTests::userPolicyThenReturnShipsItAway));
+        }
         return tests;
     }
 
@@ -221,6 +226,115 @@ public final class ReturnThenCollectDiagnosisTests {
                     .thenSucceed();
         } catch (ReflectiveOperationException failure) {
             throw new IllegalStateException("Return/collect diagnosis fixture failed", failure);
+        }
+    }
+
+    /**
+     * The two policies side by side, with the net change of one click. "User policy" is computed by handing
+     * {@link CollectPlan} the same cell with {@code maximum = -1} (capacity only) - the shipped arithmetic, no
+     * re-implementation, and no behaviour change to production.
+     */
+    @GameTest(template = "empty")
+    public static void bothPolicies(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
+        var access = AccessGate.resolve(player);
+        var ledger = CacheLedger.get(player.getServer());
+        var cacheId = access.handle().cacheId();
+        var key = stone(helper, player);
+        var before = ledger.find(cacheId);
+        var edit = before.state().edit();
+        edit.filter(0, key);
+        edit.insert(0, key, 64);      // exactly the threshold: what a converged return leaves behind
+        edit.thresholds(0, 0, 1);     // maximum = 1 group = 64 items
+        ledger.replace(access.handle(), before.state().revision(), before.withState(edit.finish()));
+        player.getInventory().setItem(0, new ItemStack(Items.STONE, 64));
+        int groupCapacity = CacheLevel.of(1).groupCapacity();
+
+        // Current policy: room is capped by the cell's own threshold.
+        int currentRoom = CollectPlan.roomLeft(new CollectPlan.Target(0, key, 64, 1), groupCapacity);
+        CollectPlan.Plan current = plan(player, cacheId);
+        CacheActions.resetCollectReports();
+        var currentResult = collect(player);
+        FeedMePackages.LOGGER.info("FMP_RETURN_COLLECT_DIAGNOSIS policy=current capacity={} maximum=1(64) amount=64"
+                        + " roomLeft={} netCache={} netInventory={} message={} result={} counts=[{}]",
+                groupCapacity * 64, currentRoom, 0, 0, "none (silent)", currentResult, counts(current));
+        helper.assertTrue(currentRoom == 0, "current policy must report no room");
+        helper.assertTrue(current.moved() == 0 && current.full() == 1, "current policy should move nothing");
+        helper.assertTrue(CacheActions.collectReports() == 0, "current policy is silent");
+
+        // User policy: room is only the cell's remaining capacity (maximum ignored for intake).
+        int userRoom = CollectPlan.roomLeft(new CollectPlan.Target(0, key, 64, -1), groupCapacity);
+        var sources = new ArrayList<CollectPlan.Source>();
+        sources.add(new CollectPlan.Source(0, key, 64));
+        CollectPlan.Plan user = CollectPlan.simulate(java.util.List.of(new CollectPlan.Target(0, key, 64, -1)),
+                sources, groupCapacity);
+        FeedMePackages.LOGGER.info("FMP_RETURN_COLLECT_DIAGNOSIS policy=user capacity={} maximum=1(64) amount=64"
+                        + " roomLeft={} netCache=+{} netInventory=-{} message=[已收 {} 件] counts=[{}]",
+                groupCapacity * 64, userRoom, user.moved(), user.moved(), user.moved(), counts(user));
+        helper.assertTrue(userRoom == 64, "user policy should see the free capacity, got " + userRoom);
+        helper.assertTrue(user.moved() == 64, "user policy should move a full stack, got " + user.moved());
+        helper.assertTrue(user.full() == 0 && user.noCell() == 0, "user policy should have no refusal");
+
+        // What that click would leave behind, and what the return does with it.
+        helper.assertTrue(64 + user.moved() == groupCapacity * 64,
+                "the user policy fills the cell to capacity: 64 + " + user.moved());
+        FeedMePackages.LOGGER.info("FMP_RETURN_COLLECT_DIAGNOSIS policy=user after-click cell={} (== capacity);"
+                        + " the return line is still 64, so the next return pass has overage {}",
+                groupCapacity * 64, (64 + user.moved()) - 64);
+        helper.succeed();
+    }
+
+    /**
+     * The user's policy all the way through: fill the cell to capacity (what that click would produce), then let
+     * the return run for real. This is the "点了等于没点" check - where the surplus actually goes.
+     */
+    public static void userPolicyThenReturnShipsItAway(GameTestHelper helper) {
+        var f = ReceiveTests.setup(helper, 0);
+        f.player().setPos(helper.absoluteVec(new Vec3(2, 2, 2)));
+        helper.getLevel().addNewPlayer(f.player());
+        var portPos = new net.minecraft.core.BlockPos(1, 1, 1);
+        var block = BuiltInRegistries.BLOCK.get(ResourceLocation.parse("create_mobile_packages:bee_port"));
+        helper.setBlock(portPos, block.defaultBlockState());
+        block.setPlacedBy(helper.getLevel(), helper.absolutePos(portPos), helper.getBlockState(portPos), f.player(),
+                new ItemStack(block));
+        try {
+            var port = helper.getBlockEntity(portPos);
+            var network = (UUID)port.getClass().getMethod("getLogisticsNetworkId").invoke(port);
+            TestPlayers.necklace(f.player()).getStackInSlot(0).set(FmpRegistries.NETWORK.get(), network);
+            var join = Class.forName("de.theidler.create_mobile_packages.network_settings.AddPlayerToNetworkPackage");
+            join.getMethod("handle", net.minecraft.server.level.ServerPlayer.class).invoke(
+                    join.getConstructor(UUID.class, UUID.class).newInstance(f.player().getUUID(), network), f.player());
+            var address = SupplyService.address(f.player());
+            f.ledger().setReturnAddress(f.handle().cacheId(), address);
+            var before = f.record();
+            var edit = before.state().edit();
+            for (int level = 1; level < 5; level++) edit.upgrade();
+            edit.thresholds(0, 0, 1);          // maximum = 1 group = 64 items
+            edit.insert(0, f.key(), 128);      // what the user's policy would have collected into it
+            f.ledger().replace(f.handle(), before.state().revision(), before.withState(edit.finish()));
+            f.player().getInventory().setItem(0, new ItemStack(
+                    BuiltInRegistries.ITEM.get(ResourceLocation.parse("create_mobile_packages:robo_bee"))));
+
+            helper.startSequence()
+                    .thenExecute(() -> {
+                        FeedMePackages.LOGGER.info("FMP_RETURN_COLLECT_DIAGNOSIS policy=user after-click cell=128"
+                                + " (capacity, above the return line 64); overage to the return = 64"
+                                + " -> the player already saw [已收 64 件]");
+                        ReturnService.check(f.player());
+                    })
+                    .thenWaitUntil(() -> {
+                        var cell = f.record().state().cells().getFirst();
+                        FeedMePackages.LOGGER.info("FMP_RETURN_COLLECT_DIAGNOSIS policy=user after-next-return"
+                                        + " cell={} netCacheChange={} goodsDispatchedTo=[{}]",
+                                cell.amount(), 64 - cell.amount(), address);
+                        helper.assertTrue(cell.amount() == 64,
+                                "the return should have shipped the just-collected 64 away, cell=" + cell.amount());
+                        helper.assertTrue(f.player().getInventory().getItem(0).getCount() == 0,
+                                "the carrier should have been consumed");
+                    })
+                    .thenSucceed();
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("User-policy return fixture failed", failure);
         }
     }
 
