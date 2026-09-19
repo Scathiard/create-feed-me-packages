@@ -54,17 +54,18 @@ public final class CollectPlan {
 
     /**
      * {@code moves} = what to move; {@code moved} = how many items that is; {@code noCell} = distinct kinds the
-     * inventory holds but no cell accepts; {@code full} = distinct kinds whose cell had no room left;
-     * {@code carried} = distinct kinds carried in total (reporting/sanity only).
+     * inventory holds but no cell accepts; {@code full} = distinct kinds whose cell is at its CAPACITY;
+     * {@code carried} = distinct kinds carried in total; {@code aboveMaximum} = how many of the moved items land
+     * above their cell's own return line (the part the return path will handle).
      */
-    public record Plan(List<Move> moves, int moved, int noCell, int full, int carried) {
+    public record Plan(List<Move> moves, int moved, int noCell, int full, int carried, int aboveMaximum) {
         public Plan { moves = List.copyOf(moves); }
         public boolean isEmpty() { return moves.isEmpty(); }
 
         /**
          * The silence rule (user, 2026-09-19: "没有物品可转移／已满／一切失败路径 ⇒ 一律不发任何消息"): the
          * player is told <b>only</b> when something actually moved, and then exactly once. Nothing to move, a
-         * cell that is full, an unmatched kind and every refused command all stay silent.
+         * cell at capacity, an unmatched kind and every refused command all stay silent.
          */
         public boolean shouldReport() { return moved > 0; }
     }
@@ -97,13 +98,47 @@ public final class CollectPlan {
             if (free == null) { noCell.add(source.variant()); continue; }
             int take = Math.min(source.count(), free);
             if (take <= 0) { full.add(source.variant()); continue; }
-            int cell = cellOf(targets, source.variant());
-            moves.add(new Move(cell, source.slot(), take));
+            moves.add(new Move(cellOf(targets, source.variant()), source.slot(), take));
             moved += take;
             room.put(source.variant(), free - take);
             if (take < source.count()) full.add(source.variant());
         }
-        return new Plan(moves, moved, noCell.size() + unreadable, full.size(), carried.size());
+        return new Plan(moves, moved, noCell.size() + unreadable, full.size(), carried.size(),
+                aboveMaximum(targets, moves));
+    }
+
+    /**
+     * How many of the moved items newly end up above their cell's own return line - the part the return path has
+     * to handle. The report says so out loud instead of pretending everything stays put.
+     */
+    private static int aboveMaximum(List<Target> targets, List<Move> moves) {
+        int total = 0;
+        for (Target target : targets) {
+            int into = 0;
+            for (Move move : moves) if (move.cell() == target.cell()) into += move.amount();
+            if (into == 0) continue;
+            int threshold = threshold(target);
+            if (threshold == Integer.MAX_VALUE) continue;
+            int before = Math.max(0, target.amount() - threshold);
+            int after = Math.max(0, target.amount() + into - threshold);
+            total += after - before;
+        }
+        return total;
+    }
+
+    private static Target targetOf(List<Target> targets, MaterialVariant variant) {
+        for (Target target : targets) if (target.variant().equals(variant)) return target;
+        throw new IllegalStateException("No cell for a variant that had room");
+    }
+
+    private static int threshold(Target target) {
+        if (target.maximum() < 0) return Integer.MAX_VALUE;   // no return line: nothing can be above it
+        return target.maximum() * Math.max(1, target.variant().stackSize());
+    }
+    /** Stock already above the cell's own return line. */
+    private static int aboveLine(Target target) {
+        int threshold = threshold(target);
+        return threshold == Integer.MAX_VALUE ? 0 : Math.max(0, target.amount() - threshold);
     }
 
     private static int cellOf(List<Target> targets, MaterialVariant variant) {
@@ -112,15 +147,14 @@ public final class CollectPlan {
     }
 
     /**
-     * How many items a cell can still take: its item capacity, capped by its own upper threshold when it has one
-     * ({@code -1} = no limit). Public because it is the number the diagnostics compare against
-     * {@code ReturnService}'s overage.
+     * How many items a cell can still take. <b>Only the cell's capacity</b> ({@code groupCapacity × stackSize}):
+     * the user decided that the return line must not block the one-key collect ("退货只是退货，转移应该还能收"),
+     * and anything above the return line is what the return path sends to the player's return address. Public
+     * because the diagnostics read it directly.
      */
     public static int roomLeft(Target target, int groupCapacity) {
         int stackSize = Math.max(1, target.variant().stackSize());
         int itemCapacity = groupCapacity * stackSize;
-        int free = Math.max(0, itemCapacity - target.amount());
-        if (target.maximum() >= 0) free = Math.min(free, Math.max(0, target.maximum() * stackSize - target.amount()));
-        return free;
+        return Math.max(0, itemCapacity - target.amount());
     }
 }

@@ -46,7 +46,7 @@ public final class ReturnThenCollectDiagnosisTests {
         tests.add(new TestFunction("diagnosis", "fmp_return_then_collect_numbers", FeedMePackages.MOD_ID + ":empty",
                 1200, 0, true, ReturnThenCollectDiagnosisTests::numbersWithoutTransport));
         tests.add(new TestFunction("diagnosis", "fmp_both_policies_net_change", FeedMePackages.MOD_ID + ":empty",
-                1200, 0, true, ReturnThenCollectDiagnosisTests::bothPolicies));
+                1200, 0, true, ReturnThenCollectDiagnosisTests::netChangeUnderTheNewPolicy));
         if (ModList.get().isLoaded("create_mobile_packages")) {
             tests.add(new TestFunction("diagnosis", "fmp_return_then_collect_real_dispatch", FeedMePackages.MOD_ID + ":empty",
                     2400, 0, true, ReturnThenCollectDiagnosisTests::numbersWithRealReturn));
@@ -137,39 +137,51 @@ public final class ReturnThenCollectDiagnosisTests {
         helper.assertTrue(ledger.find(cacheId).state().cells().get(0).amount() == 100,
                 "a carrier-less return must not deduct anything: " + afterReturn);
 
-        // One-key collect on that cell, carrying a stack the cell filters: the user's report, in numbers.
+        // One-key collect on that cell, carrying a stack the cell filters: the numbers under the new policy.
         var carried = new ItemStack(Items.STONE, 64);
         player.getInventory().setItem(0, carried);
         CollectPlan.Plan plan = plan(player, cacheId);
         report("plan-after-return", afterReturn, null);
         FeedMePackages.LOGGER.info("FMP_RETURN_COLLECT_DIAGNOSIS counts-after-return {}", counts(plan));
-        helper.assertTrue(plan.moved() == 0 && plan.full() == 1 && plan.noCell() == 0,
-                "expected one kind that is full and nothing moved, got " + counts(plan));
+        helper.assertTrue(plan.moved() == 28 && plan.full() == 1 && plan.noCell() == 0,
+                "the collect must fill the cell to capacity (128 - 100 = 28), got " + counts(plan));
+        helper.assertTrue(plan.aboveMaximum() == 28,
+                "the 28 moved items all land above the return line (the cell was already 36 above it), got "
+                        + plan.aboveMaximum());
         CacheActions.resetCollectReports();
         var result = collect(player);
         report("collect-after-return", afterReturn, result);
         helper.assertTrue(result == CacheActions.Result.OK, "collect was refused: " + result);
-        helper.assertTrue(CacheActions.collectReports() == 0, "a collect that moved nothing must stay silent");
-        helper.assertTrue(ledger.find(cacheId).state().cells().get(0).amount() == 100, "the cell changed");
-        helper.assertTrue(player.getInventory().getItem(0).getCount() == 64, "the carried stack was moved");
+        helper.assertTrue(CacheActions.collectReports() == 1, "a moving collect is reported once");
+        helper.assertTrue(CacheActions.lastCollectReported() == 28,
+                "the message must carry the real intake, said " + CacheActions.lastCollectReported());
+        helper.assertTrue(!CacheActions.lastCollectMentionedReturn(),
+                "an unbound fixture has no return configured, so the message must not promise to send anything");
+        helper.assertTrue(ledger.find(cacheId).state().cells().get(0).amount() == 128,
+                "the cell should have filled to capacity");
+        helper.assertTrue(player.getInventory().getItem(0).getCount() == 36, "the rest stays in the bag (64 - 28)");
 
         // And the same with the overage already trimmed down to the threshold, which is what a successful return
         // converges to (the exact debit ReturnService.dispatch applies: edit.extract(overage) + one replace).
         var live = ledger.find(cacheId);
         var debit = live.state().edit();
-        debit.extract(0, 36);   // 100 - 1 group * 64 = 36 items of overage
+        // Bring it down to the return line (64) whatever the collect above left there: this is the state a
+        // successful return converges to.
+        debit.extract(0, Math.max(0, live.state().cells().get(0).amount() - 64));
         ledger.replace(access.handle(), live.state().revision(), live.withState(debit.finish()));
         String converged = numbers(ledger, cacheId, 0, key, player);
         report("return-converged", converged, null);
         helper.assertTrue(ledger.find(cacheId).state().cells().get(0).amount() == 64, "fixture did not converge");
-        helper.assertTrue(CollectPlan.roomLeft(new CollectPlan.Target(0, key, 64, 1), CacheLevel.of(1).groupCapacity()) == 0,
-                "converged cell still has room: " + converged);
+        helper.assertTrue(CollectPlan.roomLeft(new CollectPlan.Target(0, key, 64, 1), CacheLevel.of(1).groupCapacity()) == 64,
+                "a cell at its return line still has its capacity free: " + converged);
 
-        helper.assertTrue(plan(player, cacheId).full() == 1, "the converged cell is still reported full");
+        player.getInventory().setItem(0, new ItemStack(Items.STONE, 64));
         CacheActions.resetCollectReports();
         helper.assertTrue(collect(player) == CacheActions.Result.OK, "collect was refused");
         report("collect-after-converged-return", converged, CacheActions.Result.OK);
-        helper.assertTrue(CacheActions.collectReports() == 0, "still silent after the return converged");
+        helper.assertTrue(CacheActions.collectReports() == 1, "a moving collect is reported once");
+        helper.assertTrue(CacheActions.lastCollectReported() == 64, "the message carries the real intake");
+        helper.assertTrue(ledger.find(cacheId).state().cells().get(0).amount() == 128, "the cell filled to capacity");
         helper.succeed();
     }
 
@@ -230,12 +242,11 @@ public final class ReturnThenCollectDiagnosisTests {
     }
 
     /**
-     * The two policies side by side, with the net change of one click. "User policy" is computed by handing
-     * {@link CollectPlan} the same cell with {@code maximum = -1} (capacity only) - the shipped arithmetic, no
-     * re-implementation, and no behaviour change to production.
+     * The shipped rule now: room is only the cell's remaining CAPACITY, and the part above the cell's own return
+     * line is announced to the player and left to the return path. These are the numbers for the one click.
      */
     @GameTest(template = "empty")
-    public static void bothPolicies(GameTestHelper helper) {
+    public static void netChangeUnderTheNewPolicy(GameTestHelper helper) {
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
         var access = AccessGate.resolve(player);
         var ledger = CacheLedger.get(player.getServer());
@@ -244,43 +255,32 @@ public final class ReturnThenCollectDiagnosisTests {
         var before = ledger.find(cacheId);
         var edit = before.state().edit();
         edit.filter(0, key);
-        edit.insert(0, key, 64);      // exactly the threshold: what a converged return leaves behind
+        edit.insert(0, key, 64);      // exactly the return line: what a converged return leaves behind
         edit.thresholds(0, 0, 1);     // maximum = 1 group = 64 items
         ledger.replace(access.handle(), before.state().revision(), before.withState(edit.finish()));
         player.getInventory().setItem(0, new ItemStack(Items.STONE, 64));
         int groupCapacity = CacheLevel.of(1).groupCapacity();
 
-        // Current policy: room is capped by the cell's own threshold.
-        int currentRoom = CollectPlan.roomLeft(new CollectPlan.Target(0, key, 64, 1), groupCapacity);
-        CollectPlan.Plan current = plan(player, cacheId);
+        int room = CollectPlan.roomLeft(new CollectPlan.Target(0, key, 64, 1), groupCapacity);
+        CollectPlan.Plan plan = plan(player, cacheId);
         CacheActions.resetCollectReports();
-        var currentResult = collect(player);
-        FeedMePackages.LOGGER.info("FMP_RETURN_COLLECT_DIAGNOSIS policy=current capacity={} maximum=1(64) amount=64"
-                        + " roomLeft={} netCache={} netInventory={} message={} result={} counts=[{}]",
-                groupCapacity * 64, currentRoom, 0, 0, "none (silent)", currentResult, counts(current));
-        helper.assertTrue(currentRoom == 0, "current policy must report no room");
-        helper.assertTrue(current.moved() == 0 && current.full() == 1, "current policy should move nothing");
-        helper.assertTrue(CacheActions.collectReports() == 0, "current policy is silent");
-
-        // User policy: room is only the cell's remaining capacity (maximum ignored for intake).
-        int userRoom = CollectPlan.roomLeft(new CollectPlan.Target(0, key, 64, -1), groupCapacity);
-        var sources = new ArrayList<CollectPlan.Source>();
-        sources.add(new CollectPlan.Source(0, key, 64));
-        CollectPlan.Plan user = CollectPlan.simulate(java.util.List.of(new CollectPlan.Target(0, key, 64, -1)),
-                sources, groupCapacity);
-        FeedMePackages.LOGGER.info("FMP_RETURN_COLLECT_DIAGNOSIS policy=user capacity={} maximum=1(64) amount=64"
-                        + " roomLeft={} netCache=+{} netInventory=-{} message=[已收 {} 件] counts=[{}]",
-                groupCapacity * 64, userRoom, user.moved(), user.moved(), user.moved(), counts(user));
-        helper.assertTrue(userRoom == 64, "user policy should see the free capacity, got " + userRoom);
-        helper.assertTrue(user.moved() == 64, "user policy should move a full stack, got " + user.moved());
-        helper.assertTrue(user.full() == 0 && user.noCell() == 0, "user policy should have no refusal");
-
-        // What that click would leave behind, and what the return does with it.
-        helper.assertTrue(64 + user.moved() == groupCapacity * 64,
-                "the user policy fills the cell to capacity: 64 + " + user.moved());
-        FeedMePackages.LOGGER.info("FMP_RETURN_COLLECT_DIAGNOSIS policy=user after-click cell={} (== capacity);"
+        var result = collect(player);
+        FeedMePackages.LOGGER.info("FMP_RETURN_COLLECT_DIAGNOSIS policy=new capacity={} maximum=1(64) amount=64"
+                        + " roomLeft={} netCache=+{} netInventory=-{} aboveMaximum={} messageCarried={} result={} counts=[{}]",
+                groupCapacity * 64, room, plan.moved(), plan.moved(), plan.aboveMaximum(),
+                CacheActions.lastCollectReported(), result, counts(plan));
+        helper.assertTrue(room == 64, "the new rule sees the free capacity, got " + room);
+        helper.assertTrue(plan.moved() == 64 && plan.full() == 0 && plan.noCell() == 0,
+                "the new rule fills the cell to capacity, got " + counts(plan));
+        helper.assertTrue(plan.aboveMaximum() == 64,
+                "everything above the return line must be announced, got " + plan.aboveMaximum());
+        helper.assertTrue(CacheActions.collectReports() == 1 && CacheActions.lastCollectReported() == plan.moved(),
+                "the single message must carry exactly what moved");
+        helper.assertTrue(ledger.find(cacheId).state().cells().get(0).amount() == groupCapacity * 64,
+                "the cell ends up at capacity");
+        FeedMePackages.LOGGER.info("FMP_RETURN_COLLECT_DIAGNOSIS policy=new after-click cell={} (== capacity);"
                         + " the return line is still 64, so the next return pass has overage {}",
-                groupCapacity * 64, (64 + user.moved()) - 64);
+                groupCapacity * 64, (64 + plan.moved()) - 64);
         helper.succeed();
     }
 

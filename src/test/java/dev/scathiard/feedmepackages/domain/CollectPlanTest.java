@@ -53,14 +53,47 @@ class CollectPlanTest {
         assertEquals(125, plan.moves().stream().mapToInt(CollectPlan.Move::amount).sum());
     }
 
-    @Test void aCellsOwnMaximumCapsTheIntakeBelowItsCapacity() {
-        // An egg cell holds 16 x 2 = 32 items, but its maximum says "keep at most one group" = 16.
-        CollectPlan.Plan plan = CollectPlan.simulate(
+    @Test void theReturnLineNoLongerCapsTheIntake() {
+        // An egg cell holds 16 x 2 = 32 items and its return line says "keep at most one group" = 16. The user
+        // decided the return line must not block the one-key collect: it fills to CAPACITY, and the part above
+        // the line is what the return path will handle - and the plan says so out loud.
+        CollectPlan.Plan filled = CollectPlan.simulate(
                 List.of(new CollectPlan.Target(0, EGG, 4, 1)),
-                List.of(new CollectPlan.Source(0, EGG, 16)),
+                List.of(new CollectPlan.Source(0, EGG, 28)),
                 2);
-        assertEquals(12, plan.moved(), "a maximum of one group (16) minus the 4 already there");
-        assertEquals(1, plan.full());
+        assertEquals(28, filled.moved(), "the collect fills to capacity (32 - 4), not to the return line");
+        assertEquals(32, 4 + filled.moved(), "the cell ends up at capacity");
+        assertEquals(16, filled.aboveMaximum(), "16 of them land above the return line (32 - 16)");
+        assertEquals(0, filled.full(), "everything the player carried fitted");
+
+        CollectPlan.Plan overflowing = CollectPlan.simulate(
+                List.of(new CollectPlan.Target(0, EGG, 4, 1)),
+                List.of(new CollectPlan.Source(0, EGG, 40)),
+                2);
+        assertEquals(28, overflowing.moved(), "room is the capacity, no more");
+        assertEquals(1, overflowing.full(), "the rest stayed in the bag, so the kind is reported full");
+    }
+
+    @Test void aCellAtTheReturnLineIsNoLongerFull() {
+        // 64 of 128 with a return line at 64: the old rule called this full, the user's rule does not.
+        CollectPlan.Plan plan = CollectPlan.simulate(
+                List.of(new CollectPlan.Target(0, STONE, 64, 1)),
+                List.of(new CollectPlan.Source(0, STONE, 64)),
+                2);
+        assertEquals(64, plan.moved(), "a cell at its return line still has its capacity free");
+        assertEquals(0, plan.full(), "the kind is not full: everything the player carried fitted");
+        assertEquals(64, plan.aboveMaximum(), "everything above the line is announced to the return path");
+    }
+
+    @Test void aCellAtCapacityIsFull() {
+        CollectPlan.Plan plan = CollectPlan.simulate(
+                List.of(cell(0, STONE, 128)),
+                List.of(new CollectPlan.Source(0, STONE, 64)),
+                2);
+        assertTrue(plan.isEmpty(), "a cell at capacity takes nothing");
+        assertEquals(1, plan.full(), "capacity full is what 'full' now means");
+        assertEquals(0, plan.aboveMaximum(), "nothing moved, so nothing is announced");
+        assertFalse(plan.shouldReport(), "and it stays silent");
     }
 
     @Test void anUnreadableStackIsLeftAloneAndCounted() {

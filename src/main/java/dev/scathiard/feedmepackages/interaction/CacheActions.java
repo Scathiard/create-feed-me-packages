@@ -242,27 +242,54 @@ public final class CacheActions {
         ledger.replace(access.handle(), state.revision(), before.withState(edit.finish()));
         inventoryPlan.commit(inventory);
         player.containerMenu.broadcastChanges();
-        if (plan.shouldReport()) collectReport(player, plan);   // told once, only when something moved
+        // Told once, only when something moved - and told the truth about what the return path will do.
+        if (plan.shouldReport()) collectReport(player, plan, returnConfigured(ledger, access));
         return Result.OK;
     }
 
-    /** One action-bar line: how much moved - and nothing else. Only ever called when something actually moved. */
-    private static void collectReport(ServerPlayer player, CollectPlan.Plan plan) {
-        collectReports++;
-        player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
-                "message.create_feed_me_packages.collect", plan.moved()), true);
+    /** True when this cache can actually send something away: a network binding plus a non-empty return address. */
+    private static boolean returnConfigured(CacheLedger ledger, AccessGate.Result access) {
+        String address = ledger.returnAddress(access.handle().cacheId());
+        return access.handle().networkId() != null && address != null && !address.isEmpty();
     }
 
     /**
-     * How many collect reports this process has emitted. The silence rule ("no message unless something moved,
-     * and then exactly one") is a user-visible promise, and this counter is how the tests observe it without a
-     * client attached; the game tests reset it, run the four silent paths and one moving collect, and assert
-     * 0 / 1 exactly.
+     * One action-bar line, and it must be true. What moved really did land in the cell, so that count is always
+     * reported. Anything that landed <b>above the cell's own return line</b> only leaves later: the return path
+     * runs on its own schedule (every 40 player ticks), needs a carrier and a return address, and sends the goods
+     * to the player's return address - so the wording is "将按退货设置处理" (will be handled by the return
+     * settings), never "已送往". With no return address the excess simply stays in the cell, so nothing about
+     * sending is said at all.
+     */
+    private static void collectReport(ServerPlayer player, CollectPlan.Plan plan, boolean returnConfigured) {
+        collectReports++;
+        lastCollectReported = plan.moved();
+        boolean mentionReturn = returnConfigured && plan.aboveMaximum() > 0;
+        lastCollectMentionedReturn = mentionReturn;
+        player.displayClientMessage(mentionReturn
+                ? net.minecraft.network.chat.Component.translatable(
+                        "message.create_feed_me_packages.collect_above_maximum", plan.moved(), plan.aboveMaximum())
+                : net.minecraft.network.chat.Component.translatable(
+                        "message.create_feed_me_packages.collect", plan.moved()), true);
+    }
+
+    /**
+     * How many collect reports this process has emitted, and the number the last one carried. The silence rule
+     * ("no message unless something moved, and then exactly one") and "the message matches the real intake" are
+     * user-visible promises, and these counters are how the game tests observe them without a client attached.
      */
     private static volatile int collectReports;
+    private static volatile int lastCollectReported;
+    private static volatile boolean lastCollectMentionedReturn;
 
     public static int collectReports() { return collectReports; }
-    public static void resetCollectReports() { collectReports = 0; }
+    public static int lastCollectReported() { return lastCollectReported; }
+    public static boolean lastCollectMentionedReturn() { return lastCollectMentionedReturn; }
+    public static void resetCollectReports() {
+        collectReports = 0;
+        lastCollectReported = 0;
+        lastCollectMentionedReturn = false;
+    }
 
     private static void cursor(ServerPlayer player, ItemStack next, boolean creative, UUID session, int sequence) {        var menu = player.containerMenu;
         if (!creative) { menu.setCarried(next); return; }
