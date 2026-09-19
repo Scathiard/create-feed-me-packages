@@ -90,14 +90,16 @@ public final class LogisticsPanel {
     private static int capturedButton;
     private static int passthroughReleaseButton = -1;
     /**
-     * Folded-away state of the panel. It is a view toggle only: it changes <b>nothing</b> about the cells, the
-     * coordinate table or the ledger - unfolding shows exactly the same grid.
+     * Hidden state of the panel (user picked "完全隐藏，只留一个小入口"): while hidden the whole panel is not drawn
+     * and, crucially, it does not cover - or intercept - the area it used to occupy, so clicks land on whatever
+     * is underneath (JEI's bookmark column lives there). It changes <b>nothing</b> about the cells, the
+     * coordinate table, the ledger or the inventory screen position: unfolding shows exactly the same grid.
      *
      * <p>Kept in memory for the client session ("本次会话内记住"). The server-side preference action exists
      * ({@code CacheActions.Action.PREFERENCE}) but is <b>rejected</b> by the server, so there is no cross-session
      * path to carry it; inventing a client config file was not asked for and was not done.
      */
-    private static boolean collapsed;
+    private static boolean hidden;
     /** The sequence whose result must stay silent: the one-key collect (user's silence rule). */
     private static int silentCollectSequence;
     private static boolean returnEditing;
@@ -574,16 +576,15 @@ public final class LogisticsPanel {
             layout = null;
             return;
         }
-        if (collapsed) {
-            // Put the inventory screen back where vanilla placed it: the whole point of folding the panel away
-            // is that it stops pushing the GUI (and JEI's bookmark column) across the window.
-            LogisticsPanel.shiftScreenTo((LogisticsPanel.screen.width - screen.getXSize()) / 2);
-            layout = PanelLayout.collapsed(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop());
+        int count = LogisticsPanel.active() ? snapshot.cells().size() : 0;
+        CacheGrid grid = CacheGrid.forCount(count);
+        if (hidden) {
+            // Fully hidden: only the entry square exists, at the place the fold button had. The inventory screen
+            // is deliberately NOT moved - the entry must not jump, and the layout keeps the same anchor.
+            layout = PanelLayout.hidden(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop(), grid, LogisticsPanel.bookOpen());
             firstRow = 0;
             return;
         }
-        int count = LogisticsPanel.active() ? snapshot.cells().size() : 0;
-        CacheGrid grid = CacheGrid.forCount(count);
         int availableColumns = Math.max(2, (LogisticsPanel.screen.width - screen.getXSize() - 12 - 2 * PanelLayout.SIDE) / PanelLayout.ROW);
         int width = Math.min(PanelLayout.preferredWidth(grid), availableColumns * PanelLayout.ROW + 2 * PanelLayout.SIDE);
         if (!LogisticsPanel.bookOpen() && screen.getGuiLeft() < width + 8 && LogisticsPanel.screen.width >= screen.getXSize() + width + 12) {
@@ -618,9 +619,9 @@ public final class LogisticsPanel {
         }
     }
 
-    /** Fold the panel into its strip, or unfold it. View state only - no cell, coordinate or ledger change. */
-    private static void toggleCollapsed() {
-        LogisticsPanel.collapsed = !LogisticsPanel.collapsed;
+    /** Hide the panel (leaving only its entry) or bring it back. View state only - no cell, coordinate or ledger change. */
+    private static void toggleHidden() {
+        LogisticsPanel.hidden = !LogisticsPanel.hidden;
         LogisticsPanel.updateLayout();
     }
 
@@ -657,12 +658,10 @@ public final class LogisticsPanel {
         PanelLayout.Rect b = layout.bounds();
         int x = b.x();
         int y = b.y();
-        if (layout.collapsed()) {
-            // Folded away: a narrow strip with the two buttons and nothing else. No cell is drawn, so nothing
-            // of the grid is hidden behind it either - unfolding restores the layout cell for cell.
-            LogisticsPanel.overlay(g, x, y, b.width(), b.height(), BUTTON_FACE);
-            LogisticsPanel.renderCollectButton(g);
-            LogisticsPanel.renderCollapseButton(g);
+        if (layout.hidden()) {
+            // Fully hidden: nothing but the entry square is drawn, and the entry is the only thing the layout
+            // covers - so the area the panel used to occupy is free for whatever is underneath (JEI bookmarks).
+            LogisticsPanel.renderEntry(g);
             return;
         }
         LogisticsPanel.frame(g, b);
@@ -720,26 +719,28 @@ public final class LogisticsPanel {
     }
 
     /**
-     * The one-key collect button: a small square in the right-hand end-cap band, showing {@code ←}. Disabled -
-     * greyed and inert - exactly when the cache cannot be used right now, and while the client owns the creative
-     * inventory stacks (the server refuses that case too).
+     * The one-key collect button: a small square in the right-hand end-cap band, showing {@code ←}. Disabled
+     * (greyed and inert) exactly when the cache cannot be used right now. Creative mode: the server opens the
+     * narrow door for this action alone (it never touches the client-owned cursor), so the button stays live.
      */
     private static void renderCollectButton(GuiGraphics g) {
         PanelLayout.Rect r = layout.collectButton();
-        boolean enabled = LogisticsPanel.collectEnabled();
-        LogisticsPanel.glyphButton(g, r, GLYPH_COLLECT, "collect_button", enabled);
+        LogisticsPanel.glyphButton(g, r, GLYPH_COLLECT, "collect_button", LogisticsPanel.collectEnabled());
     }
 
     /**
-     * The fold-away button: same column as the collect button, at the panel's bottom-right corner; {@code »}
-     * folds the panel into a narrow strip (so it stops pushing the inventory screen - and JEI's bookmark column
-     * - across the window) and {@code «} unfolds it again. Always usable: it is a view toggle, not a cache
-     * action.
+     * The fold-away button (expanded) or the entry back into the panel (hidden): same column as the collect
+     * button, at the panel's bottom-right corner. Pressing it hides the whole panel - nothing is drawn and
+     * nothing is intercepted, so whatever sits behind it (JEI's bookmark column) becomes usable again.
      */
     private static void renderCollapseButton(GuiGraphics g) {
-        PanelLayout.Rect r = layout.collapseButton();
-        LogisticsPanel.glyphButton(g, r, layout.collapsed() ? GLYPH_UNFOLD : GLYPH_FOLD,
-                layout.collapsed() ? "unfold_button" : "fold_button", true);
+        LogisticsPanel.glyphButton(g, layout.collapseButton(), layout.hidden() ? GLYPH_UNFOLD : GLYPH_FOLD,
+                layout.hidden() ? "unfold_button" : "fold_button", true);
+    }
+
+    /** The one small entry left on screen while the panel is hidden. */
+    private static void renderEntry(GuiGraphics g) {
+        LogisticsPanel.glyphButton(g, layout.collapseButton(), GLYPH_UNFOLD, "unfold_button", true);
     }
 
     /** A texture-free button: a flat fill plus one centred font glyph, with hover and disabled states. */
@@ -754,10 +755,9 @@ public final class LogisticsPanel {
         }
     }
 
-    /** True when the one-key collect may be sent: a live cache, and no creative inventory stack ownership. */
+    /** True when the one-key collect may be sent: a live cache. Creative mode is allowed (narrow server door). */
     private static boolean collectEnabled() {
-        return LogisticsPanel.active() && snapshot != null && snapshot.bound()
-                && !(screen instanceof CreativeModeInventoryScreen);
+        return LogisticsPanel.active() && snapshot != null && snapshot.bound();
     }
 
     private static void renderCell(GuiGraphics g, PanelLayout.CellBox box) {
@@ -1118,6 +1118,14 @@ public final class LogisticsPanel {
         if (!LogisticsPanel.visible()) {
             return false;
         }
+        // While the panel is hidden, the ONLY thing it may consume is its entry square. Everything else - the
+        // whole area the panel used to occupy - must fall through to whatever is underneath (JEI's bookmarks),
+        // so this check comes before the in-flight guard and before any other hit test.
+        if (layout.hidden()) {
+            if (!layout.bounds().contains(x, y)) return false;
+            LogisticsPanel.toggleHidden();
+            return true;
+        }
         if (waiting != 0) {
             capturedButton = button;
             return true;
@@ -1162,12 +1170,12 @@ public final class LogisticsPanel {
             LogisticsPanel.updateLayout();
             return true;
         }
-        // The two small buttons come first, while folded or not: the fold toggle works in both states, the
-        // collect only when the cache is usable. A disabled collect still swallows the click instead of letting
-        // it fall through to a drop. Both are answered before the 2-pixel scrollbar rail so its thin band does
-        // not steal them; elsewhere the rail behaves exactly as before.
+        // The two small buttons come first: the fold/entry toggle works in both states, the collect only when
+        // the cache is usable. A disabled collect still swallows the click instead of letting it fall through to
+        // a drop. Both are answered before the 2-pixel scrollbar rail so its thin band does not steal them;
+        // elsewhere the rail behaves exactly as before.
         if (inputLayout.collapseButton().contains(x, y)) {
-            LogisticsPanel.toggleCollapsed();
+            LogisticsPanel.toggleHidden();
             return true;
         }
         if (inputLayout.collectButton().contains(x, y)) {
@@ -1175,9 +1183,6 @@ public final class LogisticsPanel {
                 LogisticsPanel.send(CacheActions.Action.COLLECT_MATCHING, -1, 0, -1, "");
             }
             return true;
-        }
-        if (inputLayout.collapsed()) {
-            return true;   // folded away: the strip has nothing else to offer
         }
         int px = layout.bounds().x();
         int py = layout.bounds().y();
@@ -1510,7 +1515,8 @@ public final class LogisticsPanel {
     }
 
     public static List<PanelLayout.CellBox> visibleCells(Screen candidate) {
-        if (!LogisticsPanel.current(candidate) || !LogisticsPanel.active() || layout == null || layout.compact() || waiting != 0) {
+        if (!LogisticsPanel.current(candidate) || !LogisticsPanel.active() || layout == null
+                || layout.compact() || layout.hidden() || waiting != 0) {
             return List.of();
         }
         return layout.cells();

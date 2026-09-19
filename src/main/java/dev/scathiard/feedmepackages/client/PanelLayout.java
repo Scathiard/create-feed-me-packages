@@ -7,7 +7,7 @@ import java.util.List;
 
 /** Geometry in GUI pixels; shared by rendering, mouse routing and JEI. */
 public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect returnBar,
-        int firstRow, int visibleRows, int totalRows, int footerY, boolean compact, boolean collapsed) {
+        int firstRow, int visibleRows, int totalRows, int footerY, boolean compact, boolean hidden) {
     // panel.png: two 22-pixel end caps surround the 18-pixel inventory cells.
     public static final int ROW = 18, SIDE = 22, WIDTH = 2 * ROW + 2 * SIDE;
     public static final int HEADER = 18, BAR = 18, FOOTER = 24, SLIDER = 19;
@@ -21,8 +21,6 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
      * felt too big.
      */
     public static final int BUTTON = ROW - 2 * MARGIN;
-    /** Height of the folded-away strip: two button rows plus their margins. */
-    public static final int STRIP_HEIGHT = 2 * ROW;
 
     public record Rect(int x, int y, int width, int height) {
         public boolean contains(double mx, double my) {
@@ -44,29 +42,37 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
         return new Rect(bounds.x() + bounds.width() - 13, bounds.y() + HEADER,
                 2, visibleRows * ROW);
     }
-    /** The column the two buttons share: centred in the right-hand end-cap band. */
-    private int buttonX() { return bounds.x() + bounds.width() - SIDE + (SIDE - BUTTON) / 2; }
+    /** The column the two buttons share: centred in the right-hand end-cap band; the entry when hidden. */
+    private int buttonX() {
+        if (hidden) return bounds.x();   // while hidden the box IS the entry square
+        return bounds.x() + bounds.width() - SIDE + (SIDE - BUTTON) / 2;
+    }
 
     /**
      * The one-key collect button (user: "放在面板右边的中间"): a small square inside the right-hand end-cap
-     * band, vertically centred; when the panel is folded away it sits at the top of the strip. Derived from the
-     * panel box plus the existing unit constants - no pixel is written down here. It is tested before the
-     * scrollbar in {@code press}, so the thin rail stays clickable above and below the button; the mouse wheel
-     * is unaffected.
+     * band, vertically centred. Derived from the panel box plus the existing unit constants - no pixel is
+     * written down here. It is tested before the scrollbar in {@code press}, so the thin rail stays clickable
+     * above and below the button; the mouse wheel is unaffected.
+     *
+     * <p>While the panel is hidden there is no collect button at all: the only thing on screen is the entry,
+     * so this returns an empty rect that no point can fall into.
      */
     public Rect collectButton() {
-        int y = collapsed ? bounds.y() + MARGIN : bounds.y() + (bounds.height() - BUTTON) / 2;
+        if (hidden) return new Rect(bounds.x(), bounds.y(), 0, 0);
+        int y = bounds.y() + (bounds.height() - BUTTON) / 2;
         return new Rect(buttonX(), y, BUTTON, BUTTON);
     }
 
     /**
      * The fold-away button (user: "位置放在转移按钮同列，放右下角"): same column as the collect button, at the
      * <b>bottom-right corner</b> of the panel - inside the footer band when expanded, at the bottom of the strip
-     * when already folded. Pressing it folds the panel into {@link #collapsed()} / unfolds it again.
+     * when already folded. Pressing it folds the panel into {@link #hidden()} / unfolds it again.
+     *
+     * <p>When the panel is hidden this is the <b>entry</b>: the one small square left on screen, at the same
+     * place the fold button had (see {@link #hidden}), so the panel never appears to jump.
      */
     public Rect collapseButton() {
-        int y = collapsed
-                ? bounds.y() + bounds.height() - MARGIN - BUTTON
+        int y = hidden ? bounds.y()
                 : bounds.y() + bounds.height() - FOOTER + (FOOTER - BUTTON) / 2;
         return new Rect(buttonX(), y, BUTTON, BUTTON);
     }
@@ -169,16 +175,19 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     }
 
     /**
-     * The folded-away panel (user: "面板太大，会挤占掉我的 jei 收藏夹"): a narrow strip in the same column as
-     * the buttons, anchored where the panel would be. <b>No cell is drawn and no cell is moved</b> - the
-     * coordinate table, the ledger and {@link #compute} are untouched, so unfolding shows exactly the same
-     * grid, cell for cell. The strip is one end-cap band wide, so it never reaches into the inventory screen.
+     * The hidden panel (user picked "完全隐藏，只留一个小入口"): the whole panel is <b>not drawn at all</b> and only
+     * one small entry square is left, at exactly the place the fold button had - computed from the same box the
+     * panel would have for this level, so it is anchored to the inventory screen and never jumps somewhere else.
+     *
+     * <p><b>Click-through is structural:</b> {@code bounds} is the entry square itself, so the layout no longer
+     * covers the area the panel used to occupy. {@code LogisticsPanel.press} returns {@code false} for any point
+     * outside {@code bounds} while hidden, and {@code exclusions} only ever reports {@code bounds} - so a click
+     * over the old panel area passes through to whatever is underneath (JEI's bookmark column included).
+     *
+     * <p>No cell, coordinate, ledger or screen position is touched: the grid comes back cell for cell.
      */
-    public static PanelLayout collapsed(int screenHeight, int left, int top) {
-        int width = SIDE;
-        int x = left - GAP - width;
-        int y = clamp(top, MARGIN, screenHeight - MARGIN - STRIP_HEIGHT);
-        return new PanelLayout(new Rect(x, y, width, STRIP_HEIGHT), List.of(), null, null,
-                0, 0, 0, y + STRIP_HEIGHT, false, true);
+    public static PanelLayout hidden(int screenHeight, int left, int top, CacheGrid grid, boolean bookOpen) {
+        Rect entry = compute(screenHeight, left, top, grid, 0, -1, bookOpen).collapseButton();
+        return new PanelLayout(entry, List.of(), null, null, 0, 0, 0, entry.y() + entry.height(), false, true);
     }
 }

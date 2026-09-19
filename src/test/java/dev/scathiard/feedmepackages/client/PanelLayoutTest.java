@@ -221,7 +221,7 @@ class PanelLayoutTest {
         for (int count : new int[]{9, 16, 24, 30, 36}) {
             var grid = CacheGrid.forCount(count);
             var layout = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
-            assertFalse(layout.collapsed());
+            assertFalse(layout.hidden());
             var collect = layout.collectButton();
             var collapse = layout.collapseButton();
             for (var button : List.of(collect, collapse)) {
@@ -246,26 +246,33 @@ class PanelLayoutTest {
         }
     }
 
-    /** Folding the panel away hides the grid without touching it: unfolding is cell-for-cell identical. */
-    @Test void foldingThePanelAwayKeepsTheGridUntouched() {
+    /** Hiding the panel leaves only the entry, frees the whole old area, and unfolds cell-for-cell identical. */
+    @Test void hidingThePanelLeavesOnlyItsEntryAndDoesNotCoverTheGridArea() {
         for (int count : new int[]{9, 16, 24, 30, 36}) {
             var grid = CacheGrid.forCount(count);
             var expanded = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
-            var folded = PanelLayout.collapsed(480, 300, 40);
-            assertTrue(folded.collapsed());
-            assertEquals(PanelLayout.SIDE, folded.bounds().width(), "the strip is one end-cap band wide");
-            assertEquals(PanelLayout.STRIP_HEIGHT, folded.bounds().height());
-            assertTrue(folded.cells().isEmpty(), "nothing is drawn from the grid while folded");
-            assertEquals(0, folded.totalRows());
-            // The strip sits left of the inventory screen and never reaches into it.
-            assertEquals(300 - PanelLayout.GAP - PanelLayout.SIDE, folded.bounds().x());
-            assertEquals(folded.bounds().x() + folded.bounds().width(), 300 - PanelLayout.GAP);
-            // Both buttons stay usable while folded.
-            assertTrue(folded.bounds().contains(folded.collectButton().x(), folded.collectButton().y()));
-            assertTrue(folded.bounds().contains(folded.collapseButton().x(), folded.collapseButton().y()));
-            assertEquals(folded.collectButton().x(), folded.collapseButton().x());
-            assertFalse(intersects(folded.collectButton(), folded.collapseButton()));
-            // Unfolding gives back exactly the same grid as before folding.
+            var hidden = PanelLayout.hidden(480, 300, 40, grid, false);
+            assertTrue(hidden.hidden());
+            // The one entry left on screen is exactly the small square the fold button occupied.
+            assertEquals(expanded.collapseButton(), hidden.bounds(), "the entry must not jump somewhere else");
+            assertEquals(PanelLayout.BUTTON, hidden.bounds().width());
+            assertEquals(PanelLayout.BUTTON, hidden.bounds().height());
+            assertEquals(hidden.bounds(), hidden.collapseButton(), "the entry is the fold/entry button");
+            assertEquals(0, hidden.collectButton().width(), "there is no collect button while hidden");
+            assertTrue(hidden.cells().isEmpty(), "nothing of the grid is drawn while hidden");
+            assertEquals(0, hidden.totalRows());
+            // Click-through, structurally: the layout covers nothing of the area the panel used to occupy.
+            for (var box : expanded.cells()) {
+                int cx = box.bounds().x() + box.bounds().width() / 2;
+                int cy = box.bounds().y() + box.bounds().height() / 2;
+                assertFalse(hidden.bounds().contains(cx, cy),
+                        "the hidden layout still covers the cell area at slot " + box.slot());
+            }
+            assertFalse(hidden.bounds().contains(expanded.bounds().x() + 2, expanded.bounds().y() + 2),
+                    "the hidden layout still covers the panel body");
+            assertFalse(hidden.bounds().contains(expanded.scrollbar().x(), expanded.scrollbar().y()),
+                    "the hidden layout still covers the scrollbar rail");
+            // Unfolding gives back exactly the same grid.
             var again = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
             assertEquals(expanded.bounds(), again.bounds());
             assertEquals(expanded.cells(), again.cells(), "unfolding must be cell for cell identical");

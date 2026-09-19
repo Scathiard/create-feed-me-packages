@@ -79,11 +79,16 @@ public final class CacheActions {
 
     public static Result execute(ServerPlayer player, Intent intent, int requestSeq) {
         // Creative inventory / ordinary packed access is gated HERE (the new-seq overload), so the old
-        // signature delegating to it cannot bypass the restriction by omitting the sequence. The same gate
-        // covers the one-key collect: in the creative inventory the client owns the stacks on screen.
+        // signature delegating to it cannot bypass the restriction by omitting the sequence.
+        // The gate exists because in the creative inventory screen the CLIENT owns the cursor and the vanilla
+        // tab-pick packets (SetCreativeModeSlot): a server-side cursor mutation would desync it. That is a design
+        // choice, not a missing facility - the ledger works exactly the same in creative.
+        // COLLECT_MATCHING is deliberately NOT in this list (user asked for it to work in creative): it never
+        // touches the cursor, it only moves real inventory slots (the same thing creative players already do when
+        // they drop a stack into a chest), so the narrow door is safe. Every other action keeps the old rule.
         if (player.gameMode.isCreative() && player.containerMenu instanceof InventoryMenu
                 && (intent.action() == Action.DEPOSIT || intent.action() == Action.TAKE_CURSOR
-                        || intent.action() == Action.TAKE_RESIDUAL || intent.action() == Action.COLLECT_MATCHING))
+                        || intent.action() == Action.TAKE_RESIDUAL))
             return Result.INVALID_REQUEST;
         return execute(player, intent, null, requestSeq);
     }

@@ -169,4 +169,38 @@ public final class CacheCollectTests {
         helper.assertTrue(player.getInventory().getItem(2).getCount() == 32, "the stack did not stay in the bag");
         helper.succeed();
     }
+
+    /**
+     * The user asked for the button to work in creative mode. The narrow door: {@code COLLECT_MATCHING} is
+     * accepted there (it never touches the cursor), while every other packed action keeps the old refusal.
+     */
+    @GameTest(template = "empty")
+    public static void creativeCollectsButEveryOtherPackedActionStaysRefused(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
+        player.setGameMode(net.minecraft.world.level.GameType.CREATIVE);
+        helper.assertTrue(player.gameMode.isCreative(), "fixture could not switch the player to creative");
+        var stone = new ItemStack(Items.STONE);
+        int cell = seed(player, stone, 4);
+        carry(player, 0, new ItemStack(Items.STONE, 6));
+        int cachedBefore = cachedTotal(player);
+
+        helper.assertTrue(collect(player) == Result.OK, "the one-key collect must work in creative");
+
+        var cells = CacheLedger.get(player.getServer()).find(AccessGate.resolve(player).handle().cacheId()).state().cells();
+        helper.assertTrue(cells.get(cell).amount() == 10, "the creative collect did not move the items");
+        helper.assertTrue(player.getInventory().getItem(0).isEmpty(), "the collected stack stayed in the bag");
+        helper.assertTrue(cachedTotal(player) == cachedBefore + 6, "the moved amount is wrong");
+
+        // Everything else keeps the previous rule: no cursor or deposit work in the creative inventory.
+        carry(player, 1, new ItemStack(Items.STONE, 2));
+        var view = CacheActions.open(player);
+        long revision = CacheLedger.get(player.getServer()).find(AccessGate.resolve(player).handle().cacheId()).state().revision();
+        helper.assertTrue(CacheActions.execute(player, new CacheActions.Intent(view.session(), revision,
+                Action.DEPOSIT, cell, 0, -1, "")) == Result.INVALID_REQUEST,
+                "the creative gate must still refuse DEPOSIT");
+        helper.assertTrue(CacheActions.execute(player, new CacheActions.Intent(view.session(), revision,
+                Action.TAKE_CURSOR, cell, 1, -1, "")) == Result.INVALID_REQUEST,
+                "the creative gate must still refuse TAKE_CURSOR");
+        helper.succeed();
+    }
 }
