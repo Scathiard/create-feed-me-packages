@@ -15,11 +15,11 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     public static final int TRACK_INSET = 5, TRACK_Y = 4, MIN_THUMB_Y = 8, MAX_THUMB_Y = 0, LABEL_Y = 11;
     public static final int MARGIN = 4, GAP = 4, BOOK_WIDTH = 177, MAX_ROWS = 6;
     /**
-     * The two buttons (collect / collapse) are <b>7x7</b> and hug the inside of the right-hand cap's two black
-     * lines: the user drew a 7x7 chevron sheet ({@code 参考/Button_7x7.png}) and asked for it 1:1, with its left
-     * edge against the inner black line at texture {@code x=58} and its right edge against the one at {@code x=66}.
+     * The buttons are <b>13x13</b> (user: "换个思路，把按钮都放到底部边框，然后做大一点…依旧贴边框"). The user drew them
+     * himself ({@code 参考/Button_13X13 - 转移.png} and {@code 参考/Button_13X13 - 收纳.png}) with the icon baked in,
+     * so both are drawn 1:1 and the direction comes from which sheet is used.
      */
-    public static final int BUTTON = 7;
+    public static final int BUTTON = 13;
     /**
      * How much of the {@link #SIDE}-wide end cap is actually painted. Measured in {@code panel.png}: the cap
      * blits read texture columns {@code u=53..66} (14 columns) for the repeat strip and the footer, i.e. the
@@ -28,25 +28,11 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
      * right inner black line, and {@code u=58} is the left one.
      */
     public static final int CAP_ART = 14;
-    /** Texture column of the cap's LEFT inner black line, relative to the first painted cap column (u=53+5=58). */
-    public static final int CAP_LEFT_STROKE = 5;
     /**
-     * Edge of the button sheet in pixels (the user's 7x7 chevron) - the same as {@link #BUTTON}, because the sheet
-     * is drawn 1:1. Rendering and the direction proof both use it together with {@link #buttonPixelX}, so "which
-     * way the arrow points" is decided in one place.
+     * Edge of a button sheet in pixels - the same as {@link #BUTTON}, because every sheet is drawn 1:1. There is no
+     * mirroring and no scaling anywhere: each button picks one of the two ready-made sheets.
      */
-    public static final int BUTTON_SHEET = 7;
-    /**
-     * Screen x of the sheet's source column {@code u} when it is drawn into {@code r}. {@code flipped} mirrors the
-     * sheet <b>by moving whole pixel columns</b>, which keeps every coordinate positive - the horizontal mirror is
-     * a mapping, not a negative pose scale. The user wants the collect button and the hidden entry pointing left
-     * ({@code flipped = true}) and the expanded fold button exactly as drawn ({@code flipped = false}).
-     */
-    public static int buttonPixelX(Rect r, int u, boolean flipped) {
-        return flipped ? r.x() + (BUTTON_SHEET - 1 - u) : r.x() + u;
-    }
-    /** Screen y of the sheet's source row {@code v}; the sheet is never flipped vertically. */
-    public static int buttonPixelY(Rect r, int v) { return r.y() + v; }
+    public static final int BUTTON_SHEET = BUTTON;
 
     public record Rect(int x, int y, int width, int height) {
         public boolean contains(double mx, double my) {
@@ -68,55 +54,39 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
         return new Rect(bounds.x() + bounds.width() - 13, bounds.y() + HEADER,
                 2, visibleRows * ROW);
     }
-    /**
-     * The column the two buttons share: the 7x7 square is <b>wedged between the cap's two black lines</b> - left
-     * edge one pixel right of the left line, right edge one pixel left of the right line (user: "正好贴住边框的
-     * 左右边线"). Derived from {@link #leftBorderStrokeX()} / {@link #rightBorderStrokeX()} - no pixel is written
-     * down here. The entry when hidden.
-     */
-    private int buttonX() {
-        if (hidden) return bounds.x();   // while hidden the box IS the entry square
-        return leftBorderStrokeX() + 1;
-    }
-
-    /** The 1 px black line on the INSIDE-left of the right-hand cap (texture u=58). */
-    public int leftBorderStrokeX() { return bounds.x() + bounds.width() - SIDE + CAP_LEFT_STROKE; }
-    /** The 1 px black line on the INSIDE-right of the right-hand cap (texture u=66). */
+    /** The 1 px black line on the inside-right of the right-hand cap (texture u=66) - the buttons hug it. */
     public int rightBorderStrokeX() { return bounds.x() + bounds.width() - SIDE + CAP_ART - 1; }
+    /** The 1 px black line along the very bottom of the panel (texture v=139) - the buttons hug it. */
+    public int bottomBorderStrokeY() { return bounds.y() + bounds.height() - 1; }
+    /** The row both buttons start on: their bottom edge is the row just above {@link #bottomBorderStrokeY()}. */
+    private int buttonY() { return bottomBorderStrokeY() - BUTTON; }
 
     /**
-     * The one-key collect button (user: "放在面板右边的中间"): a small square inside the right-hand end-cap
-     * band, vertically centred. Derived from the panel box plus the existing unit constants - no pixel is
-     * written down here. It is tested before the scrollbar in {@code press}, so the thin rail stays clickable
-     * above and below the button; the mouse wheel is unaffected.
+     * The one-key collect ("transfer") button: the <b>left</b> of the two 13x13 squares in the panel's bottom
+     * border band, flush against the bottom black line and sitting one pixel left of the fold button (user:
+     * "把按钮都放到底部边框…依旧贴边框", "右下角并排两个"). It is answered before the scrollbar in {@code press}, so the
+     * thin rail stays clickable above it; the mouse wheel is unaffected.
      *
-     * <p>While the panel is hidden there is no collect button at all: the only thing on screen is the entry,
-     * so this returns an empty rect that no point can fall into.
+     * <p>While the panel is hidden there is no transfer button at all: the only thing on screen is the entry, so
+     * this returns an empty rect that no point can fall into.
      */
-    public Rect collectButton() {
+    public Rect transferButton() {
         if (hidden) return new Rect(bounds.x(), bounds.y(), 0, 0);
-        int y = bounds.y() + (bounds.height() - BUTTON) / 2;
-        return new Rect(buttonX(), y, BUTTON, BUTTON);
+        return new Rect(foldButton().x() - BUTTON - 1, buttonY(), BUTTON, BUTTON);
     }
 
     /**
-     * The fold-away button (user: "位置放在转移按钮同列，放右下角"): same column as the collect button, at the
-     * <b>bottom-right corner</b> of the panel - inside the footer band when expanded, at the bottom of the strip
-     * when already folded. Pressing it folds the panel into {@link #hidden()} / unfolds it again.
+     * The fold-away button: the <b>right</b> of the two 13x13 squares, its right edge hugging the panel's right
+     * black line and its bottom edge the bottom black line - i.e. the bottom-right corner inside the border band.
+     * Pressing it folds the panel into {@link #hidden()} / unfolds it again.
      *
-     * <p>When the panel is hidden this is the <b>entry</b>: the one small square left on screen, at the same
-     * place the fold button had (see {@link #hidden}), so the panel never appears to jump.
+     * <p>When the panel is hidden this is the <b>entry</b>: the one square left on screen, at the same place the
+     * fold button had (see {@link #hidden}), so the panel never appears to jump.
      */
-    public Rect collapseButton() {
-        int y = hidden ? bounds.y()
-                : bounds.y() + bounds.height() - FOOTER + (FOOTER - BUTTON) / 2;
-        return new Rect(buttonX(), y, BUTTON, BUTTON);
+    public Rect foldButton() {
+        if (hidden) return new Rect(bounds.x(), bounds.y(), BUTTON, BUTTON);
+        return new Rect(rightBorderStrokeX() - BUTTON + 1, buttonY(), BUTTON, BUTTON);
     }
-    /**
-     * The icon itself is one 16x16 texture drawn at half scale (see {@code LogisticsPanel.drawArrow}); the
-     * geometry here only decides <b>where</b> the 8x8 square goes, so drawing and hit testing can never disagree:
-     * both use {@link #collectButton()} / {@link #collapseButton()}.
-     */
 
     /** Width of the panel for a level's own arrangement (used before a layout exists). */
     public static int preferredWidth(CacheGrid grid) { return grid.columns() * ROW + 2 * SIDE; }
@@ -229,7 +199,7 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
      * <p>No cell, coordinate, ledger or screen position is touched: the grid comes back cell for cell.
      */
     public static PanelLayout hidden(int screenHeight, int left, int top, CacheGrid grid, boolean bookOpen) {
-        Rect entry = compute(screenHeight, left, top, grid, 0, -1, bookOpen).collapseButton();
+        Rect entry = compute(screenHeight, left, top, grid, 0, -1, bookOpen).foldButton();
         return new PanelLayout(entry, List.of(), null, null, 0, 0, 0, entry.y() + entry.height(), false, true);
     }
 }
