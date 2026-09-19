@@ -33,10 +33,12 @@ import net.minecraft.client.gui.screens.inventory.CraftingScreen;
 import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.gui.screens.recipebook.RecipeUpdateListener;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -821,6 +823,22 @@ public final class LogisticsPanel {
     }
 
     /** True when the one-key collect may be sent: a live cache. Creative mode is allowed (narrow server door). */
+    /**
+     * The vanilla button click, played exactly the way {@code AbstractButton.playDownSound} plays it:
+     * {@link SoundEvents#UI_BUTTON_CLICK} through {@link SimpleSoundInstance#forUI} at pitch <b>1.0F</b>, i.e. the
+     * vanilla default volume and pitch - no custom sound file, no custom values. Client-side only: it just asks the
+     * client sound manager to play, so nothing is sent, no protocol changes and the server is untouched.
+     *
+     * <p>Called from the three button press paths - one-key collect (transfer), fold, and the entry while the panel
+     * is hidden - and <b>only after the press has been accepted</b>: never on hover, never while a button is
+     * disabled (the disabled early return happens before any play call), and exactly once per accepted press even
+     * when that press also sends an action. Sliders, cells, the address bar and the scrollbar deliberately stay
+     * silent: the user asked for button sounds only.
+     */
+    private static void playButtonClick() {
+        LogisticsPanel.MC.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));
+    }
+
     private static boolean collectEnabled() {
         return LogisticsPanel.active() && snapshot != null && snapshot.bound();
     }
@@ -1195,6 +1213,8 @@ public final class LogisticsPanel {
         // so this check comes before the in-flight guard and before any other hit test.
         if (layout.hidden()) {
             if (!layout.bounds().contains(x, y)) return false;
+            // The entry is the third button: it clicks exactly like the other two (vanilla sound, client-side only).
+            LogisticsPanel.playButtonClick();
             LogisticsPanel.toggleHidden();
             return true;
         }
@@ -1247,13 +1267,18 @@ public final class LogisticsPanel {
         // a drop. Both are answered before the 2-pixel scrollbar rail so its thin band does not steal them;
         // elsewhere the rail behaves exactly as before.
         if (inputLayout.foldButton().contains(x, y)) {
+            LogisticsPanel.playButtonClick();
             LogisticsPanel.toggleHidden();
             return true;
         }
         if (inputLayout.transferButton().contains(x, y)) {
-            if (LogisticsPanel.collectEnabled()) {
-                LogisticsPanel.send(CacheActions.Action.COLLECT_MATCHING, -1, 0, -1, "");
+            if (!LogisticsPanel.collectEnabled()) {
+                // Disabled (greyed out): the press is swallowed but stays SILENT - no click sound at all. This
+                // early return sits deliberately BEFORE the play call below.
+                return true;
             }
+            LogisticsPanel.playButtonClick();
+            LogisticsPanel.send(CacheActions.Action.COLLECT_MATCHING, -1, 0, -1, "");
             return true;
         }
         int px = layout.bounds().x();

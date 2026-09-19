@@ -638,6 +638,75 @@ class PanelLayoutTest {
     }
 
     /**
+     * The three buttons click with the <b>vanilla</b> sound and nothing else does: one {@code UI_BUTTON_CLICK} play
+     * per button press path, each positioned after that button accepted the press (so the disabled collect stays
+     * silent), at the vanilla pitch, with no custom sound file and no custom values anywhere. Read from the shipped
+     * source and from the compiled class the jar carries. Whether it is actually audible is the user's to confirm -
+     * this pins the code shape.
+     */
+    @Test void theThreeButtonsClickWithTheVanillaSoundAndDisabledStaysSilent() throws Exception {
+        var source = java.nio.file.Path.of("src/main/java/dev/scathiard/feedmepackages/client/LogisticsPanel.java");
+        assertTrue(java.nio.file.Files.exists(source), "run the tests from the project directory: " + source);
+        String code = java.nio.file.Files.readString(source, java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(code.contains(
+                "LogisticsPanel.MC.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.0F));"),
+                "the click must be the vanilla UI_BUTTON_CLICK at the vanilla pitch 1.0F");
+        assertEquals(1, occurrences(code, "private static void playButtonClick()"),
+                "there must be exactly one click helper");
+        assertEquals(3, occurrences(code, "LogisticsPanel.playButtonClick();"),
+                "exactly the three buttons may click (collect, fold, hidden entry)");
+        int entryBranch = code.indexOf("if (layout.hidden()) {");
+        int foldBranch = code.indexOf("if (inputLayout.foldButton().contains(x, y)) {");
+        int transferBranch = code.indexOf("if (inputLayout.transferButton().contains(x, y)) {");
+        assertTrue(entryBranch > 0 && foldBranch > entryBranch && transferBranch > foldBranch,
+                "the three button branches must exist in this order");
+        String entry = code.substring(entryBranch, foldBranch);
+        String fold = code.substring(foldBranch, transferBranch);
+        String transfer = code.substring(transferBranch, code.indexOf("int px = layout.bounds().x();", transferBranch));
+        assertEquals(1, occurrences(entry, "LogisticsPanel.playButtonClick();"),
+                "the hidden entry must click exactly once");
+        assertEquals(1, occurrences(fold, "LogisticsPanel.playButtonClick();"),
+                "the fold button must click exactly once");
+        assertEquals(1, occurrences(transfer, "LogisticsPanel.playButtonClick();"),
+                "the one-key collect must click exactly once, even though it also sends an action");
+        // Disabled collect: the guarded early return comes BEFORE the play, and that branch has no play at all.
+        int disabled = transfer.indexOf("if (!LogisticsPanel.collectEnabled()) {");
+        int play = transfer.indexOf("LogisticsPanel.playButtonClick();");
+        assertTrue(disabled > 0, "the disabled guard must exist");
+        assertTrue(disabled < play, "the disabled guard must come before the click");
+        assertTrue(transfer.substring(disabled, play).contains("return true;"),
+                "a disabled button must return before it can click");
+        assertTrue(transfer.substring(disabled, play).indexOf("playButtonClick") < 0,
+                "the disabled branch must be silent");
+        // Everything after the button branches (address bar, scrollbar, slider, cells) stays silent.
+        assertTrue(code.lastIndexOf("LogisticsPanel.playButtonClick();")
+                        < code.indexOf("if (inputLayout.address().contains(x, y)) {", transferBranch),
+                "no other interaction may click: address, scrollbar, slider and cells stay silent");
+        // The compiled class the jar carries references the vanilla click, and no custom sound ships.
+        try (var in = PanelLayoutTest.class
+                .getResourceAsStream("/dev/scathiard/feedmepackages/client/LogisticsPanel.class")) {
+            assertNotNull(in, "the compiled panel class must be on the test classpath");
+            String bytes = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.ISO_8859_1);
+            assertTrue(bytes.contains("UI_BUTTON_CLICK"), "the shipped class must reference the vanilla click sound");
+            assertTrue(bytes.contains("SimpleSoundInstance") && bytes.contains("forUI"),
+                    "the shipped class must play through the vanilla SimpleSoundInstance.forUI");
+        }
+        var assets = java.nio.file.Path.of("src/main/resources/assets/create_feed_me_packages");
+        try (var files = java.nio.file.Files.walk(assets)) {
+            var audio = files.filter(java.nio.file.Files::isRegularFile)
+                    .map(path -> path.getFileName().toString())
+                    .filter(name -> name.endsWith(".ogg") || name.endsWith(".wav") || name.equals("sounds.json"))
+                    .toList();
+            assertEquals(List.of(), audio, "no custom sound file may be added - the vanilla click is reused");
+        }
+    }
+
+    private static int occurrences(String text, String needle) {
+        int count = 0;
+        for (int at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length())) count++;
+        return count;
+    }
+    /**
      * The cell background sheet was cropped: the shipped {@code slot_source.png} used to be the user's full 256x256
      * panel reference of which only the 18x18 block at (101,65) was ever sampled; those exact 324 pixels now sit at
      * (0,0) and the file is 18x18. Size, colour histogram and a fingerprint of the pixel stream pin the crop, so any
