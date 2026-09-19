@@ -701,6 +701,119 @@ class PanelLayoutTest {
         }
     }
 
+    /**
+     * The rule the user confirmed ("改：点格子装不下就自动找它自己的格") lives in exactly one place, and both click
+     * paths must reach it. This pins the shape: the domain answers ({@code CacheDropTarget.resolveDrop}), the panel
+     * only routes, and the guard ladder keeps every other interaction ahead of the drop - so a later edit cannot
+     * quietly move a click from the aimed cell to somewhere else.
+     */
+    @Test void bothClickPathsRouteThroughTheOneAimedDropAndTheGuardLadderStandsInOrder() throws Exception {
+        var source = java.nio.file.Path.of("src/main/java/dev/scathiard/feedmepackages/client/LogisticsPanel.java");
+        assertTrue(java.nio.file.Files.exists(source), "run the tests from the project directory: " + source);
+        String code = java.nio.file.Files.readString(source, java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals(1, occurrences(code, "private static void depositAt("), "one drop helper, not two");
+        assertEquals(4, occurrences(code, "LogisticsPanel.depositAt("),
+                "both click paths must route both ends of a drop (the aimed cell and the blank space)");
+        assertEquals(1, occurrences(code, "CacheDropTarget.resolveDrop("),
+                "the rule is asked in exactly one place, and that place is the domain");
+        assertFalse(code.contains("CacheDropTarget.resolve("), "the panel may not keep a second resolution path");
+        int press = code.indexOf("private static boolean press(");
+        int release = code.indexOf("private static boolean release(");
+        int scroll = code.indexOf("private static boolean scroll(");
+        assertTrue(press > 0 && release > press && scroll > release, "both click paths must exist, press first");
+        for (String body : List.of(code.substring(press, release), code.substring(release, scroll))) {
+            assertTrue(body.contains("LogisticsPanel.depositAt(box.slot(), button)"), "the aimed cell must route");
+            assertTrue(body.contains("LogisticsPanel.depositAt(-1, button)"), "the blank space must route");
+        }
+        // The guard ladder, in the order a click meets it: everything else still decides before the drop does.
+        int at = press;
+        for (String guard : List.of(
+                "if (!LogisticsPanel.visible()) {",
+                "if (layout.hidden()) {",
+                "if (waiting != 0) {",
+                "if (!insidePanel) {",
+                "if (returnClose == ReturnClose.SUBMITTED) {",
+                "if (button != 0 && button != 1) {",
+                "if (LogisticsPanel.active() && inputLayout.returnAddressContains(x, y)) {",
+                "if (inputLayout.compact()) {",
+                "if (inputLayout.foldButton().contains(x, y)) {",
+                "if (inputLayout.transferButton().contains(x, y)) {",
+                "if (inputLayout.address().contains(x, y)) {",
+                "if (inputLayout.totalRows() > inputLayout.visibleRows() && rail.contains(x, y)) {",
+                "if (!LogisticsPanel.active()) {",
+                "for (PanelLayout.CellBox box : inputLayout.cells()) {",
+                "LogisticsPanel.depositAt(-1, button)")) {
+            int found = code.indexOf(guard, at);
+            assertTrue(found > at, "the guard ladder moved or lost a step: " + guard);
+            at = found;
+        }
+    }
+
+    /**
+     * The premise of that rule, pinned: the panel body is an 18x18 gapless grid, so on the full levels (30 and
+     * 36 cells) a drop "on the panel" cannot land on blank space at all - it lands on a cell, which is exactly why
+     * the aimed cell has to fall back to the item's own cell. The only blank points inside the panel are the two
+     * 22 px wood border strips (where the user's drop actually worked), the header's free columns, the return bar
+     * and the footer band. The levels whose 0.2.2 outline is not a rectangle do have holes - pinned here as well,
+     * because they are the only blank points inside the grid area.
+     */
+    @Test void thePanelBodyIsAGaplessGridSoAnAimedDropLandsOnACell() {
+        assertEquals(18, PanelLayout.ROW);
+        assertEquals(22, PanelLayout.SIDE);
+        assertEquals(List.of("4,1"), gridHoles(1), "level 1 is 2 columns of 5/4: one hole");
+        assertEquals(List.of("5,1", "5,2"), gridHoles(2), "level 2 is 3 columns of 6/5/5: two holes");
+        assertEquals(List.of(), gridHoles(3));
+        assertEquals(List.of(), gridHoles(4));
+        assertEquals(List.of(), gridHoles(5));
+        for (int level = 1; level <= 5; level++) {
+            int count = CacheGrid.forLevel(level).count();
+            var grid = CacheGrid.forCount(count);
+            var layout = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
+            assertFalse(layout.compact());
+            int gridX = layout.bounds().x() + PanelLayout.SIDE;
+            int gridY = layout.bounds().y() + PanelLayout.HEADER;
+            int blanks = 0;
+            for (int row = 0; row < grid.rows(); row++)
+                for (int column = 0; column < grid.columns(); column++) {
+                    int x = gridX + column * PanelLayout.ROW + 1;
+                    int y = gridY + row * PanelLayout.ROW + 1;
+                    boolean covered = insideACell(layout, x, y);
+                    if (grid.slot(row, column) < 0) {
+                        assertFalse(covered, "a hole must stay blank at row " + row + " column " + column);
+                        blanks++;
+                    } else {
+                        assertTrue(covered, "every cell position must be covered at row " + row + " column " + column);
+                    }
+                }
+            assertEquals(gridHoles(level).size(), blanks, "the body's blank points are exactly the outline's holes");
+            // The full levels are the reason this rule exists: their grid area has no blank point at all.
+            if (count == 30 || count == 36) assertEquals(0, blanks, "a " + count + "-cell body is covered cell for cell");
+            // The wood borders are inside the panel and outside every cell: that drop is the aim-free one.
+            int midY = gridY + 1;
+            assertTrue(layout.bounds().contains(layout.bounds().x() + 1, midY), "the left border is inside the panel");
+            assertFalse(insideACell(layout, layout.bounds().x() + 1, midY), "the left wood border must be blank");
+            assertFalse(insideACell(layout, layout.bounds().x() + PanelLayout.SIDE - 1, midY),
+                    "the pixel inside the left border must be blank");
+            assertFalse(insideACell(layout, layout.bounds().x() + layout.bounds().width() - 2, midY),
+                    "the right wood border must be blank");
+        }
+    }
+
+    private static boolean insideACell(PanelLayout layout, int x, int y) {
+        for (var box : layout.cells()) if (box.bounds().contains(x, y)) return true;
+        return false;
+    }
+
+    /** A level outline's coordinates that carry no cell (a "5/4" column pair leaves a hole in the short one). */
+    private static List<String> gridHoles(int level) {
+        var grid = CacheGrid.forLevel(level);
+        List<String> holes = new ArrayList<>();
+        for (int row = 0; row < grid.rows(); row++)
+            for (int column = 0; column < grid.columns(); column++)
+                if (grid.slot(row, column) < 0) holes.add(row + "," + column);
+        return holes;
+    }
+
     private static int occurrences(String text, String needle) {
         int count = 0;
         for (int at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length())) count++;
