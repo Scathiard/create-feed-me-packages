@@ -8,6 +8,37 @@ gameplay milestone.
 本文件记录本项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号沿用 `MAJOR.MINOR.PATCH`，其中 `MINOR` 对应一次玩法里程碑。
 
+## [0.2.3] — 2026-09-20
+
+**One-key collect, a panel you can fold away, and the vanilla click on the buttons.**
+**一键收取、面板可完全收起，以及按钮的原版点击音效。**
+
+### Added / 新增
+
+- **One-key collect / 一键收取** (the square on the left of the panel's bottom border): moves everything in your
+  inventory that already belongs to a cache cell into it, up to that cell's capacity; anything above your return
+  limit is handled by your return settings.
+  **一键收取**（面板下边框左侧方块）：把背包里已对应到缓存格的物品一次收进去，收到该格容量为止；超出退货上限的部分按你的退货设置处理。
+- **The panel folds away completely / 面板完全收起** (the square at the bottom right): folding leaves one small
+  entry in the same place, and **that area goes back to JEI's bookmarks**; click the entry and the panel comes
+  back, cell for cell identical to before.
+  **面板完全收起**（右下角方块）：收起后只在原位留一个小入口，**那片区域交还给 JEI 收藏夹**；再点入口面板回来，与收起前逐格一致。
+- **Vanilla click sound on the buttons / 按钮原版点击音效**: all three buttons play the vanilla click once per
+  press; a greyed-out button stays silent and hovering makes no sound.
+  **按钮原版点击音效**：三个按钮按下各响一次原版"咔哒"；灰掉的按钮不响、悬停不响。
+
+### Changed / 改进
+
+- **Both buttons moved into the bottom border band and grew to 13x13 / 两个按钮移到底部边框带、放大到 13×13**,
+  sitting on the solid frame (this fixes the earlier "only a grey square" problem).
+  两个按钮**移到底部边框带、放大到 13×13**，贴在实心边框上（修掉了以前"只看到灰方块"的问题）。
+- **Cells no longer move when you upgrade the cache / 升级缓存后格子位置固定**: an older save re-arranges once the
+  first time you open the panel (nothing is lost and no counts change; a level-1 save does not change at all), and
+  no later upgrade ever moves anything.
+  **升级缓存后格子位置固定**：旧存档第一次打开会重排一次（东西不丢、数量不变，1 级存档无变化），此后升级永不动位。
+- **Drop an item anywhere on the panel and it stores itself / 丢在面板任意空白处即可存入**; one-key collect also
+  works in **creative mode**, and **the save format is unchanged**.
+  **丢在面板任意空白处即可存入**；**创造模式**下也能一键收取；**存档格式一个字没改**。
 ## [0.2.2] — 2026-09-17
 
 **Compatibility with Create: Storage, plus a cache-cell fix.**
