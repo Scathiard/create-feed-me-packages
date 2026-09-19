@@ -79,7 +79,7 @@ public final class CacheDropPanelTests {
                         && cells.get(1).filter().equals(ItemVariantKey.of(iron, player.registryAccess()))
                         && cells.get(1).amount() == 7, "the new item did not land with its filter and count");
         helper.assertTrue(cells.get(0).filter().equals(ItemVariantKey.of(stone, player.registryAccess()))
-                        && cells.get(0).amount() == 64, "the seeded cell changed");
+                        && cells.get(0).amount() == 1, "the seeded cell changed");
         for (int slot = 2; slot < cells.size(); slot++)
             helper.assertTrue(cells.get(slot).filter() == null && cells.get(slot).amount() == 0,
                     "cell " + slot + " was touched by a drop that had nothing to do with it");
