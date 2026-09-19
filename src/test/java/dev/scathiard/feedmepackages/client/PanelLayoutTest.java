@@ -288,12 +288,12 @@ class PanelLayoutTest {
     }
 
     /**
-     * The button is the user's own <b>7x7</b> chevron sheet ({@code 参考/Button_7x7.png}), copied byte for byte into
-     * our namespace and drawn <b>1:1</b> (no scaling). This test reads the <b>shipped</b> PNG out of the build output
-     * and pins what the user drew, so a silent replacement or a corrupt copy fails the build: 7x7 - exactly the
-     * button size - fully opaque, background (64,69,67) (the same dark grey as the panel cap's inner shadow), and a
-     * pure black right-pointing chevron whose tip is the middle row and reaches the right edge. The four corners are
-     * background, i.e. the sheet has no black frame of its own.
+     * The button is the user's own <b>7x7</b> chevron sheet ({@code 参考/Button_7x7.png}, newest revision), copied
+     * byte for byte into our namespace and drawn <b>1:1</b> (no scaling, no mirroring). This test reads the
+     * <b>shipped</b> PNG out of the build output and pins exactly what the user drew, so a silent replacement or a
+     * stale copy fails the build: 7x7 - exactly the button size - fully opaque, dark grey (64,69,67) background plus
+     * the lighter (173,173,173) inner chevron body, and the ten pure black pixels of a right-pointing chevron whose
+     * tip is (5,3). No black frame and no left-hand black line (the previous revision had one).
      */
     @Test void theButtonSheetIsTheUsersSevenPixelChevronDrawnOneToOne() throws Exception {
         var url = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/button.png");
@@ -304,28 +304,118 @@ class PanelLayoutTest {
                 "the sheet is drawn 1:1, so it must be exactly as wide as the button");
         assertEquals(PanelLayout.BUTTON, sheet.getHeight());
         assertTrue(sheet.getColorModel().hasAlpha(), "the sheet needs an alpha channel (RGBA)");
-        int background = 0;
-        int black = 0;
+        int background = 0, body = 0, black = 0;
+        var blackPixels = new java.util.TreeSet<String>();
         for (int y = 0; y < sheet.getHeight(); y++) {
             for (int x = 0; x < sheet.getWidth(); x++) {
                 int argb = sheet.getRGB(x, y);
                 assertEquals(255, argb >>> 24, "the user's sheet is fully opaque at " + x + "," + y);
                 int rgb = argb & 0x00FFFFFF;
-                if (rgb == 0x404543) background++;                                  // (64,69,67)
-                else assertEquals(0x000000, rgb, "unexpected colour at " + x + "," + y);
-                if (rgb == 0x000000) black++;
+                if (rgb == 0x404543) background++;                       // (64,69,67) the dark cap grey
+                else if (rgb == 0xADADAD) body++;                        // (173,173,173) the chevron body
+                else {
+                    assertEquals(0x000000, rgb, "unexpected colour at " + x + "," + y);
+                    black++;
+                    blackPixels.add(x + "," + y);
+                }
             }
         }
         assertTrue(background >= 20, "the dark cap-coloured background is missing (" + background + " px)");
-        assertTrue(black >= 15, "the chevron is missing (" + black + " px)");
-        for (int[] corner : new int[][]{{0, 0}, {6, 0}, {0, 6}, {6, 6}}) {
-            assertEquals(0x404543, sheet.getRGB(corner[0], corner[1]) & 0x00FFFFFF,
-                    "a corner must be background, not a frame: " + corner[0] + "," + corner[1]);
+        assertTrue(body >= 10, "the lighter chevron body is missing (" + body + " px)");
+        assertEquals(10, black, "the chevron outline must be exactly the ten pixels the user drew");
+        var expected = java.util.Set.of("2,1", "3,1", "3,2", "4,2", "4,3", "5,3", "3,4", "4,4", "2,5", "3,5");
+        assertEquals(expected, blackPixels, "the black outline is not the right-pointing chevron the user drew");
+        // No frame and no left black line: the whole first row and the whole first column are background.
+        for (int i = 0; i < 7; i++) {
+            assertEquals(0x404543, sheet.getRGB(i, 0) & 0x00FFFFFF, "row 0 must be background at x=" + i);
+            assertEquals(0x404543, sheet.getRGB(0, i) & 0x00FFFFFF, "column 0 must be background at y=" + i);
         }
         // The chevron points right: its tip is the middle row and it reaches the right-most column.
-        assertEquals(0x000000, sheet.getRGB(6, 3) & 0x00FFFFFF, "the tip must touch the right edge at the middle row");
-        assertEquals(0x404543, sheet.getRGB(6, 0) & 0x00FFFFFF, "row 0 must not reach the right edge");
-        assertEquals(0x404543, sheet.getRGB(0, 3) & 0x00FFFFFF, "the tip must not span the whole sheet");
+        assertEquals(0x000000, sheet.getRGB(5, 3) & 0x00FFFFFF, "the tip must touch the right edge at the middle row");
+        assertEquals(0x404543, sheet.getRGB(6, 3) & 0x00FFFFFF, "the last column must stay background");
+    }
+
+    /**
+     * "Why is the fold button invisible?" - answered structurally. The button rects must map into pixels that the
+     * shipped {@code panel.png} actually paints, so this test measures that texture (painted column range of the
+     * right-hand end cap, in both the repeat strip and the footer band) and asserts that the collect button, the
+     * fold button and the hidden entry all fall inside it, with the same 7 columns. A rect that reached into the
+     * cap's transparent margin, or below the painted footer, would be a rect that can never be seen.
+     */
+    @Test void everyButtonRectLandsInsideThePixelsPanelPngActuallyPaints() throws Exception {
+        var url = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/panel.png");
+        assertNotNull(url, "panel.png is missing from the mod's own assets");
+        var panel = javax.imageio.ImageIO.read(url);
+        assertNotNull(panel, "panel.png is not a readable PNG");
+        // The cap's art lives at texture u = 53..66: the columns painted in EVERY row of the footer band. (u = 44
+        // is the centre strip, u = 67 only has the rounded-corner rows, and u >= 68 is transparent.)
+        int u0 = -1, u1 = -1;
+        int bandRows = 140 - 91;
+        for (int u = 46; u < 100; u++) {
+            int painted = 0;
+            for (int v = 91; v < 140; v++) if ((panel.getRGB(u, v) >>> 24) != 0) painted++;
+            if (painted == bandRows) { if (u0 < 0) u0 = u; u1 = u; }
+        }
+        assertEquals(53, u0, "the footer cap's first fully painted column");
+        assertEquals(66, u1, "the footer cap's last fully painted column");
+        int footerFirst = -1, footerLast = -1;
+        for (int v = 91; v < 140; v++) {
+            for (int u = u0; u <= u1; u++) if ((panel.getRGB(u, v) >>> 24) != 0) {
+                if (footerFirst < 0) footerFirst = v;
+                footerLast = v;
+                break;
+            }
+        }
+        for (int count : new int[]{9, 16, 24, 30, 36}) {
+            var grid = CacheGrid.forCount(count);
+            var layout = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
+            var hidden = PanelLayout.hidden(480, 300, 40, grid, false);
+            for (var button : List.of(layout.collectButton(), layout.collapseButton(), hidden.bounds())) {
+                int left = (button.x() - (layout.bounds().x() + layout.bounds().width() - PanelLayout.SIDE)) + 53;
+                assertTrue(left >= u0 && left + button.width() - 1 <= u1,
+                        "the button reaches outside the painted cap columns: u " + left + ".." + (left + 6));
+                // Rows: panels are drawn with a 36 px top cap, the repeat strip, then a 49 px footer art block.
+                int panelBottom = layout.bounds().y() + layout.bounds().height();
+                int footerTop = panelBottom - 49;
+                if (button.y() >= footerTop) {
+                    int v = 91 + (button.y() - footerTop);
+                    assertTrue(v >= footerFirst && v + button.height() - 1 <= footerLast,
+                            "the button reaches outside the painted footer rows: v " + v + ".." + (v + 6));
+                }
+            }
+            assertEquals(layout.collapseButton(), hidden.bounds(),
+                    "the entry is the fold button's rect, so one visible means the other is drawable");
+        }
+    }
+
+    /**
+     * "The fold button is still invisible" - the code-level half. The three buttons must go through ONE draw path:
+     * no mirroring anywhere (a mirrored/negative-scale blit produced nothing twice in this project), and the button
+     * draw calls must be the last thing {@code render} does, so nothing drawn afterwards can cover that rect.
+     */
+    @Test void theButtonDrawPathIsSingleAndIsTheLastThingRenderDraws() throws Exception {
+        var source = java.nio.file.Path.of("src/main/java/dev/scathiard/feedmepackages/client/LogisticsPanel.java");
+        assertTrue(java.nio.file.Files.exists(source), "run the tests from the project directory: " + source);
+        String code = java.nio.file.Files.readString(source, java.nio.charset.StandardCharsets.UTF_8);
+        assertFalse(code.contains("boolean mirrored"), "no mirrored button path may come back");
+        assertFalse(code.contains("scale(-1"), "no negative scale (mirror) may come back");
+        assertFalse(code.contains("buttonSheet(g, r, "), "buttonSheet takes no direction argument any more");
+        int hiddenBranch = code.indexOf("if (layout.hidden()) {");
+        int hiddenReturn = code.indexOf("return;", hiddenBranch);
+        String hidden = code.substring(hiddenBranch, hiddenReturn);
+        assertTrue(hidden.contains("renderEntry(g);"), "the hidden state draws exactly the entry");
+        assertFalse(hidden.contains("blit") || hidden.contains("fill") || hidden.contains("overlay("),
+                "nothing else may be drawn in the hidden state");
+        int collapse = code.indexOf("LogisticsPanel.renderCollapseButton(g);");
+        assertTrue(collapse > 0, "the fold button must be drawn");
+        String tail = code.substring(collapse);
+        int end = tail.indexOf("\n    }");
+        assertTrue(end > 0, "the render method must end after the button calls");
+        String after = tail.substring(0, end);
+        for (String painter : new String[]{"blit", "fill", "overlay(", "text(", "render"}) {
+            assertFalse(after.replace("LogisticsPanel.renderCollapseButton(g);", "").contains(painter),
+                    "something is still drawn after the fold button: " + painter);
+        }
     }
 
     /**

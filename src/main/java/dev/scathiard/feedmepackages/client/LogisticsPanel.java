@@ -53,11 +53,13 @@ public final class LogisticsPanel {
     private static final Minecraft MC = Minecraft.getInstance();
     /**
      * The button IS one 7x7 texture drawn by the user ({@code 参考/Button_7x7.png}): a black right-pointing chevron
-     * on the same dark grey as the panel cap's inner shadow, with no frame of its own. It is drawn <b>1:1</b> - the
-     * layout rect is exactly the sheet size, so there is no scale factor - and mirrored for the collect/entry
-     * direction (user: "两个箭头复用一份素材"). Because the image is the whole button there is no separate face
-     * fill, which makes "the face covers the arrow" structurally impossible; that was the user's "grey square, no
-     * arrow" bug: {@link #overlay} draws at {@link #BUTTON_Z} while the icon used to be drawn at z = 0.
+     * on dark grey, with no frame of its own. It is drawn <b>1:1</b> - the layout rect IS the sheet size, so there
+     * is no scale factor - and <b>never mirrored</b>: the user's own sheet already points the way he wants, and a
+     * mirrored (negative x-scale) blit renders nothing down this GUI path, which is why the fold button was
+     * invisible while the collect button and the hidden entry - the identical non-mirrored path - were visible.
+     * Because the image is the whole button there is no separate face fill either, which makes "the face covers
+     * the arrow" impossible: that was the earlier "grey square" bug, where {@link #overlay} drew at
+     * {@link #BUTTON_Z} while the icon was drawn at z = 0.
      */
     private static final ResourceLocation BUTTON_TEXTURE = ResourceLocation.fromNamespaceAndPath(
             "create_feed_me_packages", "textures/gui/button.png");
@@ -732,12 +734,12 @@ public final class LogisticsPanel {
     }
 
     /**
-     * The one-key collect button: a small square in the right-hand end-cap band, showing {@code ←}. Disabled
-     * (greyed and inert) exactly when the cache cannot be used right now. Creative mode: the server opens the
-     * narrow door for this action alone (it never touches the client-owned cursor), so the button stays live.
+     * The one-key collect button: the 7x7 user sheet in the right-hand end-cap band. Disabled (greyed and inert)
+     * exactly when the cache cannot be used right now. Creative mode: the server opens the narrow door for this
+     * action alone (it never touches the client-owned cursor), so the button stays live.
      */
     private static void renderCollectButton(GuiGraphics g) {
-        LogisticsPanel.iconButton(g, layout.collectButton(), false, "collect_button",
+        LogisticsPanel.iconButton(g, layout.collectButton(), "collect_button",
                 LogisticsPanel.collectEnabled());
     }
 
@@ -747,49 +749,42 @@ public final class LogisticsPanel {
      * nothing is intercepted, so whatever sits behind it (JEI's bookmark column) becomes usable again.
      */
     private static void renderCollapseButton(GuiGraphics g) {
-        LogisticsPanel.iconButton(g, layout.collapseButton(), !layout.hidden(),
+        LogisticsPanel.iconButton(g, layout.collapseButton(),
                 layout.hidden() ? "unfold_button" : "fold_button", true);
     }
 
     /** The one small entry left on screen while the panel is hidden. */
     private static void renderEntry(GuiGraphics g) {
-        LogisticsPanel.iconButton(g, layout.collapseButton(), false, "unfold_button", true);
+        LogisticsPanel.iconButton(g, layout.collapseButton(), "unfold_button", true);
     }
 
     /**
-     * A button, drawn as <b>one image</b>: {@link #BUTTON_TEXTURE} already contains its own frame, face and
-     * arrow, so nothing is filled underneath it and nothing can cover it. The only marks drawn here come
-     * <b>after</b> the sheet and strictly above it ({@link #BUTTON_MARK_Z}): a hover highlight, or the disabled
-     * veil. {@code mirrored} flips the SAME sheet horizontally (fold as supplied; collect/entry mirrored).
+     * A button, drawn as <b>one image</b> in <b>one way</b>: {@link #BUTTON_TEXTURE} already contains its own
+     * background and chevron, so nothing is filled underneath it and nothing can cover it, and there is no
+     * mirrored variant any more - the user's sheet points the way he wants, and the mirrored copy was the one
+     * that never appeared (see the class comment on {@link #BUTTON_TEXTURE}). The only marks drawn here come
+     * <b>after</b> the sheet and strictly above it ({@link #BUTTON_MARK_Z}): a hover highlight or the disabled
+     * veil.
      */
-    private static void iconButton(GuiGraphics g, PanelLayout.Rect r, boolean mirrored, String help,
-            boolean enabled) {
+    private static void iconButton(GuiGraphics g, PanelLayout.Rect r, String help, boolean enabled) {
         if (r.width() <= 0 || r.height() <= 0) return;   // no button in this state (e.g. collect while hidden)
         boolean hover = enabled && r.contains(mouseX, mouseY);
-        LogisticsPanel.buttonSheet(g, r, mirrored);
+        LogisticsPanel.buttonSheet(g, r);
         if (!enabled) LogisticsPanel.mark(g, r, BUTTON_DISABLED_VEIL);
         else if (hover) LogisticsPanel.mark(g, r, BUTTON_HOVER_MARK);
         if (hover) tooltip = List.of(LogisticsPanel.tr(help, new Object[0]));
     }
 
     /**
-     * Draw the single button sheet at the rect's size, on the SAME layer as {@link #overlay} (see
-     * {@link #BUTTON_Z} - drawing it at z = 0 was the "grey square" bug). The mirror is a negative x-scale
-     * about the button's right edge, so one asset serves both directions. Pose is always popped; blending is
-     * left as it was found.
+     * Draw the single button sheet 1:1 at the rect's position, on the SAME layer as {@link #overlay} (see
+     * {@link #BUTTON_Z} - drawing it at z = 0 was the "grey square" bug). There is deliberately <b>no</b>
+     * {@code scale()} here at all: no resizing, no mirroring. Pose is always popped; blending is left as found.
      */
-    private static void buttonSheet(GuiGraphics g, PanelLayout.Rect r, boolean mirrored) {
+    private static void buttonSheet(GuiGraphics g, PanelLayout.Rect r) {
         com.mojang.blaze3d.systems.RenderSystem.enableBlend();
         com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
         g.pose().pushPose();
-        g.pose().translate(0.0f, 0.0f, BUTTON_Z);
-        if (mirrored) {
-            // A direction flip only (x = -1): the sheet is drawn 1:1, never resized.
-            g.pose().translate((float)(r.x() + r.width()), (float)r.y(), 0.0f);
-            g.pose().scale(-1.0f, 1.0f, 1.0f);
-        } else {
-            g.pose().translate((float)r.x(), (float)r.y(), 0.0f);
-        }
+        g.pose().translate((float)r.x(), (float)r.y(), BUTTON_Z);
         g.blit(BUTTON_TEXTURE, 0, 0, 0.0f, 0.0f, BUTTON_SHEET, BUTTON_SHEET, BUTTON_SHEET, BUTTON_SHEET);
         g.pose().popPose();
         com.mojang.blaze3d.systems.RenderSystem.disableBlend();
