@@ -25,9 +25,21 @@ import java.util.List;
  * differs: 0.2.2 renumbered the cells at every level, and a stable order cannot also be that per-level order.
  * The consequence for a save made under 0.2.2 is one single repaint in the new order; nothing moves afterwards.
  *
- * <p>The semantics are the fixed-coordinate semantics the 0.3 plugin grid already uses
- * ({@code docs/proposals/2026-09-12-0.3-D组插件框架实现方案.md} §2.2: "坐标一旦分配给某个索引就永不改变，扩容
- * 只是表里多出现几个位置"), so plugins can keep one convention instead of two.
+ * <p><b>Reused semantics, one convention.</b> This is the same fixed-coordinate semantics the 0.3 plugin grid
+ * already uses — {@code plugin/PluginGrid} on the archived branch {@code wip/0.3-archived}: a frozen table
+ * (there, the literal {@code COLUMN[]} / {@code ROW[]} arrays), a {@code Coordinate(int column, int row)}
+ * record with the origin at the top-left, "coordinates are assigned once and for all, and growing simply makes
+ * more of the table visible", and the box derived from the coordinates themselves ({@code columns(total)} /
+ * {@code rows(total)} = the extremes + 1). One semantics, two tables, because they describe two different
+ * inventories (15 plugin slots vs 36 cache cells), and each table's growth follows its own specification.
+ * See also {@code docs/proposals/2026-09-12-0.3-D组插件框架实现方案.md} §2.2.
+ *
+ * <p><b>The coordinate convention for new cells.</b> There is exactly one table, <b>no reserved region and no
+ * segmentation</b>. Growing a shipped level never moves and never recomputes anything. Past level 5 the
+ * coordinates continue to the <b>right</b>: whole new columns, each holding at most {@link #MAX_ROWS} cells
+ * filled top-down, starting at the column after the current last one ({@link #withExtraSlots(int)}); holes
+ * inside a level's own 0.2.2 outline stay empty. The panel box is recomputed from the table's extremes, so
+ * width, row count, slider and hit testing all follow the coordinates as their single source.
  *
  * <p><b>Nothing about the stored data changes.</b> The ledger keeps a positional list whose length must equal
  * {@link CacheLevel#slots()} and {@code CacheEdit.upgrade()} still only appends empty cells at the end, so an
@@ -192,7 +204,8 @@ public final class CacheGrid {
      * This arrangement plus {@code extra} slot coordinates for future plugin cells. Existing indexes are
      * copied verbatim (never moved); the new coordinates are whole new columns to the right of the level's own
      * layout, each filled top-down with at most {@link #MAX_ROWS} cells — the captain's convention "未来插件格
-     * 继续加新列（列 6、列 7…）". Holes inside a level's own 0.2.2 outline stay empty. The panel box follows the
+     * 继续加新列（列 6、列 7…）". Holes inside a level's own 0.2.2 outline stay empty, and there is no reserved
+     * region: a future slot simply takes the next coordinate of the table. The panel box follows the
      * coordinates, so it grows with the table.
      */
     public CacheGrid withExtraSlots(int extra) {
