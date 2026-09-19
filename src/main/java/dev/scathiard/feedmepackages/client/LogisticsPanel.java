@@ -1317,7 +1317,7 @@ public final class LogisticsPanel {
             if (button == 1 && Screen.hasControlDown()) {
                 LogisticsPanel.send(CacheActions.Action.CLEAR_FILTER, box.slot(), 0, -1, "");
             } else if (!LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
-                LogisticsPanel.send(CacheActions.Action.DEPOSIT, box.slot(), button == 1 ? 1 : 0, -1, "");
+                LogisticsPanel.depositAt(box.slot(), button);
             } else {
                 ItemStack item = ICONS.getOrDefault(cell.template(), ItemStack.EMPTY);
                 LogisticsPanel.send(Screen.hasShiftDown() ? CacheActions.Action.TAKE_INVENTORY : CacheActions.Action.TAKE_CURSOR, box.slot(), button == 1 ? 1 : item.getMaxStackSize(), -1, "");
@@ -1325,8 +1325,8 @@ public final class LogisticsPanel {
             return true;
         }
         // A stack clicked down anywhere in the panel body (not on a cell, not on a widget) is a drop:
-        // the item names its cell, so no aiming is needed. See depositOntoPanel.
-        if (LogisticsPanel.canDeposit(button, x, y)) LogisticsPanel.depositOntoPanel(button);
+        // the item names its cell, so no aiming is needed. See depositAt.
+        if (LogisticsPanel.canDeposit(button, x, y)) LogisticsPanel.depositAt(-1, button);
         return true;
     }
 
@@ -1338,19 +1338,27 @@ public final class LogisticsPanel {
     }
 
     /**
-     * A stack dropped anywhere on the panel: a cache holds at most one cell per exact item, so the item
-     * itself names the target cell (the one that already filters it, else the first empty one). This sends
-     * the ordinary {@code DEPOSIT} to that cell - no new action, no new packet - and the server keeps
-     * validating it ({@code DUPLICATE_FILTER} / {@code FILTER_OCCUPIED} / {@code NO_SPACE} stay the net).
-     * A drop with nowhere to go says so instead of doing nothing.
+     * The one deposit both click paths use. The cell the drop landed on ({@code aimed}) is the first choice -
+     * a cache holds at most one cell per exact item, so the aimed cell only keeps the drop when it already
+     * filters the item or is free while no other cell claims it; otherwise the item names its own cell (the
+     * one that already filters it, else the first empty one, exactly the aim-free rule). {@code aimed < 0} is a
+     * drop that landed on no cell at all: the panel's blank space (the border strips around the grid), which is
+     * the aim-free drop verbatim. This sends the ordinary {@code DEPOSIT} to the one resolved cell - no new
+     * action, no new packet - and the server keeps validating it ({@code DUPLICATE_FILTER} /
+     * {@code FILTER_OCCUPIED} / {@code NO_SPACE} stay the net). A drop with nowhere to go says so instead of
+     * doing nothing.
      */
-    private static void depositOntoPanel(int button) {
+    private static void depositAt(int aimed, int button) {
+        int first = button == 1 ? 1 : 0;
         String carried;
         try {
             carried = ItemVariantKey.of(LogisticsPanel.MC.player.containerMenu.getCarried(),
                     LogisticsPanel.MC.player.registryAccess()).encoded();
         } catch (IllegalArgumentException invalid) {
-            LogisticsPanel.notice("result.invalid_item");
+            // The blank-area drop always needed the encoded item. When the player aimed at a cell there is
+            // nothing to guess: keep that plain deposit (the server answers its own INVALID_ITEM), as before.
+            if (aimed >= 0) LogisticsPanel.send(CacheActions.Action.DEPOSIT, aimed, first, -1, "");
+            else LogisticsPanel.notice("result.invalid_item");
             return;
         }
         int groupCapacity = Math.max(1, snapshot.capacity() / 64);
@@ -1358,12 +1366,12 @@ public final class LogisticsPanel {
         for (PanelPackets.CellView cell : snapshot.cells())
             cells.add(new CacheDropTarget.Cell(cell.template(),
                     cell.amount() >= groupCapacity * Math.max(1, cell.stackSize())));
-        CacheDropTarget.Target target = CacheDropTarget.resolve(cells, carried);
+        CacheDropTarget.Target target = CacheDropTarget.resolveDrop(cells, aimed, carried);
         if (!target.hasTarget()) {
             LogisticsPanel.notice("result.no_space");
             return;
         }
-        LogisticsPanel.send(CacheActions.Action.DEPOSIT, target.slot(), button == 1 ? 1 : 0, -1, "");
+        LogisticsPanel.send(CacheActions.Action.DEPOSIT, target.slot(), first, -1, "");
     }
 
     private static boolean release(double x, double y, int button) {
@@ -1418,11 +1426,11 @@ public final class LogisticsPanel {
             boolean onCell = false;
             if (depositable) for (PanelLayout.CellBox box : layout.cells()) {
                 if (!box.bounds().contains(x, y)) continue;
-                LogisticsPanel.send(CacheActions.Action.DEPOSIT, box.slot(), button == 1 ? 1 : 0, -1, "");
+                LogisticsPanel.depositAt(box.slot(), button);
                 onCell = true;
             }
             // Released over empty panel space: same drop-anywhere rule as a press there.
-            if (depositable && !onCell) LogisticsPanel.depositOntoPanel(button);
+            if (depositable && !onCell) LogisticsPanel.depositAt(-1, button);
             return true;
         }
         return false;
