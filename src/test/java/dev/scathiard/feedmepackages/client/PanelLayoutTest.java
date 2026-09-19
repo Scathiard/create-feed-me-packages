@@ -389,17 +389,103 @@ class PanelLayoutTest {
     }
 
     /**
-     * "The fold button is still invisible" - the code-level half. The three buttons must go through ONE draw path:
-     * no mirroring anywhere (a mirrored/negative-scale blit produced nothing twice in this project), and the button
-     * draw calls must be the last thing {@code render} does, so nothing drawn afterwards can cover that rect.
+     * The user's direction ruling, <b>proved in screen coordinates</b> instead of asserted about the code: the sheet
+     * points right, so the collect button and the hidden entry are flipped (their right-most black pixel must land
+     * LEFT of the button's centre) and the expanded fold button is drawn as-is (its right-most black pixel must land
+     * RIGHT of the centre). The landing is computed with the very function the renderer uses for its per-column
+     * blits, and the same pixels are checked the other way round as a control, so a mapping that silently stopped
+     * flipping would fail here.
+     */
+    @Test void theChevronPointsLeftOnCollectAndEntryAndRightOnTheFoldButton() throws Exception {
+        var url = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/button.png");
+        assertNotNull(url, "the button sheet is missing from the mod's own assets");
+        var sheet = javax.imageio.ImageIO.read(url);
+        assertNotNull(sheet);
+        var black = new java.util.ArrayList<int[]>();
+        for (int v = 0; v < sheet.getHeight(); v++) {
+            for (int u = 0; u < sheet.getWidth(); u++) {
+                if ((sheet.getRGB(u, v) & 0x00FFFFFF) == 0x000000) black.add(new int[]{u, v});
+            }
+        }
+        assertEquals(10, black.size(), "the sheet's chevron outline changed");
+        int tipRow = 0;
+        for (int[] p : black) tipRow = Math.max(tipRow, p[0]);
+        assertEquals(PanelLayout.BUTTON_SHEET - 2, tipRow,
+                "the chevron's tip must be its right-most black pixel, so flipping really reverses the arrow");
+
+        var grid = CacheGrid.forCount(16);
+        var expanded = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
+        var hidden = PanelLayout.hidden(480, 300, 40, grid, false);
+        record Case(String name, PanelLayout.Rect rect, boolean flipped, boolean tipLeft) {}
+        var cases = List.of(
+                new Case("collect (mirrored, must read <-)", expanded.collectButton(), true, true),
+                new Case("entry (mirrored, must read <-)", hidden.bounds(), true, true),
+                new Case("fold (as drawn, must read ->)", expanded.collapseButton(), false, false));
+        for (var c : cases) {
+            int centre = c.rect().x() + c.rect().width() / 2;
+            int sum = 0;
+            int apexX = Integer.MIN_VALUE;
+            int barbX = Integer.MAX_VALUE;
+            for (int[] p : black) {
+                int x = PanelLayout.buttonPixelX(c.rect(), p[0], c.flipped());
+                int y = PanelLayout.buttonPixelY(c.rect(), p[1]);
+                assertTrue(y >= c.rect().y() && y < c.rect().y() + c.rect().height(),
+                        c.name() + ": a chevron pixel left the button vertically");
+                assertTrue(x >= c.rect().x() && x < c.rect().x() + c.rect().width(),
+                        c.name() + ": a chevron pixel left the button horizontally at " + x);
+                sum += x;
+                // The sheet's right-most black column (u = 5) is the chevron's APEX and u = 2 the BARB ends, so
+                // comparing where those two land is exactly "which way does the arrow point".
+                if (p[0] == PanelLayout.BUTTON_SHEET - 2) apexX = Math.max(apexX, x);
+                if (p[0] == 2) barbX = Math.min(barbX, x);
+            }
+            int centroid = sum / black.size();
+            int fromLeft = apexX - c.rect().x();
+            int fromRight = (c.rect().x() + c.rect().width() - 1) - apexX;
+            if (c.tipLeft()) {
+                assertTrue(apexX < barbX,
+                        c.name() + ": the apex (" + apexX + ") must land left of the barb ends (" + barbX + ")");
+                assertTrue(fromLeft <= 2,
+                        c.name() + ": the apex must sit in the button's left third (it is " + fromLeft + " px in)");
+            } else {
+                assertTrue(apexX > barbX,
+                        c.name() + ": the apex (" + apexX + ") must land right of the barb ends (" + barbX + ")");
+                assertTrue(fromRight <= 2,
+                        c.name() + ": the apex must sit in the button's right third (it is " + fromRight + " px in)");
+            }
+            // The centroid is reported for the record; the integer division makes it at best a one-pixel hint.
+            assertTrue(Math.abs(centroid - centre) <= 1, c.name() + ": the chevron is not even near the middle");
+        }
+        // Control: the SAME pixels land on the other side when the flip flag is inverted, so the mapping is really
+        // doing the mirroring (and not, say, the asset happening to be symmetric).
+        var collect = expanded.collectButton();
+        int flippedRight = Integer.MIN_VALUE;
+        int plainRight = Integer.MIN_VALUE;
+        for (int[] p : black) {
+            flippedRight = Math.max(flippedRight, PanelLayout.buttonPixelX(collect, p[0], true));
+            plainRight = Math.max(plainRight, PanelLayout.buttonPixelX(collect, p[0], false));
+        }
+        assertEquals(collect.x() + PanelLayout.BUTTON_SHEET - 2, plainRight,
+                "as drawn, the apex (source column 5) is the right-most black pixel");
+        assertEquals(collect.x() + PanelLayout.BUTTON_SHEET - 1 - 2, flippedRight,
+                "flipped, the BARB ends (source column 2) become the right-most black pixels - the apex moved left");
+        assertTrue(flippedRight < plainRight, "flipping must move the same pixels to the left");
+    }
+
+    /**
+     * "The fold button is still invisible" - the code-level half. No negative pose scale anywhere (that path
+     * renders nothing in this project, which is why the mirrored fold button vanished), and the button draw calls
+     * must be the last thing {@code render} does, so nothing drawn afterwards can cover that rect.
      */
     @Test void theButtonDrawPathIsSingleAndIsTheLastThingRenderDraws() throws Exception {
         var source = java.nio.file.Path.of("src/main/java/dev/scathiard/feedmepackages/client/LogisticsPanel.java");
         assertTrue(java.nio.file.Files.exists(source), "run the tests from the project directory: " + source);
         String code = java.nio.file.Files.readString(source, java.nio.charset.StandardCharsets.UTF_8);
-        assertFalse(code.contains("boolean mirrored"), "no mirrored button path may come back");
         assertFalse(code.contains("scale(-1"), "no negative scale (mirror) may come back");
-        assertFalse(code.contains("buttonSheet(g, r, "), "buttonSheet takes no direction argument any more");
+        assertTrue(code.contains("PanelLayout.buttonPixelX(r, u, flipped)"),
+                "the sheet must be drawn column by column through the shared mapping");
+        assertFalse(code.contains("private static final int BUTTON_SHEET"),
+                "the sheet edge must live in PanelLayout only, so the renderer and this proof share one source");
         int hiddenBranch = code.indexOf("if (layout.hidden()) {");
         int hiddenReturn = code.indexOf("return;", hiddenBranch);
         String hidden = code.substring(hiddenBranch, hiddenReturn);

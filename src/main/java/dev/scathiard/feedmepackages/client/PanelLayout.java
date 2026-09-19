@@ -30,6 +30,22 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     public static final int CAP_ART = 14;
     /** Texture column of the cap's LEFT inner black line, relative to the first painted cap column (u=53+5=58). */
     public static final int CAP_LEFT_STROKE = 5;
+    /**
+     * Edge of the button sheet in pixels (the user's 7x7 chevron). Rendering and the direction proof share this
+     * and the two mapping functions below, so "which way does the arrow point" is decided in ONE place.
+     */
+    public static final int BUTTON_SHEET = 7;
+    /**
+     * Screen x of the sheet's source column {@code u} when the sheet is drawn into {@code r}. {@code flipped}
+     * mirrors the sheet <b>by moving whole pixel columns</b> - never by a negative pose scale, which renders
+     * nothing down this GUI path. The user wants the collect button and the hidden entry to read as pointing left
+     * ({@code flipped = true}) and the expanded fold button exactly as drawn ({@code flipped = false}).
+     */
+    public static int buttonPixelX(Rect r, int u, boolean flipped) {
+        return flipped ? r.x() + (BUTTON_SHEET - 1 - u) : r.x() + u;
+    }
+    /** Screen y of the sheet's source row {@code v}; the sheet is never flipped vertically. */
+    public static int buttonPixelY(Rect r, int v) { return r.y() + v; }
 
     public record Rect(int x, int y, int width, int height) {
         public boolean contains(double mx, double my) {

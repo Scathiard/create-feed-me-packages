@@ -54,17 +54,15 @@ public final class LogisticsPanel {
     /**
      * The button IS one 7x7 texture drawn by the user ({@code 参考/Button_7x7.png}): a black right-pointing chevron
      * on dark grey, with no frame of its own. It is drawn <b>1:1</b> - the layout rect IS the sheet size, so there
-     * is no scale factor - and <b>never mirrored</b>: the user's own sheet already points the way he wants, and a
-     * mirrored (negative x-scale) blit renders nothing down this GUI path, which is why the fold button was
-     * invisible while the collect button and the hidden entry - the identical non-mirrored path - were visible.
-     * Because the image is the whole button there is no separate face fill either, which makes "the face covers
-     * the arrow" impossible: that was the earlier "grey square" bug, where {@link #overlay} drew at
-     * {@link #BUTTON_Z} while the icon was drawn at z = 0.
+     * is no scale factor - and its direction is decided by <b>moving whole pixel columns</b>
+     * ({@link PanelLayout#buttonPixelX}), never by a negative pose scale: such a mirrored blit renders nothing
+     * down this GUI path, which is exactly why an earlier fold button was invisible while the two unmirrored
+     * buttons were visible. Because the image is the whole button there is no separate face fill either, which
+     * makes "the face covers the arrow" impossible: that was the earlier "grey square" bug, where
+     * {@link #overlay} drew at {@link #BUTTON_Z} while the icon was drawn at z = 0.
      */
     private static final ResourceLocation BUTTON_TEXTURE = ResourceLocation.fromNamespaceAndPath(
             "create_feed_me_packages", "textures/gui/button.png");
-    /** Source sheet edge in pixels (the user's file). The on-screen size is the same: {@code BUTTON}. */
-    private static final int BUTTON_SHEET = 7;
     /**
      * The layer the panel's own buttons and flat overlays live on. {@link #overlay} has always drawn here, and
      * the button sheet must use the SAME layer: the "grey square, no arrow" bug was an icon drawn at z = 0
@@ -734,12 +732,13 @@ public final class LogisticsPanel {
     }
 
     /**
-     * The one-key collect button: the 7x7 user sheet in the right-hand end-cap band. Disabled (greyed and inert)
+     * The one-key collect button: the 7x7 user sheet in the right-hand end-cap band, <b>mirrored</b> so it reads as
+     * {@code <-} (user: "转移按钮的箭头左右反了" - the sheet itself points right). Disabled (greyed and inert)
      * exactly when the cache cannot be used right now. Creative mode: the server opens the narrow door for this
      * action alone (it never touches the client-owned cursor), so the button stays live.
      */
     private static void renderCollectButton(GuiGraphics g) {
-        LogisticsPanel.iconButton(g, layout.collectButton(), "collect_button",
+        LogisticsPanel.iconButton(g, layout.collectButton(), true, "collect_button",
                 LogisticsPanel.collectEnabled());
     }
 
@@ -747,45 +746,54 @@ public final class LogisticsPanel {
      * The fold-away button (expanded) or the entry back into the panel (hidden): same column as the collect
      * button, at the panel's bottom-right corner. Pressing it hides the whole panel - nothing is drawn and
      * nothing is intercepted, so whatever sits behind it (JEI's bookmark column) becomes usable again.
+     *
+     * <p>Direction: the expanded fold button shows the sheet <b>as drawn</b> (pointing right, {@code >}); the
+     * hidden entry is <b>mirrored</b> (pointing left, {@code <}) - that is {@code layout.hidden()} exactly.
      */
     private static void renderCollapseButton(GuiGraphics g) {
-        LogisticsPanel.iconButton(g, layout.collapseButton(),
+        LogisticsPanel.iconButton(g, layout.collapseButton(), layout.hidden(),
                 layout.hidden() ? "unfold_button" : "fold_button", true);
     }
 
-    /** The one small entry left on screen while the panel is hidden. */
+    /** The one small entry left on screen while the panel is hidden (mirrored, pointing left). */
     private static void renderEntry(GuiGraphics g) {
-        LogisticsPanel.iconButton(g, layout.collapseButton(), "unfold_button", true);
+        LogisticsPanel.iconButton(g, layout.collapseButton(), true, "unfold_button", true);
     }
 
     /**
-     * A button, drawn as <b>one image</b> in <b>one way</b>: {@link #BUTTON_TEXTURE} already contains its own
-     * background and chevron, so nothing is filled underneath it and nothing can cover it, and there is no
-     * mirrored variant any more - the user's sheet points the way he wants, and the mirrored copy was the one
-     * that never appeared (see the class comment on {@link #BUTTON_TEXTURE}). The only marks drawn here come
-     * <b>after</b> the sheet and strictly above it ({@link #BUTTON_MARK_Z}): a hover highlight or the disabled
-     * veil.
+     * A button, drawn as <b>one image</b>: {@link #BUTTON_TEXTURE} already contains its own background and
+     * chevron, so nothing is filled underneath it and nothing can cover it. {@code flipped} mirrors the sheet by
+     * moving whole pixel columns (see {@link PanelLayout#buttonPixelX}) - never a negative pose scale, which
+     * renders nothing down this GUI path and is what made an earlier fold button invisible. The only marks drawn
+     * here come <b>after</b> the sheet and strictly above it ({@link #BUTTON_MARK_Z}): a hover highlight or the
+     * disabled veil.
      */
-    private static void iconButton(GuiGraphics g, PanelLayout.Rect r, String help, boolean enabled) {
+    private static void iconButton(GuiGraphics g, PanelLayout.Rect r, boolean flipped, String help,
+            boolean enabled) {
         if (r.width() <= 0 || r.height() <= 0) return;   // no button in this state (e.g. collect while hidden)
         boolean hover = enabled && r.contains(mouseX, mouseY);
-        LogisticsPanel.buttonSheet(g, r);
+        LogisticsPanel.buttonSheet(g, r, flipped);
         if (!enabled) LogisticsPanel.mark(g, r, BUTTON_DISABLED_VEIL);
         else if (hover) LogisticsPanel.mark(g, r, BUTTON_HOVER_MARK);
         if (hover) tooltip = List.of(LogisticsPanel.tr(help, new Object[0]));
     }
 
     /**
-     * Draw the single button sheet 1:1 at the rect's position, on the SAME layer as {@link #overlay} (see
-     * {@link #BUTTON_Z} - drawing it at z = 0 was the "grey square" bug). There is deliberately <b>no</b>
-     * {@code scale()} here at all: no resizing, no mirroring. Pose is always popped; blending is left as found.
+     * Draw the single button sheet 1:1 on the SAME layer as {@link #overlay} (see {@link #BUTTON_Z} - drawing it
+     * at z = 0 was the "grey square" bug), one source column at a time. Drawing column by column is what makes
+     * the mirror work without any {@code scale()}: each source column goes to the screen x
+     * {@link PanelLayout#buttonPixelX} returns, so the drawn pixels - and therefore the direction the chevron
+     * points - are decided by that one function. Pose is always popped; blending is left as found.
      */
-    private static void buttonSheet(GuiGraphics g, PanelLayout.Rect r) {
+    private static void buttonSheet(GuiGraphics g, PanelLayout.Rect r, boolean flipped) {
         com.mojang.blaze3d.systems.RenderSystem.enableBlend();
         com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
         g.pose().pushPose();
-        g.pose().translate((float)r.x(), (float)r.y(), BUTTON_Z);
-        g.blit(BUTTON_TEXTURE, 0, 0, 0.0f, 0.0f, BUTTON_SHEET, BUTTON_SHEET, BUTTON_SHEET, BUTTON_SHEET);
+        g.pose().translate(0.0f, 0.0f, BUTTON_Z);
+        for (int u = 0; u < PanelLayout.BUTTON_SHEET; u++) {
+            g.blit(BUTTON_TEXTURE, PanelLayout.buttonPixelX(r, u, flipped), r.y(), (float)u, 0.0f, 1,
+                    PanelLayout.BUTTON_SHEET, PanelLayout.BUTTON_SHEET, PanelLayout.BUTTON_SHEET);
+        }
         g.pose().popPose();
         com.mojang.blaze3d.systems.RenderSystem.disableBlend();
     }
