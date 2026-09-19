@@ -52,12 +52,21 @@ import top.theillusivec4.curios.api.type.capability.ICuriosItemHandler;
 public final class LogisticsPanel {
     private static final Minecraft MC = Minecraft.getInstance();
     /**
-     * The button icons are <b>painted from flat fills</b> (see {@link PanelLayout#glyphFills}): no texture and no
-     * font glyph is involved, so an icon cannot silently render as an empty grey square - which is exactly what
-     * the user saw with the first, mirrored-sprite version.
+     * The button icon is ONE 16x16 RGBA sheet ({@code textures/gui/arrow.png}) drawn at <b>half scale</b>
+     * (user: "画一个16x16的箭头，然后游戏内按比例缩放到8x8，两个箭头复用一份素材"), so the drawn arrow is 8x8.
+     * Collect and the hidden entry show it as-is (pointing left); the fold button <b>mirrors the same sheet</b>
+     * horizontally (pointing right) instead of shipping a second texture. No font glyph and no procedural fills
+     * are involved any more.
      */
+    private static final ResourceLocation BUTTON_ARROW = ResourceLocation.fromNamespaceAndPath(
+            "create_feed_me_packages", "textures/gui/arrow.png");
+    /** Source sheet edge in pixels. The sheet is 16x16 and is always drawn through {@link #ARROW_SCALE}. */
+    private static final int ARROW_SHEET = 16;
+    /** Uniform scale applied to the sheet: {@code ARROW_SHEET * ARROW_SCALE} = the 8x8 button. */
+    private static final float ARROW_SCALE = 0.5f;
     private static final int BUTTON_FACE = 0xC0202020, BUTTON_FACE_HOVER = 0xD0505050;
-    private static final int BUTTON_GLYPH = 0xFFE6E6E6, BUTTON_GLYPH_OFF = 0xFF7F7F7F;
+    /** Veil over the whole button when the action is unavailable (keeps the old "greyed out" reading). */
+    private static final int BUTTON_DISABLED_VEIL = 0xB0000000;
 
     private static AbstractContainerScreen<?> screen;
     private static UUID window;
@@ -721,7 +730,7 @@ public final class LogisticsPanel {
      * narrow door for this action alone (it never touches the client-owned cursor), so the button stays live.
      */
     private static void renderCollectButton(GuiGraphics g) {
-        LogisticsPanel.glyphButton(g, layout.collectButton(), PanelLayout.Glyph.COLLECT_LEFT, "collect_button",
+        LogisticsPanel.iconButton(g, layout.collectButton(), false, "collect_button",
                 LogisticsPanel.collectEnabled());
     }
 
@@ -731,29 +740,48 @@ public final class LogisticsPanel {
      * nothing is intercepted, so whatever sits behind it (JEI's bookmark column) becomes usable again.
      */
     private static void renderCollapseButton(GuiGraphics g) {
-        LogisticsPanel.glyphButton(g, layout.collapseButton(),
-                layout.hidden() ? PanelLayout.Glyph.UNFOLD_LEFT : PanelLayout.Glyph.FOLD_RIGHT,
+        LogisticsPanel.iconButton(g, layout.collapseButton(), !layout.hidden(),
                 layout.hidden() ? "unfold_button" : "fold_button", true);
     }
 
     /** The one small entry left on screen while the panel is hidden. */
     private static void renderEntry(GuiGraphics g) {
-        LogisticsPanel.glyphButton(g, layout.collapseButton(), PanelLayout.Glyph.UNFOLD_LEFT, "unfold_button", true);
+        LogisticsPanel.iconButton(g, layout.collapseButton(), false, "unfold_button", true);
     }
 
-    /** A texture-free, font-free button: a flat fill plus one painted icon, with hover and disabled states. */
-    private static void glyphButton(GuiGraphics g, PanelLayout.Rect r, PanelLayout.Glyph glyph, String help,
+    /**
+     * A button: a flat face plus the shared arrow sheet drawn at half scale, with hover and disabled states.
+     * {@code mirrored} flips the SAME sheet horizontally (fold points right, collect/entry point left).
+     */
+    private static void iconButton(GuiGraphics g, PanelLayout.Rect r, boolean mirrored, String help,
             boolean enabled) {
         if (r.width() <= 0 || r.height() <= 0) return;   // no button in this state (e.g. collect while hidden)
         boolean hover = enabled && r.contains(mouseX, mouseY);
         LogisticsPanel.overlay(g, r.x(), r.y(), r.width(), r.height(), hover ? BUTTON_FACE_HOVER : BUTTON_FACE);
-        int color = enabled ? BUTTON_GLYPH : BUTTON_GLYPH_OFF;
-        for (PanelLayout.Rect fill : PanelLayout.glyphFills(r, glyph)) {
-            LogisticsPanel.overlay(g, fill.x(), fill.y(), fill.width(), fill.height(), color);
+        LogisticsPanel.drawArrow(g, r, mirrored);
+        if (!enabled) LogisticsPanel.overlay(g, r.x(), r.y(), r.width(), r.height(), BUTTON_DISABLED_VEIL);
+        if (hover) tooltip = List.of(LogisticsPanel.tr(help, new Object[0]));
+    }
+
+    /**
+     * Draw the shared 16x16 sheet scaled to {@link #ARROW_SHEET} * {@link #ARROW_SCALE} (8x8). The mirror is a
+     * negative x-scale about the button's right edge, so the SAME texture reads as "fold" with no second asset.
+     * Blending is on because the sheet has transparent pixels; the pose is always popped and blending restored.
+     */
+    private static void drawArrow(GuiGraphics g, PanelLayout.Rect r, boolean mirrored) {
+        com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+        com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
+        g.pose().pushPose();
+        if (mirrored) {
+            g.pose().translate((float)(r.x() + r.width()), (float)r.y(), 0.0f);
+            g.pose().scale(-ARROW_SCALE, ARROW_SCALE, 1.0f);
+        } else {
+            g.pose().translate((float)r.x(), (float)r.y(), 0.0f);
+            g.pose().scale(ARROW_SCALE, ARROW_SCALE, 1.0f);
         }
-        if (enabled && r.contains(mouseX, mouseY)) {
-            tooltip = List.of(LogisticsPanel.tr(help, new Object[0]));
-        }
+        g.blit(BUTTON_ARROW, 0, 0, 0.0f, 0.0f, ARROW_SHEET, ARROW_SHEET, ARROW_SHEET, ARROW_SHEET);
+        g.pose().popPose();
+        com.mojang.blaze3d.systems.RenderSystem.disableBlend();
     }
 
     /** True when the one-key collect may be sent: a live cache. Creative mode is allowed (narrow server door). */

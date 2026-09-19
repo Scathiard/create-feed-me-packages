@@ -214,11 +214,13 @@ class PanelLayoutTest {
     }
 
     /**
-     * The two small buttons: derived from the existing constants, inside the border band, sharing one column,
-     * clearing every cell and each other.
+     * The two small buttons: 8x8 (the user rejected 10x10 as "太丑了且超出边框了"), inside the <b>painted</b>
+     * part of the end-cap band only, sharing one column, clear of the frame stroke by >= 1 px, clearing every
+     * cell and each other.
      */
     @Test void theTwoSmallButtonsSitInTheBorderBandClearOfEveryCell() {
-        assertEquals(PanelLayout.ROW - 2 * PanelLayout.MARGIN, PanelLayout.BUTTON);
+        assertEquals(8, PanelLayout.BUTTON, "the user asked for a 16x16 sheet drawn at half scale");
+        assertEquals(14, PanelLayout.CAP_ART, "panel.png paints only 14 of the 22 cap columns");
         for (int count : new int[]{9, 16, 24, 30, 36}) {
             var grid = CacheGrid.forCount(count);
             var layout = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
@@ -229,9 +231,14 @@ class PanelLayoutTest {
                 assertEquals(PanelLayout.BUTTON, button.width(), "the buttons are one small square");
                 assertEquals(PanelLayout.BUTTON, button.height());
                 assertTrue(layout.bounds().contains(button.x(), button.y()));
-                assertTrue(button.x() + button.width() <= layout.bounds().x() + layout.bounds().width());
-                assertTrue(button.x() >= layout.bounds().x() + layout.bounds().width() - PanelLayout.SIDE,
-                        "the button escaped the border band");
+                // Left edge: never past the first painted cap column. Right edge: at least one clear pixel
+                // before the 1 px frame stroke, which is the LAST painted cap column.
+                int capLeft = layout.bounds().x() + layout.bounds().width() - PanelLayout.SIDE;
+                assertTrue(button.x() >= capLeft, "the button escaped the border band");
+                assertTrue(button.x() + button.width() <= layout.rightBorderStrokeX(),
+                        "the button reaches into the frame stroke");
+                assertTrue(layout.rightBorderStrokeX() - (button.x() + button.width()) >= 1,
+                        "the button has no >= 1 px gap to the frame line");
             }
             assertEquals(collect.x(), collapse.x(), "both buttons share the same column");
             assertEquals(layout.bounds().y() + (layout.bounds().height() - PanelLayout.BUTTON) / 2, collect.y(),
@@ -281,37 +288,73 @@ class PanelLayoutTest {
     }
 
     /**
-     * The icons are painted from flat fills - no texture, no font glyph - so "the icon never showed up" (the
-     * user's report about the first, mirrored-sprite version) cannot happen again by construction. Shape only;
-     * the pixels being lit on screen still has to be seen in game.
+     * The button icon is ONE 16x16 RGBA sheet in our own namespace, drawn at half scale (user: "画一个16x16的箭头，
+     * 然后游戏内按比例缩放到8x8，两个箭头复用一份素材"). This test reads the real shipped PNG out of the build
+     * output - not a reference - and pins the properties that make it readable when halved: 16x16, an alpha
+     * channel, and a <b>clean solid</b> arrow (every pixel either fully transparent or fully opaque white, so
+     * halving cannot produce the grey fringe the user complained about), with nothing clipped at the edges.
      */
-    @Test void theButtonIconsArePaintedFromFills() {
-        var button = new PanelLayout.Rect(10, 20, PanelLayout.BUTTON, PanelLayout.BUTTON);
-        for (var glyph : PanelLayout.Glyph.values()) {
-            var fills = PanelLayout.glyphFills(button, glyph);
-            assertFalse(fills.isEmpty(), glyph + " paints nothing");
-            int pixels = fills.stream().mapToInt(fill -> fill.width() * fill.height()).sum();
-            assertTrue(pixels >= 8, glyph + " paints only " + pixels + " pixel(s)");
-            for (var fill : fills) {
-                assertTrue(fill.x() >= button.x() && fill.x() + fill.width() <= button.x() + button.width(),
-                        glyph + " paints outside the button horizontally");
-                assertTrue(fill.y() >= button.y() && fill.y() + fill.height() <= button.y() + button.height(),
-                        glyph + " paints outside the button vertically");
+    @Test void theArrowSheetIsACleanSixteenPixelRgbaArrow() throws Exception {
+        var url = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/arrow.png");
+        assertNotNull(url, "the arrow sheet is missing from the mod's own assets");
+        var sheet = javax.imageio.ImageIO.read(url);
+        assertNotNull(sheet, "the arrow sheet is not a readable PNG");
+        assertEquals(16, sheet.getWidth(), "the sheet must be 16x16 so that half scale gives 8x8");
+        assertEquals(16, sheet.getHeight());
+        assertTrue(sheet.getColorModel().hasAlpha(), "the sheet needs an alpha channel (RGBA)");
+        int opaque = 0;
+        for (int y = 0; y < sheet.getHeight(); y++) {
+            for (int x = 0; x < sheet.getWidth(); x++) {
+                int argb = sheet.getRGB(x, y);
+                int alpha = argb >>> 24;
+                assertTrue(alpha == 0 || alpha == 255,
+                        "anti-aliased pixel at " + x + "," + y + " would show as a fringe (alpha " + alpha + ")");
+                if (alpha == 0) continue;
+                assertEquals(0x00FFFFFF, argb & 0x00FFFFFF, "the arrow must be pure white at " + x + "," + y);
+                assertTrue(x > 0 && y > 0 && x < 15 && y < 15,
+                        "the arrow is clipped at the sheet edge at " + x + "," + y);
+                opaque++;
             }
         }
-        // The collect icon is a left arrow: a shaft long enough to read, with the tip left of it.
-        var arrow = PanelLayout.glyphFills(button, PanelLayout.Glyph.COLLECT_LEFT);
-        int leftmost = arrow.stream().mapToInt(PanelLayout.Rect::x).min().orElseThrow();
-        int rightmost = arrow.stream().mapToInt(fill -> fill.x() + fill.width()).max().orElseThrow();
-        assertTrue(rightmost - leftmost >= 6, "the arrow is too short to read (" + (rightmost - leftmost) + "px)");
-        // Fold and unfold are exact mirror images, so the entry reads as the same control.
-        var fold = PanelLayout.glyphFills(button, PanelLayout.Glyph.FOLD_RIGHT);
-        var unfold = PanelLayout.glyphFills(button, PanelLayout.Glyph.UNFOLD_LEFT);
-        assertEquals(fold.size(), unfold.size(), "the two chevrons must have the same pixel count");
-        var mirrored = new HashSet<String>();
-        for (var fill : fold) mirrored.add((button.x() + button.width() - 1 - (fill.x() - button.x())) + "," + fill.y());
-        for (var fill : unfold)
-            assertTrue(mirrored.contains(fill.x() + "," + fill.y()), "unfold is not the mirror of fold at " + fill.x() + "," + fill.y());
+        assertTrue(opaque >= 40, "the arrow is too small to read when halved (" + opaque + " opaque pixels)");
+        assertTrue(sheet.getWidth() * 0.5f == PanelLayout.BUTTON,
+                "the sheet must scale exactly onto the button");
+    }
+
+    /**
+     * The three button tooltips are capped at FOUR Chinese characters (user: "按钮说明删减到四个字"), which is what
+     * fits next to an 8x8 button. Read from the shipped lang files - the same bytes the client loads - and this
+     * change only shortens three values: the mod keeps exactly the keys it had.
+     */
+    @Test void theThreeButtonTooltipsStayWithinFourChineseCharacters() throws Exception {
+        var zh = langKeys("/assets/create_feed_me_packages/lang/zh_cn.json");
+        var en = langKeys("/assets/create_feed_me_packages/lang/en_us.json");
+        for (String key : new String[]{"gui.create_feed_me_packages.collect_button",
+                "gui.create_feed_me_packages.fold_button", "gui.create_feed_me_packages.unfold_button"}) {
+            String zhText = zh.get(key);
+            String enText = en.get(key);
+            assertNotNull(zhText, key + " missing in zh_cn");
+            assertNotNull(enText, key + " missing in en_us");
+            assertTrue(zhText.codePointCount(0, zhText.length()) <= 4,
+                    key + " is longer than four characters: " + zhText);
+            assertTrue(enText.trim().split("\\s+").length <= 2, key + " English text is not terse: " + enText);
+        }
+        assertEquals(110, zh.size(), "no new lang key may be added (raise this number deliberately)");
+        assertEquals(zh.keySet(), en.keySet(), "en_us and zh_cn must stay key-for-key identical");
+    }
+
+    /** Minimal reader for our own flat lang files: one {@code "key": "value"} per line. */
+    private static java.util.Map<String, String> langKeys(String resource) throws Exception {
+        try (var in = PanelLayoutTest.class.getResourceAsStream(resource)) {
+            assertNotNull(in, resource + " is missing from the mod's own assets");
+            String text = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            var pattern = java.util.regex.Pattern.compile("^\\s*\"([^\"]+)\"\\s*:\\s*\"(.*?)\"\\s*,?\\s*$",
+                    java.util.regex.Pattern.MULTILINE);
+            var matcher = pattern.matcher(text);
+            var keys = new java.util.LinkedHashMap<String, String>();
+            while (matcher.find()) keys.put(matcher.group(1), matcher.group(2));
+            return keys;
+        }
     }
 
     /**

@@ -104,8 +104,8 @@
   "message.create_feed_me_packages.growth.invalid_state": "制造状态无效",
   "message.create_feed_me_packages.growth.storage_locked": "日志已锁定",
   "message.create_feed_me_packages.growth.committed_sync_error": "同步失败，请重开界面",
-  "gui.create_feed_me_packages.collect_button": "一键收取：把背包里已有对应格子的物品收进缓存（不新建格子）",
-  "gui.create_feed_me_packages.fold_button": "收起面板（不再挤占 JEI 收藏夹）",
+  "gui.create_feed_me_packages.collect_button": "一键收取",
+  "gui.create_feed_me_packages.fold_button": "收起面板",
   "gui.create_feed_me_packages.unfold_button": "展开面板",
   "message.create_feed_me_packages.collect": "已收 %s 件",
   "message.create_feed_me_packages.collect_above_maximum": "已收 %s 件；其中 %s 件超过退货上限，将按退货设置处理"

@@ -104,9 +104,9 @@
   "message.create_feed_me_packages.growth.invalid_state": "Invalid manufacturing state",
   "message.create_feed_me_packages.growth.storage_locked": "Ledger locked",
   "message.create_feed_me_packages.growth.committed_sync_error": "Sync failed; reopen the screen",
-  "gui.create_feed_me_packages.collect_button": "Collect matching items from your inventory into their cells",
-  "gui.create_feed_me_packages.fold_button": "Fold the panel away (stops it pushing JEI's bookmarks)",
-  "gui.create_feed_me_packages.unfold_button": "Unfold the panel",
+  "gui.create_feed_me_packages.collect_button": "Collect",
+  "gui.create_feed_me_packages.fold_button": "Fold",
+  "gui.create_feed_me_packages.unfold_button": "Unfold",
   "message.create_feed_me_packages.collect": "Collected %s",
   "message.create_feed_me_packages.collect_above_maximum": "Collected %s; %s of them are above the return limit and will be handled by your return settings"
 }

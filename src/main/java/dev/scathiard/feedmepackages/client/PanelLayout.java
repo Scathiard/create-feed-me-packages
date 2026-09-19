@@ -15,12 +15,19 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     public static final int TRACK_INSET = 5, TRACK_Y = 4, MIN_THUMB_Y = 8, MAX_THUMB_Y = 0, LABEL_Y = 11;
     public static final int MARGIN = 4, GAP = 4, BOOK_WIDTH = 177, MAX_ROWS = 6;
     /**
-     * The two small square buttons (collect / collapse) are <b>smaller than one cell</b> and live entirely
-     * inside the border band, derived from existing constants only: {@code ROW - 2 * MARGIN}. The user asked
-     * for "与面板白色边框齐平的小方块 … 不超出边框带、不压格子、不占格子空间" after the first 18x18 version
-     * felt too big.
+     * The two small square buttons (collect / collapse) are <b>8x8</b> and live entirely inside the right-hand
+     * end-cap band. The user rejected the previous 10x10 size as "太丑了且超出边框了" and asked for a 16x16
+     * texture drawn at half scale, so the drawn square is 8x8.
      */
-    public static final int BUTTON = ROW - 2 * MARGIN;
+    public static final int BUTTON = 8;
+    /**
+     * How much of the {@link #SIDE}-wide end cap is actually painted. Measured in {@code panel.png}: the cap
+     * blits read texture columns {@code u=53..66} (14 columns) for the repeat strip and the footer, i.e. the
+     * <b>last 8 of the 22 cap columns are transparent</b> - that transparent margin is exactly what made the
+     * old 10x10 square look like it stuck out past the frame. The last painted column is the 1 px dark border
+     * stroke, so a button may use {@code CAP_ART - 1 = 13} columns.
+     */
+    public static final int CAP_ART = 14;
 
     public record Rect(int x, int y, int width, int height) {
         public boolean contains(double mx, double my) {
@@ -42,11 +49,20 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
         return new Rect(bounds.x() + bounds.width() - 13, bounds.y() + HEADER,
                 2, visibleRows * ROW);
     }
-    /** The column the two buttons share: centred in the right-hand end-cap band; the entry when hidden. */
+    /**
+     * The column the two buttons share: centred in the <b>painted</b> part of the right-hand end-cap band (the
+     * border stroke column is excluded, leaving >= 1 px clear of the frame line on both sides); the entry when
+     * hidden. Derived from {@link #SIDE}/{@link #CAP_ART}/{@link #BUTTON} - no pixel is written down here.
+     */
     private int buttonX() {
         if (hidden) return bounds.x();   // while hidden the box IS the entry square
-        return bounds.x() + bounds.width() - SIDE + (SIDE - BUTTON) / 2;
+        int capLeft = bounds.x() + bounds.width() - SIDE;      // first painted cap column
+        int usable = CAP_ART - 1;                             // drop the 1 px dark border stroke column
+        return capLeft + (usable - BUTTON) / 2;
     }
+
+    /** The 1 px border stroke of the right-hand frame line, for gap assertions. */
+    public int rightBorderStrokeX() { return bounds.x() + bounds.width() - SIDE + CAP_ART - 1; }
 
     /**
      * The one-key collect button (user: "放在面板右边的中间"): a small square inside the right-hand end-cap
@@ -76,42 +92,11 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
                 : bounds.y() + bounds.height() - FOOTER + (FOOTER - BUTTON) / 2;
         return new Rect(buttonX(), y, BUTTON, BUTTON);
     }
-    /** The one small entry left on screen while the panel is hidden. */
-    public static List<Rect> glyphFills(Rect button, Glyph glyph) {
-        List<Rect> fills = new ArrayList<>();
-        int cx = button.x() + button.width() / 2;
-        int cy = button.y() + button.height() / 2;
-        switch (glyph) {
-            case COLLECT_LEFT -> {
-                fills.add(new Rect(cx - 1, cy - 1, 5, 2));   // shaft, pointing away to the right
-                fills.add(new Rect(cx - 3, cy - 2, 1, 1));   // head, upper barb
-                fills.add(new Rect(cx - 4, cy - 1, 1, 2));   // head, tip
-                fills.add(new Rect(cx - 3, cy + 1, 1, 1));   // head, lower barb
-            }
-            case FOLD_RIGHT -> {
-                chevron(cx - 3, cy - 3, 1, fills);
-                chevron(cx, cy - 3, 1, fills);
-            }
-            case UNFOLD_LEFT -> {
-                chevron(cx + 2, cy - 3, -1, fills);
-                chevron(cx - 1, cy - 3, -1, fills);
-            }
-        }
-        return List.copyOf(fills);
-    }
-
-    private static void chevron(int x, int y, int direction, List<Rect> fills) {
-        int[] indent = {0, 1, 2, 1, 0};
-        for (int row = 0; row < indent.length; row++)
-            fills.add(new Rect(x + direction * indent[row], y + row, 1, 1));
-    }
-
     /**
-     * The two button icons are <b>drawn from flat fills</b> - no texture and no font glyph - so nothing can
-     * silently fail to render: the user reported the first (mirrored sprite) version as "就是个灰方块、没有箭头",
-     * and the follow-up asked for evidence that the icons really are painted rather than merely referenced.
+     * The icon itself is one 16x16 texture drawn at half scale (see {@code LogisticsPanel.drawArrow}); the
+     * geometry here only decides <b>where</b> the 8x8 square goes, so drawing and hit testing can never disagree:
+     * both use {@link #collectButton()} / {@link #collapseButton()}.
      */
-    public enum Glyph { COLLECT_LEFT, FOLD_RIGHT, UNFOLD_LEFT }
 
     /** Width of the panel for a level's own arrangement (used before a layout exists). */
     public static int preferredWidth(CacheGrid grid) { return grid.columns() * ROW + 2 * SIDE; }
