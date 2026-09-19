@@ -51,6 +51,13 @@ import top.theillusivec4.curios.api.type.capability.ICuriosItemHandler;
 /** Recovered from test.42; pixel-atlas and layout corrections only. */
 public final class LogisticsPanel {
     private static final Minecraft MC = Minecraft.getInstance();
+    /** The one-key collect icon: the vanilla furnace arrow sprite, mirrored (no new texture is shipped). */
+    private static final ResourceLocation ARROW = ResourceLocation.fromNamespaceAndPath("minecraft",
+            "textures/gui/sprites/container/furnace/burn_progress.png");
+    private static final int ARROW_TEXTURE_WIDTH = 24, ARROW_TEXTURE_HEIGHT = 16;
+    /** 16x16 window of that 24x16 arrow: the tip plus the shaft, so the mirrored arrow still reads. */
+    private static final float ARROW_U = 8.0f, ARROW_V = 0.0f;
+    private static final int ARROW_SIZE = 16, ARROW_INSET = 1;
     private static AbstractContainerScreen<?> screen;
     private static UUID window;
     private static PanelPackets.Snapshot snapshot;
@@ -661,6 +668,48 @@ public final class LogisticsPanel {
             int offset = (rail.height() - thumb) * firstRow / Math.max(1, layout.totalRows() - layout.visibleRows());
             g.fill(rail.x(), rail.y() + offset, rail.x() + rail.width(), rail.y() + offset + thumb, -4152474);
         }
+        if (!layout.compact()) {
+            LogisticsPanel.renderCollectButton(g);
+        }
+    }
+
+    /**
+     * The one-key collect button (user request: right edge, vertically centred, left-pointing arrow). It is
+     * disabled - greyed and inert - exactly when the cache cannot be used right now, and while the client owns
+     * the creative inventory stacks (the server refuses that case too).
+     */
+    private static void renderCollectButton(GuiGraphics g) {
+        PanelLayout.Rect r = layout.collectButton();
+        boolean enabled = LogisticsPanel.collectEnabled();
+        boolean hover = enabled && r.contains(mouseX, mouseY);
+        (hover ? AllGuiTextures.BUTTON_HOVER : AllGuiTextures.BUTTON).render(g, r.x(), r.y());
+        LogisticsPanel.drawCollectArrow(g, r.x() + ARROW_INSET, r.y() + ARROW_INSET);
+        if (!enabled) {
+            LogisticsPanel.overlay(g, r.x(), r.y(), r.width(), r.height(), -1728053248);
+            return;
+        }
+        if (r.contains(mouseX, mouseY)) {
+            tooltip = List.of(LogisticsPanel.tr("collect_button", new Object[0]));
+        }
+    }
+
+    /** The mirrored vanilla arrow: a left-pointing arrow without shipping a new texture. */
+    private static void drawCollectArrow(GuiGraphics g, int x, int y) {
+        com.mojang.blaze3d.systems.RenderSystem.enableBlend();
+        com.mojang.blaze3d.systems.RenderSystem.defaultBlendFunc();
+        g.pose().pushPose();
+        g.pose().translate((float)(x + ARROW_SIZE), (float)y, 0.0f);
+        g.pose().scale(-1.0f, 1.0f, 1.0f);
+        g.blit(ARROW, 0, 0, ARROW_U, ARROW_V, ARROW_SIZE, ARROW_SIZE,
+                ARROW_TEXTURE_WIDTH, ARROW_TEXTURE_HEIGHT);
+        g.pose().popPose();
+        com.mojang.blaze3d.systems.RenderSystem.disableBlend();
+    }
+
+    /** True when the one-key collect may be sent: a live cache, and no creative inventory stack ownership. */
+    private static boolean collectEnabled() {
+        return LogisticsPanel.active() && snapshot != null && snapshot.bound()
+                && !(screen instanceof CreativeModeInventoryScreen);
     }
 
     private static void renderCell(GuiGraphics g, PanelLayout.CellBox box) {
@@ -1070,6 +1119,15 @@ public final class LogisticsPanel {
         if (inputLayout.address().contains(x, y)) {
             LogisticsPanel.MC.keyboardHandler.setClipboard(snapshot.address());
             LogisticsPanel.notice("copied");
+            return true;
+        }
+        // The one-key collect button sits in the right-hand cap. It is answered before the scrollbar rail so
+        // its 18-pixel band is not stolen by the 2-pixel rail; elsewhere the rail behaves as before. A
+        // disabled button still swallows the click instead of letting it fall through to a drop.
+        if (inputLayout.collectButton().contains(x, y)) {
+            if (LogisticsPanel.collectEnabled()) {
+                LogisticsPanel.send(CacheActions.Action.COLLECT_MATCHING, -1, 0, -1, "");
+            }
             return true;
         }
         PanelLayout.Rect rail = inputLayout.scrollbar();

@@ -211,4 +211,22 @@ class PanelLayoutTest {
             }
         }
     }
+
+    /** The one-key collect button: in the right-hand end cap, vertically centred, never on top of a cell. */
+    @Test void theCollectButtonFollowsThePanelBoxAndNeverCoversACell() {
+        for (int count : new int[]{9, 16, 24, 30, 36}) {
+            var grid = CacheGrid.forCount(count);
+            var layout = PanelLayout.compute(480, 300, 40, grid, 0, -1, false);
+            var button = layout.collectButton();
+            assertEquals(PanelLayout.BUTTON, button.width(), "the button is one grid cell across");
+            assertEquals(PanelLayout.BUTTON, button.height());
+            assertTrue(layout.bounds().contains(button.x(), button.y()));
+            assertTrue(button.x() + button.width() <= layout.bounds().x() + layout.bounds().width());
+            assertEquals(layout.bounds().y() + (layout.bounds().height() - PanelLayout.BUTTON) / 2, button.y(),
+                    "the button must be vertically centred on the panel");
+            assertEquals(layout.bounds().x() + layout.bounds().width() - PanelLayout.SIDE + 2, button.x(),
+                    "the button lives in the right-hand end cap");
+            for (var box : layout.cells()) assertFalse(intersects(button, box.bounds()), "the button covers a cell");
+        }
+    }
 }

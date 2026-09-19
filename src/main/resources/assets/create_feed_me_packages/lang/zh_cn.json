@@ -103,5 +103,7 @@
   "message.create_feed_me_packages.growth.unsupported_click": "不支持的取成品方式",
   "message.create_feed_me_packages.growth.invalid_state": "制造状态无效",
   "message.create_feed_me_packages.growth.storage_locked": "日志已锁定",
-  "message.create_feed_me_packages.growth.committed_sync_error": "同步失败，请重开界面"
+  "message.create_feed_me_packages.growth.committed_sync_error": "同步失败，请重开界面",
+  "gui.create_feed_me_packages.collect_button": "一键收取：把背包里已有对应格子的物品收进缓存（不新建格子）",
+  "message.create_feed_me_packages.collect": "已收 %s 件；%s 类没有对应格；%s 类已放满"
 }

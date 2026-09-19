@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.interaction;
 
+import dev.scathiard.feedmepackages.domain.CollectPlan;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import java.util.ArrayList;
@@ -41,5 +42,28 @@ public final class InventoryTransfer {
         }
         return new Plan(before, after, amount - remaining);
     }
+
+    /**
+     * The same plan shape for taking items <b>out</b> of the original inventory, used by the one-key collect:
+     * one entry per inventory slot and the amount to remove from it. Bounded to the 36 real slots, simulated
+     * on copies, and only written by {@link Plan#commit} after {@link Plan#stillValid} proves the inventory has
+     * not moved since the simulation.
+     */
+    public static Plan take(Inventory inventory, List<CollectPlan.Move> moves) {
+        if (inventory.items.size() < SLOTS) throw new IllegalArgumentException("Invalid inventory");
+        var before = new ArrayList<ItemStack>(SLOTS);
+        for (int i = 0; i < SLOTS; i++) before.add(inventory.getItem(i).copy());
+        var after = new ArrayList<>(copies(before));
+        int moved = 0;
+        for (CollectPlan.Move move : moves) {
+            if (move.inventorySlot() >= SLOTS) throw new IllegalArgumentException("Inventory slot out of range");
+            var current = after.get(move.inventorySlot());
+            if (current.getCount() < move.amount()) throw new IllegalArgumentException("Taking more than the slot holds");
+            after.set(move.inventorySlot(), current.copyWithCount(current.getCount() - move.amount()));
+            moved += move.amount();
+        }
+        return new Plan(before, after, moved);
+    }
+
     private static List<ItemStack> copies(List<ItemStack> stacks) { return stacks.stream().map(ItemStack::copy).toList(); }
 }

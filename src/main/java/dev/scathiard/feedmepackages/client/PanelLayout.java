@@ -14,6 +14,8 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     // Geometry of the visible artwork, not only the surrounding popup rectangle.
     public static final int TRACK_INSET = 5, TRACK_Y = 4, MIN_THUMB_Y = 8, MAX_THUMB_Y = 0, LABEL_Y = 11;
     public static final int MARGIN = 4, GAP = 4, BOOK_WIDTH = 177, MAX_ROWS = 6;
+    /** The one-key collect button is exactly one grid cell across, so it follows the same unit as the cells. */
+    public static final int BUTTON = ROW;
 
     public record Rect(int x, int y, int width, int height) {
         public boolean contains(double mx, double my) {
@@ -34,6 +36,18 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     public Rect scrollbar() {
         return new Rect(bounds.x() + bounds.width() - 13, bounds.y() + HEADER,
                 2, visibleRows * ROW);
+    }
+    /**
+     * The one-key collect button (user request: "放在面板右边的中间"): inside the panel's right-hand end cap,
+     * vertically centred on the panel. Derived from the panel box the coordinate table decided plus the same
+     * unit constants everything else uses - no pixel is written down here. It is tested before the scrollbar
+     * in {@code press}, so the thin rail stays clickable above and below the button; the mouse wheel is
+     * unaffected.
+     */
+    public Rect collectButton() {
+        int x = bounds.x() + bounds.width() - SIDE + (SIDE - BUTTON) / 2;
+        int y = bounds.y() + (bounds.height() - BUTTON) / 2;
+        return new Rect(x, y, BUTTON, BUTTON);
     }
     /** Width of the panel for a level's own arrangement (used before a layout exists). */
     public static int preferredWidth(CacheGrid grid) { return grid.columns() * ROW + 2 * SIDE; }

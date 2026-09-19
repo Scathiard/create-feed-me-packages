@@ -1,6 +1,8 @@
 package dev.scathiard.feedmepackages.interaction;
 
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
+import dev.scathiard.feedmepackages.domain.CollectPlan;
+import dev.scathiard.feedmepackages.domain.CacheLevel;
 import dev.scathiard.feedmepackages.consumption.CraftingService;
 import dev.scathiard.feedmepackages.consumption.CraftingReservations;
 import dev.scathiard.feedmepackages.registry.FmpRegistries;
@@ -18,7 +20,7 @@ import java.util.*;
 /** Server-side panel intent interpreter. A session is context, never a substitute for current access. */
 public final class CacheActions {
     private CacheActions() {}
-    public enum Action { DEPOSIT, TAKE_CURSOR, TAKE_INVENTORY, SET_GHOST, CLEAR_FILTER, THRESHOLDS, RESET_REQUEST, PREFERENCE, TERMINAL_ENABLED, CLEAR_NETWORK, TAKE_RESIDUAL, FILL_RECIPE, SET_RETURN_ADDRESS, RELEASE_PREVIEW, CREATIVE_BEGIN, CREATIVE_END }
+    public enum Action { DEPOSIT, TAKE_CURSOR, TAKE_INVENTORY, SET_GHOST, CLEAR_FILTER, THRESHOLDS, RESET_REQUEST, PREFERENCE, TERMINAL_ENABLED, CLEAR_NETWORK, TAKE_RESIDUAL, FILL_RECIPE, SET_RETURN_ADDRESS, RELEASE_PREVIEW, CREATIVE_BEGIN, CREATIVE_END, COLLECT_MATCHING }
     public enum Result { OK, STALE, NOT_ACTIVE, INVALID_ITEM, DUPLICATE_FILTER, FILTER_OCCUPIED, NO_SPACE, INVALID_REQUEST, MISSING_MATERIAL, UNSUPPORTED_RECIPE, TOO_COMPLEX }
     public record Intent(UUID session, long revision, Action action, int slot, int first, int second, String template) {
         public Intent {
@@ -77,9 +79,11 @@ public final class CacheActions {
 
     public static Result execute(ServerPlayer player, Intent intent, int requestSeq) {
         // Creative inventory / ordinary packed access is gated HERE (the new-seq overload), so the old
-        // signature delegating to it cannot bypass the restriction by omitting the sequence.
+        // signature delegating to it cannot bypass the restriction by omitting the sequence. The same gate
+        // covers the one-key collect: in the creative inventory the client owns the stacks on screen.
         if (player.gameMode.isCreative() && player.containerMenu instanceof InventoryMenu
-                && (intent.action() == Action.DEPOSIT || intent.action() == Action.TAKE_CURSOR || intent.action() == Action.TAKE_RESIDUAL))
+                && (intent.action() == Action.DEPOSIT || intent.action() == Action.TAKE_CURSOR
+                        || intent.action() == Action.TAKE_RESIDUAL || intent.action() == Action.COLLECT_MATCHING))
             return Result.INVALID_REQUEST;
         return execute(player, intent, null, requestSeq);
     }
@@ -123,6 +127,9 @@ public final class CacheActions {
         var ledger = CacheLedger.get(player.getServer()); var before = ledger.find(access.handle().cacheId());
         if (before.state().revision() != intent.revision()) return Result.STALE;
         if (intent.action() == Action.FILL_RECIPE) return recipe(player, intent);
+        // The one-key collect is a cache-level action too: it needs no cell, so it must bypass the per-cell
+        // slot validation below (exactly like the return address and the recipe fill).
+        if (intent.action() == Action.COLLECT_MATCHING) return collect(player, access, before, ledger);
         // The return address is a cache-level preference, not a cell action: it uses no slot, so it
         // must bypass the per-cell slot validation below. Setting it marks the ledger dirty (saved).
         if (intent.action() == Action.SET_RETURN_ADDRESS) {
@@ -187,8 +194,55 @@ public final class CacheActions {
         player.containerMenu.broadcastChanges(); return Result.OK;
     }
 
-    private static void cursor(ServerPlayer player, ItemStack next, boolean creative, UUID session, int sequence) {
-        var menu = player.containerMenu;
+    /**
+     * One-key collect (user request): move what the player carries into the cells that <b>already filter those
+     * exact items</b>. Plan first, commit once — the inventory delta is simulated on copies and validated, then
+     * the ledger is replaced, then the inventory is written; a changed or unreadable inventory changes nothing
+     * at all. The player is always told what happened ({@code message.create_feed_me_packages.collect}).
+     */
+    private static Result collect(ServerPlayer player, AccessGate.Result access, CacheRecord before, CacheLedger ledger) {
+        var inventory = player.getInventory();
+        var state = before.state();
+        var registries = player.registryAccess();
+        List<CollectPlan.Source> sources = new ArrayList<>(InventoryTransfer.SLOTS);
+        for (int slot = 0; slot < InventoryTransfer.SLOTS; slot++) {
+            ItemStack stack = inventory.getItem(slot);
+            ItemVariantKey variant = null;
+            if (!stack.isEmpty()) {
+                try { variant = ItemVariantKey.of(stack, registries); }
+                catch (IllegalArgumentException unreadable) { variant = null; }   // the cache cannot file it
+            }
+            sources.add(new CollectPlan.Source(slot, variant, stack.isEmpty() ? 0 : stack.getCount()));
+        }
+        List<CollectPlan.Target> targets = new ArrayList<>(state.cells().size());
+        for (int cell = 0; cell < state.cells().size(); cell++) {
+            var held = state.cells().get(cell);
+            if (held.filter() != null) targets.add(new CollectPlan.Target(cell, held.filter(), held.amount(), held.maximum()));
+        }
+        CollectPlan.Plan plan = CollectPlan.simulate(targets, sources, CacheLevel.of(state.level()).groupCapacity());
+        if (plan.isEmpty()) { collectReport(player, plan); return Result.OK; }
+        InventoryTransfer.Plan inventoryPlan = InventoryTransfer.take(inventory, plan.moves());
+        if (!inventoryPlan.stillValid(inventory)) return Result.STALE;
+        var edit = state.edit();
+        for (CollectPlan.Move move : plan.moves()) {
+            var filter = state.cells().get(move.cell()).filter();
+            if (edit.insert(move.cell(), filter, move.amount()) != move.amount()) return Result.STALE;
+        }
+        // Both sides are proven now: one ledger replacement, then the original inventory setters.
+        ledger.replace(access.handle(), state.revision(), before.withState(edit.finish()));
+        inventoryPlan.commit(inventory);
+        player.containerMenu.broadcastChanges();
+        collectReport(player, plan);
+        return Result.OK;
+    }
+
+    /** Never silent: how much moved, and what had nowhere to go. */
+    private static void collectReport(ServerPlayer player, CollectPlan.Plan plan) {
+        player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
+                "message.create_feed_me_packages.collect", plan.moved(), plan.noCell(), plan.full()), true);
+    }
+
+    private static void cursor(ServerPlayer player, ItemStack next, boolean creative, UUID session, int sequence) {        var menu = player.containerMenu;
         if (!creative) { menu.setCarried(next); return; }
         dev.scathiard.feedmepackages.network.PanelNetwork.sendCursor(player, session, 0, next, 0);
     }

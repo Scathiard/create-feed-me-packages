@@ -103,5 +103,7 @@
   "message.create_feed_me_packages.growth.unsupported_click": "Unsupported way to take the result",
   "message.create_feed_me_packages.growth.invalid_state": "Invalid manufacturing state",
   "message.create_feed_me_packages.growth.storage_locked": "Ledger locked",
-  "message.create_feed_me_packages.growth.committed_sync_error": "Sync failed; reopen the screen"
+  "message.create_feed_me_packages.growth.committed_sync_error": "Sync failed; reopen the screen",
+  "gui.create_feed_me_packages.collect_button": "Collect matching items from your inventory into their cells",
+  "message.create_feed_me_packages.collect": "Collected %s; %s kind(s) have no matching cell; %s kind(s) are full"
 }
