@@ -16,8 +16,8 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     public static final int MARGIN = 4, GAP = 4, BOOK_WIDTH = 177, MAX_ROWS = 6;
     /**
      * The buttons are <b>13x13</b> (user: "换个思路，把按钮都放到底部边框，然后做大一点…依旧贴边框"). The user drew them
-     * himself ({@code 参考/Button_13X13 - 转移.png} and {@code 参考/Button_13X13 - 收纳.png}) with the icon baked in,
-     * so both are drawn 1:1 and the direction comes from which sheet is used.
+     * himself ({@code 参考/Button_13X13 - 转移.png}, {@code - 收纳.png} and {@code - 展开.png}) with the icon baked
+     * in, so all three are drawn 1:1 and the direction comes from which sheet is used.
      */
     public static final int BUTTON = 13;
     /**
@@ -30,7 +30,7 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     public static final int CAP_ART = 14;
     /**
      * Edge of a button sheet in pixels - the same as {@link #BUTTON}, because every sheet is drawn 1:1. There is no
-     * mirroring and no scaling anywhere: each button picks one of the two ready-made sheets.
+     * mirroring and no scaling anywhere: each of the three buttons picks one of the three ready-made sheets.
      */
     public static final int BUTTON_SHEET = BUTTON;
 

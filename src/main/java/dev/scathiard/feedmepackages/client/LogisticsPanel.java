@@ -52,24 +52,29 @@ import top.theillusivec4.curios.api.type.capability.ICuriosItemHandler;
 public final class LogisticsPanel {
     private static final Minecraft MC = Minecraft.getInstance();
     /**
-     * The two 13x13 button sheets the user drew ({@code 参考/Button_13X13 - 转移.png} and
-     * {@code 参考/Button_13X13 - 收纳.png}): black frame, grey face, and the icon <b>baked into the sheet</b> - a
-     * "drop it into the box" glyph for the one-key collect and a right-pointing chevron for the fold button. Each
-     * is drawn <b>1:1</b> (the layout rect IS the sheet size, so there is no scale factor) and the direction is
-     * simply which sheet is used: no mirroring, no column mapping, no negative scaling anywhere. Because the image
-     * is the whole button there is no separate face fill either, which makes "the face covers the arrow" impossible:
-     * that was the earlier "grey square" bug, where {@link #overlay} drew at {@link #BUTTON_Z} while the icon was
-     * drawn at z = 0.
+     * The three 13x13 button sheets the user drew ({@code 参考/Button_13X13 - 转移.png}, {@code - 收纳.png} and
+     * {@code - 展开.png}): black frame, grey face, and the icon <b>baked into the sheet</b> - a "drop it into the
+     * box" glyph for the one-key collect, a right-pointing chevron for the fold button, and a left-pointing chevron
+     * for the entry left on screen while the panel is hidden. Each is drawn <b>1:1</b> (the layout rect IS the sheet
+     * size, so there is no scale factor) and the direction is simply which sheet is used: no mirroring, no column
+     * mapping, no negative scaling anywhere. Because the image is the whole button there is no separate face fill
+     * either, which makes "the face covers the arrow" impossible: that was the earlier "grey square" bug, where
+     * {@link #overlay} drew at {@link #BUTTON_Z} while the icon was drawn at z = 0.
      *
-     * <p>{@code button.png} keeps its old file name on purpose: the 7x7 sheet it used to hold was replaced by
-     * <b>overwriting it in place</b> with the fold sheet, so nothing was deleted; the collect sheet lives beside it
-     * as {@code button_transfer.png}.
+     * <p>Shipped names (the user's mapping): {@code button.png} = transfer, {@code button_fold.png} = fold (收纳),
+     * {@code button_unfold.png} = unfold (展开). The transfer bytes reached {@code button.png} by <b>renaming</b>
+     * the sheet that used to sit there - no sheet was overwritten and no sheet's bytes were dropped: the 7x7 sheet
+     * that {@code button.png} held two rounds ago became the fold sheet's slot in turn, and every earlier byte is
+     * still recoverable from {@code 参考/} and from the git history.
      */
     private static final ResourceLocation BUTTON_TEXTURE = ResourceLocation.fromNamespaceAndPath(
             "create_feed_me_packages", "textures/gui/button.png");
-    /** The one-key collect sheet (the "drop into the box" glyph). */
-    private static final ResourceLocation BUTTON_TRANSFER_TEXTURE = ResourceLocation.fromNamespaceAndPath(
-            "create_feed_me_packages", "textures/gui/button_transfer.png");
+    /** The fold sheet (收纳, right-pointing chevron): the fold button while the panel is expanded. */
+    private static final ResourceLocation BUTTON_FOLD_TEXTURE = ResourceLocation.fromNamespaceAndPath(
+            "create_feed_me_packages", "textures/gui/button_fold.png");
+    /** The unfold sheet (展开, left-pointing chevron): the entry left on screen while the panel is hidden. */
+    private static final ResourceLocation BUTTON_UNFOLD_TEXTURE = ResourceLocation.fromNamespaceAndPath(
+            "create_feed_me_packages", "textures/gui/button_unfold.png");
     /**
      * The user-authored cell background. The shipped sheet is exactly this size - the crop that moved the drawn
      * block to (0,0) - so the blit reads the whole texture at 1:1. See {@link #renderSlot}.
@@ -753,23 +758,26 @@ public final class LogisticsPanel {
      * client-owned cursor), so the button stays live.
      */
     private static void renderTransferButton(GuiGraphics g) {
-        LogisticsPanel.iconButton(g, layout.transferButton(), BUTTON_TRANSFER_TEXTURE, "collect_button",
+        LogisticsPanel.iconButton(g, layout.transferButton(), BUTTON_TEXTURE, "collect_button",
                 LogisticsPanel.collectEnabled());
     }
 
     /**
-     * The fold-away button (expanded) or the entry back into the panel (hidden): the RIGHT of the two squares,
-     * hugging the panel's bottom-right corner inside the border band. Pressing it hides the whole panel - nothing is
-     * drawn and nothing is intercepted, so whatever sits behind it (JEI's bookmark column) becomes usable again.
+     * The fold-away button, drawn while the panel is expanded: the RIGHT of the two squares, hugging the panel's
+     * bottom-right corner inside the border band, on its own sheet (收纳, right-pointing chevron). Pressing it hides
+     * the whole panel - nothing is drawn and nothing is intercepted, so whatever sits behind it (JEI's bookmark
+     * column) becomes usable again.
      */
     private static void renderFoldButton(GuiGraphics g) {
-        LogisticsPanel.iconButton(g, layout.foldButton(), BUTTON_TEXTURE,
-                layout.hidden() ? "unfold_button" : "fold_button", true);
+        LogisticsPanel.iconButton(g, layout.foldButton(), BUTTON_FOLD_TEXTURE, "fold_button", true);
     }
 
-    /** The one square left on screen while the panel is hidden (the same sheet the fold button uses). */
+    /**
+     * The one square left on screen while the panel is hidden: the same rect the fold button used (so the panel
+     * never appears to jump), but on the unfold sheet (展开, left-pointing chevron).
+     */
     private static void renderEntry(GuiGraphics g) {
-        LogisticsPanel.iconButton(g, layout.foldButton(), BUTTON_TEXTURE, "unfold_button", true);
+        LogisticsPanel.iconButton(g, layout.foldButton(), BUTTON_UNFOLD_TEXTURE, "unfold_button", true);
     }
 
     /**

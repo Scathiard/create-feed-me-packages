@@ -245,11 +245,29 @@ class PanelLayoutTest {
                         "a button is above the painted footer band");
                 assertTrue(button.y() + button.height() <= layout.bottomBorderStrokeY(),
                         "a button covers the bottom black line");
+                // Exactly the footer rows panel.png measures as art (v=124..138 - see
+                // theBottomBorderBandIsPaintedWhereTheButtonsSit): the footer blit starts at y+h-49 on texture row
+                // v=91, so v = y+h+v-140. The buttons occupy v=126..138 - inside that painted band, with two rows
+                // to spare above them (v=124,125 vs the inner edge v=123) and their bottom edge on v=138, i.e. the
+                // row just above the outer black line v=139.
+                assertEquals(layout.bounds().y() + layout.bounds().height() - 14, button.y(),
+                        "the buttons must start on footer row v=126");
+                assertEquals(layout.bounds().y() + layout.bounds().height() - 2, button.y() + button.height() - 1,
+                        "the buttons must end on footer row v=138, one pixel above the bottom black line");
+                assertTrue(button.y() >= layout.bounds().y() + layout.bounds().height() - 16,
+                        "the buttons must stay inside the painted footer rows (v>=124)");
             }
             assertEquals(layout.rightBorderStrokeX(), fold.x() + fold.width() - 1,
                     "the fold button must hug the right black line");
             assertEquals(layout.bottomBorderStrokeY() - 1, fold.y() + fold.height() - 1,
                     "both buttons must hug the bottom black line");
+            // The cap's painted columns (texture u=53..66) begin at x+w-22, so the fold button's right edge lands
+            // on u=66 and the transfer button stays inside the centre band that frame() fills by repeating the one
+            // painted centre column u=44.
+            assertEquals(layout.bounds().x() + layout.bounds().width() - 9, fold.x() + fold.width() - 1,
+                    "the fold button's right edge must land on texture u=66 (the cap's painted inner line)");
+            assertTrue(transfer.x() + transfer.width() - 1 <= layout.bounds().x() + layout.bounds().width() - 23,
+                    "the transfer button must stay inside the centre band the repeated column u=44 fills");
             assertEquals(fold.x() - PanelLayout.BUTTON - 1, transfer.x(),
                     "exactly one clear pixel between the two buttons");
             assertEquals(fold.y(), transfer.y(), "the two buttons share the band");
@@ -302,29 +320,31 @@ class PanelLayoutTest {
     }
 
     /**
-     * The two 13x13 button sheets the user drew ship byte for byte and each already carries its own icon, so the
+     * The three 13x13 button sheets the user drew ship byte for byte and each already carries its own icon, so the
      * direction needs no runtime transform at all. Read from the build output - the same bytes the client loads -
-     * and pinned to the exact white pixels he painted.
+     * and pinned to the exact white pixels he painted, plus the frame and face counts he specified (black frame
+     * 48 px, grey face 96 or 105 px, and no transparent pixel in any of the three).
      */
-    @Test void theTwoButtonSheetsAreTheUsersThirteenPixelPair() throws Exception {
-        var fold = readSheet("/assets/create_feed_me_packages/textures/gui/button.png");
-        var transfer = readSheet("/assets/create_feed_me_packages/textures/gui/button_transfer.png");
-        var foldWhite = whitePixels(fold);
+    @Test void theThreeButtonSheetsAreTheUsersThirteenPixelTrio() throws Exception {
+        var transfer = readSheet("/assets/create_feed_me_packages/textures/gui/button.png");
+        var fold = readSheet("/assets/create_feed_me_packages/textures/gui/button_fold.png");
+        var unfold = readSheet("/assets/create_feed_me_packages/textures/gui/button_unfold.png");
         var transferWhite = whitePixels(transfer);
-        assertEquals(16, foldWhite.size(), "the fold sheet's chevron changed");
+        var foldWhite = whitePixels(fold);
+        var unfoldWhite = whitePixels(unfold);
         assertEquals(25, transferWhite.size(), "the transfer sheet's glyph changed");
-        assertEquals(java.util.Set.of("5,3", "5,4", "6,4", "5,5", "6,5", "7,5", "5,6", "6,6", "7,6", "8,6",
-                "5,7", "6,7", "7,7", "5,8", "6,8", "5,9"), foldWhite,
-                "the fold sheet is not the right-pointing chevron the user drew");
         assertEquals(java.util.Set.of("6,2", "6,3", "6,4", "4,5", "5,5", "6,5", "7,5", "8,5", "3,6", "5,6",
                 "6,6", "7,6", "9,6", "3,7", "6,7", "9,7", "3,8", "9,8", "3,9", "4,9", "5,9", "6,9", "7,9",
                 "8,9", "9,9"), transferWhite,
                 "the transfer sheet is not the drop-into-the-box glyph the user drew");
-        // Fold: a chevron - the tip is its right-most white pixel, on the middle row.
-        assertEquals(8, maxColumn(foldWhite), "the fold chevron's tip must be its right-most white column");
-        assertTrue(foldWhite.contains("8,6"), "the fold chevron's tip must sit on the middle row");
-        assertEquals(1, rowWidth(foldWhite, 3), "the chevron must start as a single pixel");
-        assertEquals(4, rowWidth(foldWhite, 6), "the chevron must be widest at its middle row");
+        assertEquals(16, foldWhite.size(), "the fold sheet's chevron changed");
+        assertEquals(java.util.Set.of("5,3", "5,4", "6,4", "5,5", "6,5", "7,5", "5,6", "6,6", "7,6", "8,6",
+                "5,7", "6,7", "7,7", "5,8", "6,8", "5,9"), foldWhite,
+                "the fold sheet is not the right-pointing chevron the user drew");
+        assertEquals(16, unfoldWhite.size(), "the unfold sheet's chevron changed");
+        assertEquals(java.util.Set.of("7,3", "6,4", "7,4", "5,5", "6,5", "7,5", "4,6", "5,6", "6,6", "7,6",
+                "5,7", "6,7", "7,7", "6,8", "7,8", "7,9"), unfoldWhite,
+                "the unfold sheet is not the left-pointing chevron the user drew");
         // Transfer: a downward arrow (a centre column) dropping into a tray (a wide base).
         for (int y = 2; y <= 4; y++) {
             assertTrue(transferWhite.contains("6," + y), "the arrow shaft must be the centre column at row " + y);
@@ -333,6 +353,32 @@ class PanelLayoutTest {
         assertTrue(transferWhite.contains("3,9") && transferWhite.contains("9,9"),
                 "the tray's base must span the glyph's full width");
         assertEquals(7, maxRowWidth(transferWhite), "no other row may be wider than the tray's base");
+        // Fold: a chevron whose tip is its right-most white pixel on the middle row. Unfold: the mirror image,
+        // tip on the left - that is what makes the hidden entry read "open it back up again".
+        assertEquals(8, maxColumn(foldWhite), "the fold chevron's tip must be its right-most white column");
+        assertTrue(foldWhite.contains("8,6"), "the fold chevron's tip must sit on the middle row");
+        assertEquals(4, minColumn(unfoldWhite), "the unfold chevron's tip must be its left-most white column");
+        assertTrue(unfoldWhite.contains("4,6"), "the unfold chevron's tip must sit on the middle row");
+        for (var chevron : List.of(foldWhite, unfoldWhite)) {
+            assertEquals(1, rowWidth(chevron, 3), "the chevron must start as a single pixel");
+            assertEquals(4, rowWidth(chevron, 6), "the chevron must be widest at its middle row");
+        }
+        assertEquals(mirrored(foldWhite), unfoldWhite, "the unfold sheet must be the fold sheet mirrored");
+        // The frame and face the user specified, per sheet, and every pixel opaque.
+        assertEquals(48, countBlack(transfer), "the transfer sheet's black frame changed");
+        assertEquals(48, countBlack(fold), "the fold sheet's black frame changed");
+        assertEquals(48, countBlack(unfold), "the unfold sheet's black frame changed");
+        assertEquals(96, countGrey(transfer), "the transfer sheet's grey face changed");
+        assertEquals(105, countGrey(fold), "the fold sheet's grey face changed");
+        assertEquals(105, countGrey(unfold), "the unfold sheet's grey face changed");
+        for (var sheet : List.of(transfer, fold, unfold)) {
+            for (int y = 0; y < sheet.getHeight(); y++) {
+                for (int x = 0; x < sheet.getWidth(); x++) {
+                    assertEquals(255, sheet.getRGB(x, y) >>> 24,
+                            "a button sheet pixel is not opaque at " + x + "," + y);
+                }
+            }
+        }
     }
 
     /** The white pixels of one sheet, as {@code x,y} keys. */
@@ -361,6 +407,38 @@ class PanelLayoutTest {
     private static int maxColumn(java.util.Set<String> pixels) {
         return pixels.stream().mapToInt(key -> Integer.parseInt(key.split(",")[0])).max().orElseThrow();
     }
+
+    private static int minColumn(java.util.Set<String> pixels) {
+        return pixels.stream().mapToInt(key -> Integer.parseInt(key.split(",")[0])).min().orElseThrow();
+    }
+
+    /** The same pixels mirrored inside the sheet - the user's unfold chevron is the fold chevron flipped. */
+    private static java.util.Set<String> mirrored(java.util.Set<String> pixels) {
+        var flipped = new java.util.TreeSet<String>();
+        for (String key : pixels) {
+            var parts = key.split(",");
+            flipped.add((PanelLayout.BUTTON - 1 - Integer.parseInt(parts[0])) + "," + parts[1]);
+        }
+        return flipped;
+    }
+
+    /** Pixels of a sheet that are its black frame (neutral, darker than the grey face, fully opaque). */
+    private static int countBlack(java.awt.image.BufferedImage sheet) { return countNeutral(sheet, 0, 40); }
+
+    /** Pixels of a sheet that are its grey face (neutral, between the frame and the white glyph). */
+    private static int countGrey(java.awt.image.BufferedImage sheet) { return countNeutral(sheet, 40, 200); }
+
+    private static int countNeutral(java.awt.image.BufferedImage sheet, int from, int to) {
+        int count = 0;
+        for (int y = 0; y < sheet.getHeight(); y++) {
+            for (int x = 0; x < sheet.getWidth(); x++) {
+                int argb = sheet.getRGB(x, y);
+                int r = argb >> 16 & 0xFF, g = argb >> 8 & 0xFF, b = argb & 0xFF;
+                if ((argb >>> 24) == 255 && r == g && g == b && r >= from && r < to) count++;
+            }
+        }
+        return count;
+    }
     private static int rowWidth(java.util.Set<String> pixels, int row) {
         return (int) pixels.stream().filter(key -> Integer.parseInt(key.split(",")[1]) == row).count();
     }
@@ -370,16 +448,26 @@ class PanelLayoutTest {
                 .distinct().map(row -> rowWidth(pixels, row)).max().orElse(0);
     }
 
-    /** Exactly the two sheets the user drew ship in the mod - no second revision, no filler sheet. */
-    @Test void theModShipsExactlyTheTwoButtonSheets() {
-        for (String present : new String[]{"button.png", "button_transfer.png"}) {
-            assertNotNull(PanelLayoutTest.class.getResource(
-                    "/assets/create_feed_me_packages/textures/gui/" + present), present + " is missing");
+    /**
+     * Exactly the three sheets the user drew ship in the mod: the whole texture folder is enumerated, so a leftover
+     * duplicate (the intermediate {@code button_transfer.png}) or any filler sheet fails the build.
+     */
+    @Test void theModShipsExactlyTheThreeButtonSheets() throws Exception {
+        var sheet = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/button.png");
+        assertNotNull(sheet, "the transfer sheet is missing");
+        java.nio.file.Path gui;
+        try {
+            gui = java.nio.file.Path.of(sheet.toURI()).getParent();
+        } catch (java.net.URISyntaxException e) {
+            throw new AssertionError("the shipped assets are not a plain folder: " + sheet, e);
         }
-        for (String gone : new String[]{"button_left.png", "button_7x7.png", "button_fold.png", "arrow.png"}) {
-            assertNull(PanelLayoutTest.class.getResource(
-                    "/assets/create_feed_me_packages/textures/gui/" + gone), gone + " must not ship");
-        }
+        var shipped = java.nio.file.Files.list(gui)
+                .map(path -> path.getFileName().toString())
+                .filter(name -> name.endsWith(".png"))
+                .sorted()
+                .toList();
+        assertEquals(List.of("button.png", "button_fold.png", "button_unfold.png", "panel.png", "slot_source.png"),
+                shipped, "the texture folder must hold exactly the three button sheets plus panel and slot art");
     }
     /**
      * The three button tooltips are capped at FOUR Chinese characters (user: "按钮说明删减到四个字"), which is what
@@ -471,20 +559,32 @@ class PanelLayoutTest {
             assertEquals(0x000000, panel.getRGB(u, 139) & 0x00FFFFFF,
                     "the panel's bottom row must be the outer black line at u=" + u);
         }
+        // Measured, not assumed: in every row the buttons reach into (v=124..138) the footer art paints exactly 30
+        // columns - u=26..39 (left cap), the single centre column u=44 that frame() repeats across the whole middle
+        // band, and u=53..67 (right cap plus its inner line). So both rects sit on art, never on a transparent hole.
+        for (int v = 124; v <= 138; v++) {
+            int painted = 0;
+            for (int u = 26; u <= 67; u++) if ((panel.getRGB(u, v) >>> 24) != 0) painted++;
+            assertEquals(30, painted, "footer row v=" + v + " must paint exactly the 30 art columns");
+            assertTrue((panel.getRGB(44, v) >>> 24) != 0,
+                    "the repeated centre column must be painted in the rows the buttons use (v=" + v + ")");
+        }
         assertTrue((panel.getRGB(44, 120) >>> 24) != 0,
                 "the 1 px centre column that fills the band between the caps must be painted");
     }
 
-    /** The shipped bytecode must draw the two ready-made sheets and must not carry the old fill-glyph path. */
-    @Test void theShippedButtonCodeDrawsTheTwoSheetsAndHasNoFillGlyphPathLeft() throws Exception {
+    /** The shipped bytecode must draw the three ready-made sheets and must not carry the old fill-glyph path. */
+    @Test void theShippedButtonCodeDrawsTheThreeSheetsAndHasNoFillGlyphPathLeft() throws Exception {
         try (var in = PanelLayoutTest.class
                 .getResourceAsStream("/dev/scathiard/feedmepackages/client/LogisticsPanel.class")) {
             assertNotNull(in, "the compiled panel class must be on the test classpath");
             String code = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.ISO_8859_1);
-            assertTrue(code.contains("textures/gui/button.png"), "the fold sheet must ship");
-            assertTrue(code.contains("textures/gui/button_transfer.png"), "the transfer sheet must ship");
+            assertTrue(code.contains("textures/gui/button.png"), "the transfer sheet must ship");
+            assertTrue(code.contains("textures/gui/button_fold.png"), "the fold sheet must ship");
+            assertTrue(code.contains("textures/gui/button_unfold.png"), "the unfold sheet must ship");
             for (String gone : new String[]{"glyphFills", "BUTTON_GLYPH", "textures/gui/arrow.png", "drawArrow",
-                    "ARROW_SCALE", "ARROW_SHEET", "buttonPixelX", "textures/gui/button_left.png"}) {
+                    "ARROW_SCALE", "ARROW_SHEET", "buttonPixelX", "textures/gui/button_left.png",
+                    "textures/gui/button_transfer.png"}) {
                 assertFalse(code.contains(gone), "the old path is still in the shipped class: " + gone);
             }
         }
@@ -505,13 +605,13 @@ class PanelLayoutTest {
         assertFalse(code.contains("collectButton") || code.contains("collapseButton"),
                 "the old mid-edge button geometry must be gone");
         assertTrue(code.contains(
-                "LogisticsPanel.iconButton(g, layout.transferButton(), BUTTON_TRANSFER_TEXTURE, \"collect_button\","),
-                "the transfer button must draw the transfer sheet");
-        assertTrue(code.contains("LogisticsPanel.iconButton(g, layout.foldButton(), BUTTON_TEXTURE,"),
+                "LogisticsPanel.iconButton(g, layout.transferButton(), BUTTON_TEXTURE, \"collect_button\","),
+                "the one-key collect must draw the transfer sheet");
+        assertTrue(code.contains("LogisticsPanel.iconButton(g, layout.foldButton(), BUTTON_FOLD_TEXTURE,"),
                 "the fold button must draw the fold sheet");
         assertTrue(code.contains(
-                "LogisticsPanel.iconButton(g, layout.foldButton(), BUTTON_TEXTURE, \"unfold_button\", true);"),
-                "the hidden entry must draw the fold sheet");
+                "LogisticsPanel.iconButton(g, layout.foldButton(), BUTTON_UNFOLD_TEXTURE, \"unfold_button\", true);"),
+                "the hidden entry must draw the unfold sheet");
         int hiddenBranch = code.indexOf("if (layout.hidden()) {");
         int hiddenReturn = code.indexOf("return;", hiddenBranch);
         String hidden = code.substring(hiddenBranch, hiddenReturn);
