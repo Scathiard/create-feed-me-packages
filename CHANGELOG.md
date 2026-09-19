@@ -38,7 +38,11 @@ gameplay milestone.
   **升级缓存后格子位置固定**：旧存档第一次打开会重排一次（东西不丢、数量不变，1 级存档无变化），此后升级永不动位。
 - **Drop an item anywhere on the panel and it stores itself / 丢在面板任意空白处即可存入**; one-key collect also
   works in **creative mode**, and **the save format is unchanged**.
+  Both mouse buttons deposit (a right click moves one item); a click that lands on a cell stays there when that cell
+  already filters this item or is empty with no other cell claiming the item, and otherwise falls back to the item's
+  own cell and then to the first empty cell - only then does it say there is no room.
   **丢在面板任意空白处即可存入**；**创造模式**下也能一键收取；**存档格式一个字没改**。
+  **左右键都能存入（右键 1 件）；点在某格上时——该格若正是该物品的过滤格就存那里，空落点格且别处无人占也存那里，否则回落到该物品自己的格、再回落第一个空格，仍无处可放才提示。**
 ## [0.2.2] — 2026-09-17
 
 **Compatibility with Create: Storage, plus a cache-cell fix.**
@@ -172,6 +176,7 @@ package — the only difference is the version number.
   drawing, five-level growth and owner-locked personal caches.
   首个本地可玩版本：坠子绑定缓存、真实 Create 补货请求、含残包的收件、合成／JEI／标准投射物取料、五级成长与物主锁定的个人缓存。
 
+[0.2.3]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.3
 [0.2.2]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.2
 [0.2.1]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.1
 [0.2.0]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.0
