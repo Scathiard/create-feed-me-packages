@@ -111,8 +111,12 @@ public final class CollectPlan {
         throw new IllegalStateException("No cell for a variant that had room");
     }
 
-    /** Item capacity, capped by the cell's own upper threshold when it has one ({@code -1} = no limit). */
-    private static int roomLeft(Target target, int groupCapacity) {
+    /**
+     * How many items a cell can still take: its item capacity, capped by its own upper threshold when it has one
+     * ({@code -1} = no limit). Public because it is the number the diagnostics compare against
+     * {@code ReturnService}'s overage.
+     */
+    public static int roomLeft(Target target, int groupCapacity) {
         int stackSize = Math.max(1, target.variant().stackSize());
         int itemCapacity = groupCapacity * stackSize;
         int free = Math.max(0, itemCapacity - target.amount());
