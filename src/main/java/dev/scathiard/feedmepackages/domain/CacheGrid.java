@@ -190,23 +190,18 @@ public final class CacheGrid {
 
     /**
      * This arrangement plus {@code extra} slot coordinates for future plugin cells. Existing indexes are
-     * copied verbatim (never moved); new coordinates complete the rightmost column's free rows first and then
-     * append whole new columns to the right, top-down, each column holding at most {@link #MAX_ROWS} cells —
-     * "未来插件格继续加新列". The panel box follows the coordinates, so it grows with the table.
+     * copied verbatim (never moved); the new coordinates are whole new columns to the right of the level's own
+     * layout, each filled top-down with at most {@link #MAX_ROWS} cells — the captain's convention "未来插件格
+     * 继续加新列（列 6、列 7…）". Holes inside a level's own 0.2.2 outline stay empty. The panel box follows the
+     * coordinates, so it grows with the table.
      */
     public CacheGrid withExtraSlots(int extra) {
         if (extra <= 0) return this;
         int[] grown = Arrays.copyOf(cellOfSlot, count + extra);
         int next = count;
-        for (int column = Math.max(0, columns - 1); next < grown.length; column++)
-            for (int row = 0; row < MAX_ROWS && next < grown.length; row++) {
-                int cell = packed(column, row);
-                if (cell < slotOfCell.length && slotOfCell[cell] >= 0) continue;
-                boolean alreadyAdded = false;
-                for (int slot = count; slot < next; slot++) if (grown[slot] == cell) alreadyAdded = true;
-                if (alreadyAdded) continue;
-                grown[next++] = cell;
-            }
+        for (int column = columns; next < grown.length; column++)
+            for (int row = 0; row < MAX_ROWS && next < grown.length; row++)
+                grown[next++] = packed(column, row);
         return ofCoordinates(grown.length, grown);
     }
 
