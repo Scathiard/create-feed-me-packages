@@ -60,3 +60,13 @@ reference/
 patch_*.py
 list_errors.py
 
+
+# In-project work directories (2026-10-02, user rule: never create temp folders outside the project).
+# These used to live in D:\claude_sandbox (old -> new mapping in 迁移对照.md). Working output —
+# Gradle build/run dirs, reference build, release draft snapshots, research sources, patch worktree —
+# so they stay untracked on purpose.
+build-safe/
+reference-build-safe/
+release-draft-snapshots/
+tmp-research/
+worktrees/

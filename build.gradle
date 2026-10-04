@@ -7,7 +7,7 @@ plugins {
 group = mod_group_id
 version = mod_version
 
-layout.buildDirectory = file('../.fmp-build-safe')
+layout.buildDirectory = file('build-safe')
 def runProfile = "neo${project.neo_version}" + (project.hasProperty('withCouriers') ? '-paper' : '') +
         (project.hasProperty('withMobile') ? '-mobile' : '') +
         (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-model8'
@@ -81,10 +81,10 @@ dependencies {
         localRuntime "mezz.jei:jei-1.21.1-neoforge:${project.findProperty('jei_runtime_version') ?: jei_version}"
     }
     if (project.hasProperty('withMobile')) {
-        localRuntime files('../.fmp-reference-build-safe/research/transports/1.21.1-0.7.7/create_mobile_packages-1.21.1-0.7.7.jar')
+        localRuntime files('reference-build-safe/research/transports/1.21.1-0.7.7/create_mobile_packages-1.21.1-0.7.7.jar')
     }
     if (project.hasProperty('withCouriers')) {
-        localRuntime files('../.fmp-reference-build-safe/research/transports/2.3.0/cmpackagecouriers-neoforge-2.3.0.jar')
+        localRuntime files('reference-build-safe/research/transports/2.3.0/cmpackagecouriers-neoforge-2.3.0.jar')
     }
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
@@ -111,20 +111,20 @@ neoForge {
 
         client {
             client()
-            gameDirectory = file("../.fmp-build-safe/run/client/${runProfile}")
+            gameDirectory = file("build-safe/run/client/${runProfile}")
             if (project.hasProperty('fmpClientReview')) systemProperty 'fmp.clientReview', 'true'
             if (project.hasProperty('fmpT14Review')) systemProperty 'fmp.t14Review', 'true'
         }
 
         server {
             server()
-            gameDirectory = file("../.fmp-build-safe/run/server/${runProfile}")
+            gameDirectory = file("build-safe/run/server/${runProfile}")
             programArgument '--nogui'
         }
 
         gameTestServer {
             type = 'gameTestServer'
-            gameDirectory = file("../.fmp-build-safe/run/gametest/${runProfile}")
+            gameDirectory = file("build-safe/run/gametest/${runProfile}")
             systemProperty 'fmp.requirePriorPersistence', project.findProperty('fmpRequirePriorPersistence') ?: 'false'
         }
     }
