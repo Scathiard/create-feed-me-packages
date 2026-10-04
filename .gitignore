@@ -61,7 +61,10 @@ patch_*.py
 list_errors.py
 
 
-# In-project work directories (2026-10-02, user rule: never create temp folders outside the project).
+# In-project work directories (2026-10-02)。用户硬规则：不许在项目文件夹外建临时目录。
+# build-safe / release-draft-snapshots / tmp-research / fmp-021-patch 已按用户裁定**归档**到
+# archive/2026-10-02-outside-work-dirs/（旧→新映射见 迁移对照.md）；主构建改用 Gradle 默认 build/。
+# 下列名字保留忽略：reference-build-safe/（P1 参考版活输出根与只读输入）＋"若重建也被忽略"的几个。
 # These used to live in D:\claude_sandbox (old -> new mapping in 迁移对照.md). Working output —
 # Gradle build/run dirs, reference build, release draft snapshots, research sources, patch worktree —
 # so they stay untracked on purpose.

@@ -7,7 +7,8 @@ plugins {
 group = mod_group_id
 version = mod_version
 
-layout.buildDirectory = file('build-safe')
+// 2026-10-02（用户裁定「其他全归档，构建用默认」）：不再覆盖构建目录 ⇒ 用 Gradle 默认 <repo>/build/。
+// 原外置构建沙盒已整体归档到 archive/2026-10-02-outside-work-dirs/build-safe/（旧→新映射见 迁移对照.md）。
 def runProfile = "neo${project.neo_version}" + (project.hasProperty('withCouriers') ? '-paper' : '') +
         (project.hasProperty('withMobile') ? '-mobile' : '') +
         (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-model8'
@@ -111,20 +112,20 @@ neoForge {
 
         client {
             client()
-            gameDirectory = file("build-safe/run/client/${runProfile}")
+            gameDirectory = file("run/client/${runProfile}")
             if (project.hasProperty('fmpClientReview')) systemProperty 'fmp.clientReview', 'true'
             if (project.hasProperty('fmpT14Review')) systemProperty 'fmp.t14Review', 'true'
         }
 
         server {
             server()
-            gameDirectory = file("build-safe/run/server/${runProfile}")
+            gameDirectory = file("run/server/${runProfile}")
             programArgument '--nogui'
         }
 
         gameTestServer {
             type = 'gameTestServer'
-            gameDirectory = file("build-safe/run/gametest/${runProfile}")
+            gameDirectory = file("run/gametest/${runProfile}")
             systemProperty 'fmp.requirePriorPersistence', project.findProperty('fmpRequirePriorPersistence') ?: 'false'
         }
     }
