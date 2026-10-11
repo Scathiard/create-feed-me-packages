@@ -537,16 +537,19 @@ public final class FoundationTests {
                     player.setHealth(0); player.die(player.damageSources().generic());
                     helper.assertTrue(!AccessGate.resolve(player).active(), "Dead player retained cache authority");
                     helper.assertTrue(row(ledger, handle.cacheId(), player.registryAccess()).equals(before), "Death changed stock, request, residual or grade");
-                    var dropped = helper.getLevel().getEntitiesOfClass(ItemEntity.class, player.getBoundingBox().inflate(3),
-                            item -> marker.equals(item.getItem().get(FmpRegistries.NETWORK.get())));
-                    helper.assertTrue(dropped.size() == (keep ? 0 : 1), "Native death duplicated or lost the pendant entity");
-                    var revived = TestPlayers.real(helper, playerId); revived.restoreFrom(player, false);
+                    long dropped = DeathRecovery.loot(player).stream().filter(item -> marker.equals(item.get(FmpRegistries.NETWORK.get())))
+                            .mapToLong(ItemStack::getCount).sum();
+                    helper.assertTrue(dropped == (keep ? 0 : 1), "Native death duplicated or lost the pendant in drops/grave");
+                    var revived = DeathRecovery.respawn(helper, player);
                     if (!keep) {
                         helper.assertTrue(!AccessGate.resolve(revived).active(), "Death without keepInventory recreated a worn pendant");
-                        var entity = dropped.getFirst(); entity.setNoPickUpDelay(); entity.playerTouch(revived);
-                        helper.assertTrue(entity.isRemoved(), "Real pendant pickup was not consumed");
+                        DeathRecovery.recover(revived);
+                        for (var entity : DeathRecovery.drops(revived)) if (marker.equals(entity.getItem().get(FmpRegistries.NETWORK.get()))) {
+                            entity.setNoPickUpDelay(); entity.playerTouch(revived);
+                            helper.assertTrue(entity.isRemoved(), "Real pendant pickup was not consumed");
+                        }
                     }
-                    if (!keep || !worn) {
+                    if ((!keep || !worn) && !marker.equals(TestPlayers.necklace(revived).getStackInSlot(0).get(FmpRegistries.NETWORK.get()))) {
                         int recoveredSlot = -1;
                         for (int index = 0; index < 36; index++) if (marker.equals(revived.getInventory().getItem(index).get(FmpRegistries.NETWORK.get()))) recoveredSlot = index;
                         helper.assertTrue(recoveredSlot >= 0, "Pendant did not remain in native inventory or reach it by pickup");
@@ -623,7 +626,7 @@ public final class FoundationTests {
         helper.succeed();
     }
 
-    private static CompoundTag row(CacheLedger ledger, UUID id, HolderLookup.Provider registries) {
+    static CompoundTag row(CacheLedger ledger, UUID id, HolderLookup.Provider registries) {
         for (var entry : ledger.save(new CompoundTag(), registries).getList("caches", Tag.TAG_COMPOUND))
             if (((CompoundTag)entry).getUUID("id").equals(id)) return ((CompoundTag)entry).copy();
         throw new IllegalStateException("Persistence record is missing");

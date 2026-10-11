@@ -11,11 +11,14 @@ def referenceRoot = file('../../../reference-build-safe')
 def referenceOutput = new File(referenceRoot, 'v0.3.0-converged')
 layout.buildDirectory = new File(referenceOutput, 'build-output')
 def dependencyInput = new File(referenceRoot, 'v0.3.0-astra')
+// Repackaged's required library already embeds Compat Manager.
+if (project.hasProperty('withRepackaged') && !project.hasProperty('withDeployer')) project.ext.set('withDeployer', true)
+
 def runProfile = "neo${project.neo_version}" + (project.hasProperty('withCouriers') ? '-paper' : '') +
         (project.hasProperty('withMobile') ? '-mobile' : '') +
         (project.hasProperty('withPhantom') ? '-phantom102' : '') +
         (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-converged1'
-['withTacz','withWand','withGadgets','withEffortless','withEmi','withFxnt','withSophisticated','withMaid','withFluid'].each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
+['withTacz','withWand','withGadgets','withEffortless','withEmi','withFxnt','withSophisticated','withMaid','withFluid','withFactory','withDeployer','withRepackaged','withConnected','withCraftingTweaks','withGravestone','withCorpse','withTombstone','withTomsStorage','withPolymorph','withMouseTweaks','withModernFix','withLithium'].each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
 if (project.hasProperty('fmpPhantomReview')) {
     if (!project.hasProperty('withPhantom')) throw new GradleException('Phantom review requires the locked official transport JAR')
     runProfile += '-phantom-review'
@@ -39,6 +42,14 @@ if (project.hasProperty('fmpProbeMissing')) {
     def missing = project.property('fmpProbeMissing')
     if (!(missing in ['create', 'curios'])) throw new GradleException('Unknown required dependency probe')
     runProfile += "-missing-${missing}"
+}
+
+// Windows cannot start a child process with a long working directory. Preserve the complete profile in the log.
+if (runProfile.length() > 88) {
+    def descriptiveProfile = runProfile
+    def digest = java.security.MessageDigest.getInstance('SHA-256').digest(runProfile.getBytes('UTF-8')).encodeHex().toString().substring(0,16)
+    runProfile = 'neo' + project.neo_version + '-set-' + digest
+    logger.lifecycle('FMP run profile {} = {}', runProfile, descriptiveProfile)
 }
 
 base {
@@ -96,6 +107,32 @@ dependencies {
         def artifact = layout.buildDirectory.file("libs/create-feed-me-packages-${project.version}.jar").get().asFile
         if (!artifact.isFile()) throw new GradleException('Build the main JAR before packaged verification')
         localRuntime files(artifact)
+    }
+
+    [withDeployer: 'deployer/0.1.3/deployer-0.1.3.jar',
+     withFactory: 'create_factory_logistics/1.6.0/create_factory_logistics-1.21.1-1.6.0-all.jar',
+     withRepackaged: 'repackaged/0.0.7/repackaged-0.0.7.jar',
+     withConnected: 'create-connected/1.3.3/create_connected-1.3.3-mc1.21.1.jar',
+     withCraftingTweaks: 'craftingtweaks/21.1.11/craftingtweaks-neoforge-1.21.1-21.1.11.jar',
+     withGravestone: 'gravestone/1.0.40/gravestone-neoforge-1.21.1-1.0.40.jar',
+     withCorpse: 'corpse/1.1.13/corpse-neoforge-1.21.1-1.1.13.jar',
+     withTombstone: 'tombstone/9.5.6/tombstone-neoforge-1.21.1-9.5.6.jar',
+     withTomsStorage: 'toms-storage/2.4.2/toms_storage-1.21-2.4.2.jar',
+     withPolymorph: 'polymorph/1.2.0+1.21.1/polymorph-neoforge-1.2.0+1.21.1.jar',
+     withMouseTweaks: 'mousetweaks/2.26.1/MouseTweaks-neoforge-mc1.21-2.26.1.jar',
+     withModernFix: 'modernfix/5.27.24/modernfix-neoforge-5.27.24+mc1.21.1.jar',
+     withLithium: 'lithium/0.15.4/lithium-neoforge-0.15.4+mc1.21.1.jar'].each { flag, relative ->
+        if (project.hasProperty(flag)) {
+            def artifact = new File(dependencyInput, "dependencies/artifacts/${relative}")
+            if (!artifact.isFile()) throw new GradleException("Missing pinned isolated optional test artifact: ${relative}")
+            localRuntime files(artifact)
+        }
+    }
+
+    if (project.hasProperty('withCraftingTweaks')) {
+        def balm = new File(dependencyInput, 'dependencies/artifacts/balm/21.0.65/balm-neoforge-1.21.1-21.0.65.jar')
+        if (!balm.isFile()) throw new GradleException('Missing pinned isolated Balm dependency')
+        localRuntime files(balm)
     }
 
     if (project.hasProperty('withTacz')) {
@@ -186,6 +223,13 @@ neoForge {
             client()
             gameDirectory = file("${referenceOutput}/run/client/${runProfile}")
             if (project.hasProperty('fmpClientReview')) systemProperty 'fmp.clientReview', 'true'
+            if (project.hasProperty('fmpCompatReview')) {
+                if (!project.hasProperty('fmpGameTests')) throw new GradleException('Compatibility review requires isolated test sources')
+                def review = project.property('fmpCompatReview').toString()
+                if (!(review in ['templates','jei','emi','fluid','fluid-input','fxnt','sophisticated','maid','pallet','feedback','tacz','wand','gadgets','effortless']))
+                    throw new GradleException('Unknown compatibility review')
+                systemProperty 'fmp.compatReview', review
+            }
             if (project.hasProperty('fmpConvergedReview')) systemProperty 'fmp.convergedReview', 'true'
             if (project.hasProperty('fmpT14Review')) systemProperty 'fmp.t14Review', 'true'
             if (project.hasProperty('fmpFoldReview')) systemProperty 'fmp.foldReview', project.property('fmpFoldReview')
@@ -208,6 +252,18 @@ neoForge {
                 gameDirectory = new File(referenceOutput, "run/gametest/fluid-lifecycle-${scenario.split(':')[0]}-converged1")
                 systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_lifecycle'
                 systemProperty 'fmp.fluidLifecycle', scenario
+            }
+            if (project.hasProperty('fmpMaidFlight')) {
+                def scenario = project.property('fmpMaidFlight').toString()
+                if (!project.hasProperty('fmpGameTests') || !project.hasProperty('withMaid') ||
+                        !(scenario ==~ /(paper|bee):(write|read|verify):[a-z0-9_-]+/))
+                    throw new GradleException('Maid flight requires test sources, withMaid and <paper|bee>:<write|read|verify>:<batch>')
+                def parts = scenario.split(':')
+                if (!project.hasProperty(parts[0] == 'paper' ? 'withCouriers' : 'withMobile'))
+                    throw new GradleException('Maid flight requires its actual native carrier')
+                gameDirectory = new File(referenceOutput, "run/gametest/maid-flight-${parts[0]}-${parts[2]}")
+                systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_maid_lifecycle'
+                systemProperty 'fmp.maidFlight', scenario
             }
             if (project.hasProperty('fmpLegacyWorldReview')) {
                 systemProperty 'fmp.legacyBackup', new File(referenceOutput, 'legacy023-before').absolutePath

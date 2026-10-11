@@ -434,7 +434,8 @@ public final class TakeReserveTests {
                 net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(new net.neoforged.neoforge.event.tick.PlayerTickEvent.Post(player));
                 helper.assertTrue(ledger.find(access.handle().cacheId()).state().cells().getFirst().amount() == 117
                         && CursorReservations.reserved(access.handle().cacheId(), 0) == 0 && oldMenu.getCarried().isEmpty(), "lifecycle " + action + " lost preview/stock");
-                helper.assertTrue(player.getInventory().countItem(Items.STONE) + droppedStones(helper)-droppedBefore == 3,
+                long graveStones = DeathRecovery.storedItems(player).stream().filter(stack -> stack.is(Items.STONE)).mapToLong(ItemStack::getCount).sum();
+                helper.assertTrue(player.getInventory().countItem(Items.STONE) + droppedStones(helper)-droppedBefore + graveStones == 3,
                         "lifecycle " + action + " rolled back or duplicated placed3");
             }
         } finally { rules.getRule(net.minecraft.world.level.GameRules.RULE_KEEPINVENTORY).set(oldKeep, helper.getLevel().getServer()); }

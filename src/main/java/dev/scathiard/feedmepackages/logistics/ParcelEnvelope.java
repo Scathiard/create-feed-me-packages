@@ -27,6 +27,8 @@ public final class ParcelEnvelope {
                 || box.getOrDefault(AllDataComponents.PACKAGE_CONTENTS, ItemContainerContents.EMPTY).getSlots() > 9)
             return false;
         for (var type : box.getComponents().keySet()) {
+            if (type == DataComponents.CUSTOM_DATA && dev.scathiard.feedmepackages.compat.FactoryLogistics
+                    .onlyOrderMetadata(box.get(DataComponents.CUSTOM_DATA))) continue;
             if (!SAFE.contains(type) && type != FmpRegistries.PARCEL_SEAL.get()
                     && type != FmpRegistries.FLUID_PARCEL_SEAL.get()) return false;
         }

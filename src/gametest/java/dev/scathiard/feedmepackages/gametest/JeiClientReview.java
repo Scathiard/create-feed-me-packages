@@ -27,10 +27,14 @@ import net.minecraft.resources.ResourceLocation;
 
 /** Optional test module; invoked by name only when JEI is actually loaded. */
 public final class JeiClientReview {
+    public static java.util.Collection<ItemStack> indexStacks() {
+        return FmpJeiPlugin.runtime().map(runtime -> runtime.getIngredientManager().getAllIngredients(VanillaTypes.ITEM_STACK))
+                .orElse(List.of());
+    }
     private static PanelLayout.CellBox destination;
     private static ItemStack expected;
     private static int sourceX, sourceY;
-    private static IRecipeLayoutDrawable<RecipeHolder<CraftingRecipe>> transferLayout;
+    private static IRecipeLayoutDrawable<?> transferLayout;
     private static int transferX, transferY;
     public static void verifyReservedControls() throws Exception {
         var overlay = FmpJeiPlugin.runtime().orElseThrow().getBookmarkOverlay();
@@ -50,7 +54,7 @@ public final class JeiClientReview {
         if (runtime.getScreenHelper().getGuiExclusionAreas(screen).noneMatch(r -> r.getX() == exclusion.x() && r.getY() == exclusion.y()))
             throw new IllegalStateException("Registered JEI exclusion does not include FMP");
         if (runtime.getScreenHelper().getGhostIngredientHandlers(screen).stream().anyMatch(h -> h.getClass().getName().startsWith("dev.scathiard.feedmepackages")))
-            throw new IllegalStateException("Retired FMP ghost handler is still registered");
+            throw new IllegalStateException("Unsafe global JEI ghost handler was registered on an inventory");
         for (int step = 0; step < 18 && LogisticsPanel.visibleCells(screen).stream().noneMatch(cell -> cell.slot() >= 9); step++) {
             var b = LogisticsPanel.exclusions(screen).getFirst();
             net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(new net.neoforged.neoforge.client.event.ScreenEvent.MouseScrolled.Pre(screen, b.x() + 12, b.y() + 35, 0, -1));
@@ -93,19 +97,34 @@ public final class JeiClientReview {
         var key = ItemVariantKey.of(expected, player.registryAccess());
         var state = CacheLedger.get(player.getServer()).find(AccessGate.resolve(player).handle().cacheId()).state();
         var cell = state.cells().get(destination.slot());
-        if (state.find(key) >= 0 || cell.filter() != null || cell.amount() != 0)
-            throw new IllegalStateException("Disabled JEI drag still changed a cache filter or its real contents");
+        if (state.find(key) != destination.slot() || !key.equals(cell.filter()) || cell.amount() != 0)
+            throw new IllegalStateException("JEI drag did not set exactly the requested empty filter");
+    }
+    private static ResourceLocation transferId = ResourceLocation.withDefaultNamespace("oak_planks");
+    public static void openTransfer() { openTransfer("oak_planks"); }
+    @SuppressWarnings("unchecked")
+    public static void openTransfer(String recipeId) {
+        showTransfer(ResourceLocation.withDefaultNamespace(recipeId), RecipeTypes.CRAFTING);
+    }
+    public static void openStonecutting() {
+        var mc = Minecraft.getInstance();
+        var recipe = mc.level.getRecipeManager().getAllRecipesFor(net.minecraft.world.item.crafting.RecipeType.STONECUTTING).stream()
+                .filter(r -> r.value().getIngredients().getFirst().test(new ItemStack(Items.STONE))
+                        && r.value().getResultItem(mc.level.registryAccess()).is(Items.STONE_SLAB)).findFirst().orElseThrow();
+        showTransfer(recipe.id(), RecipeTypes.STONECUTTING);
     }
     @SuppressWarnings("unchecked")
-    public static void openTransfer() {
-        var mc = Minecraft.getInstance(); var runtime = FmpJeiPlugin.runtime().orElseThrow();
-        var recipe = (RecipeHolder<CraftingRecipe>)mc.level.getRecipeManager().byKey(ResourceLocation.withDefaultNamespace("oak_planks")).orElseThrow();
-        var category = runtime.getRecipeManager().getRecipeCategory(RecipeTypes.CRAFTING);
+    private static <R extends net.minecraft.world.item.crafting.Recipe<?>> void showTransfer(ResourceLocation id, mezz.jei.api.recipe.RecipeType<RecipeHolder<R>> type) {
+        var mc = Minecraft.getInstance(); var runtime = FmpJeiPlugin.runtime().orElseThrow(); transferId = id;
+        var recipe = (RecipeHolder<R>) mc.level.getRecipeManager().byKey(id).orElseThrow();
+        var category = runtime.getRecipeManager().getRecipeCategory(type);
         runtime.getRecipesGui().showRecipes(category, List.of(recipe), List.of());
         if (mc.screen != runtime.getRecipesGui()) throw new IllegalStateException("JEI did not open requested recipe");
     }
+    public static void previewTransfer() throws Exception { previewTransfer(true); }
+    public static void previewMissing() throws Exception { previewTransfer(false); }
     @SuppressWarnings("unchecked")
-    public static void previewTransfer() throws Exception {
+    private static void previewTransfer(boolean available) throws Exception {
         var mc = Minecraft.getInstance(); var runtime = FmpJeiPlugin.runtime().orElseThrow();
         // Read the real displayed layout via a source-verified JEI diagnostic method; click its actual button later.
         var getter = mc.screen.getClass().getMethod("getRecipeLayoutUnderMouse", double.class, double.class);
@@ -115,21 +134,32 @@ public final class JeiClientReview {
             if (found.isEmpty()) continue;
             var withButtons = found.get();
             var layout = (IRecipeLayoutDrawable<?>)withButtons.getClass().getMethod("getRecipeLayout").invoke(withButtons);
-            if (layout.getRecipe() instanceof RecipeHolder<?> holder && holder.id().equals(ResourceLocation.withDefaultNamespace("oak_planks"))) {
-                transferLayout = (IRecipeLayoutDrawable<RecipeHolder<CraftingRecipe>>)layout; break search;
+            if (layout.getRecipe() instanceof RecipeHolder<?> holder && holder.id().equals(transferId)) {
+                transferLayout = layout; break search;
             }
         }
         if (transferLayout == null) throw new IllegalStateException("Actual JEI recipe layout was not found");
-        // User decision 2026-09-17: this mod registers NO recipe transfer handler, so the "+" is answered by
-        // JEI itself (or by whoever owns that slot in the pack). Seeing a handler of ours here is a regression.
-        var handler = runtime.getRecipeTransferManager().getRecipeTransferHandler(mc.player.containerMenu, transferLayout.getRecipeCategory()).orElse(null);
-        if (handler != null && handler.getClass().getName().contains("feedmepackages"))
-            throw new IllegalStateException("this mod must not register a recipe transfer handler: " + handler.getClass().getName());
+        var handler = runtime.getRecipeTransferManager().getRecipeTransferHandler(mc.player.containerMenu, transferLayout.getRecipeCategory()).orElseThrow();
+        if (handler.getClass().getName().startsWith("dev.scathiard.feedmepackages"))
+            throw new IllegalStateException("FMP took over native JEI recipe transfer");
+        for (int i = 0; i < 3; i++) {
+            boolean accepted = transfer(transferLayout, false, false) == null;
+            if (accepted != available) throw new IllegalStateException("Native JEI source boundary changed: available=" + available);
+        }
         var area = transferLayout.getSideButtonArea(0); var rect = transferLayout.getRect();
         transferX = area.getX() + rect.getX() + area.getWidth() / 2;
         transferY = area.getY() + rect.getY() + area.getHeight() / 2;
     }
     public static void clickTransfer() throws Exception { move(transferX, transferY); press(1); press(0); }
+    /** Real handler and packet, maximum-transfer flag; this is not a simulated keyboard gesture. */
+    public static void transferMaximum() {
+        if (transfer(transferLayout, true, true) != null) throw new IllegalStateException("Native maximum transfer refused its displayed recipe");
+    }
+    private static <R> mezz.jei.api.recipe.transfer.IRecipeTransferError transfer(IRecipeLayoutDrawable<R> layout, boolean maximum, boolean perform) {
+        var mc = Minecraft.getInstance(); var runtime = FmpJeiPlugin.runtime().orElseThrow();
+        var handler = runtime.getRecipeTransferManager().getRecipeTransferHandler(mc.player.containerMenu, layout.getRecipeCategory()).orElseThrow();
+        return handler.transferRecipe(mc.player.containerMenu, layout.getRecipe(), layout.getRecipeSlotsView(), mc.player, maximum, perform);
+    }
     private static Object growthRecipe;
     public static void openGrowthSmithing() {
         var runtime = FmpJeiPlugin.runtime().orElseThrow(); var manager = runtime.getRecipeManager();

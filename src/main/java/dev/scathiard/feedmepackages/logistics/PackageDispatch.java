@@ -16,6 +16,8 @@ public final class PackageDispatch {
         void send();
     }
     public static Plan prepare(UUID network, ItemStack template, int amount, String address, boolean fluid) {
+        if (dev.scathiard.feedmepackages.compat.FactoryLogistics.installed())
+            return fluid ? null : dev.scathiard.feedmepackages.compat.FactoryLogistics.prepare(network, template, amount, address);
         var order = PackageOrderWithCrafts.simple(List.of(new BigItemStack(template, amount)));
         var requests = LogisticsManager.findPackagersForRequest(network, order, null, address);
         if (requests.isEmpty() || requests.keySet().stream().anyMatch(p -> p.isTooBusyFor(RequestType.RESTOCK))) return null;

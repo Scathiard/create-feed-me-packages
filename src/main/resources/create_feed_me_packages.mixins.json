@@ -41,7 +41,8 @@
     "MaidPaperMixin",
     "MaidBeeTargetMixin",
     "MaidBeePortMixin",
-    "MaidBeeDeliveryMixin"
+    "MaidBeeDeliveryMixin",
+    "FactoryOrderStampMixin"
   ],
   "client": [
     "ContainerScreenAccess",

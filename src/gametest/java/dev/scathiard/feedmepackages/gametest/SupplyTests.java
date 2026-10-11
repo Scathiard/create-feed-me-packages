@@ -193,6 +193,23 @@ public final class SupplyTests {
             var link = (PackagerLinkBlockEntity)helper.getBlockEntity(linkPos);
             LogisticallyLinkedBehaviour.remove(link.behaviour); link.behaviour.freqId = network; LogisticallyLinkedBehaviour.keepAlive(link.behaviour);
             helper.assertTrue(link.getPackager() == packager && packager.targetInventory.hasInventory(), "Native fixture is not connected");
+            if (dev.scathiard.feedmepackages.compat.FactoryLogistics.installed()) {
+                boolean enabled = dev.scathiard.feedmepackages.FmpConfig.FACTORY.get();
+                var prior = f.record();
+                try {
+                    dev.scathiard.feedmepackages.FmpConfig.FACTORY.set(false);
+                    dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+                    helper.assertTrue(dev.scathiard.feedmepackages.network.CompatibilityStatus.factory()
+                            == dev.scathiard.feedmepackages.network.CompatibilityStatus.State.CONFIG_DISABLED,
+                            "Factory config state did not change");
+                    var plan = dev.scathiard.feedmepackages.logistics.PackageDispatch.prepare(network, new ItemStack(Items.STONE), 1024, SupplyService.address(f.player()), false);
+                    helper.assertTrue(plan == null && f.record() == prior && chest.getItem(0).getCount() == 64 && packager.heldBox.isEmpty(),
+                            "Disabled Factory adapter used withdrawn legacy dispatch or altered stock");
+                } finally {
+                    dev.scathiard.feedmepackages.FmpConfig.FACTORY.set(enabled);
+                    dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+                }
+            }
             SupplyService.tick(f.player());
             var boxes = new ArrayList<ItemStack>();
             if (!packager.heldBox.isEmpty()) boxes.add(packager.heldBox);

@@ -10,9 +10,9 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public final class FmpConfig {
     private FmpConfig() {}
     public static final ModConfigSpec SERVER_SPEC;
-    public static final ModConfigSpec.BooleanValue TACZ, WAND, GADGETS, EFFORTLESS, JEI, EMI, FXNT, SOPHISTICATED, MAID;
-    private record Enabled(boolean tacz, boolean wand, boolean gadgets, boolean effortless, boolean jei, boolean emi, boolean fxnt, boolean sophisticated, boolean maid) {}
-    private static final Enabled DEFAULTS = new Enabled(true, true, true, true, true, true, true, true, true);
+    public static final ModConfigSpec.BooleanValue TACZ, WAND, GADGETS, EFFORTLESS, JEI, EMI, FXNT, SOPHISTICATED, MAID, FACTORY;
+    private record Enabled(boolean tacz, boolean wand, boolean gadgets, boolean effortless, boolean jei, boolean emi, boolean fxnt, boolean sophisticated, boolean maid, boolean factory) {}
+    private static final Enabled DEFAULTS = new Enabled(true, true, true, true, true, true, true, true, true, true);
     private static volatile Enabled enabled = DEFAULTS;
     static {
         var b = new ModConfigSpec.Builder().push("compatibility");
@@ -25,6 +25,7 @@ public final class FmpConfig {
         FXNT = b.comment("Add cache sources to Create: Storage native recipe transfers.").define("fxnt_materials", true);
         SOPHISTICATED = b.comment("Add cache sources to Sophisticated Backpacks crafting upgrades.").define("sophisticated_backpacks", true);
         MAID = b.comment("Allow ordinary pendant supplies and direct replenishment for tamed Touhou Little Maids.").define("touhou_little_maid", true);
+        FACTORY = b.comment("Use Factory Logistics native ordinary-item dispatch when it replaces Create logistics.").define("factory_logistics", true);
         b.pop(); SERVER_SPEC = b.build();
     }
     public static boolean taczAmmoEnabled() { return enabled.tacz; }
@@ -35,6 +36,7 @@ public final class FmpConfig {
     public static boolean emiCraftingEnabled() { return enabled.emi; }
     public static boolean fxntMaterialsEnabled() { return enabled.fxnt; }
     public static boolean sophisticatedEnabled() { return enabled.sophisticated; }
+    public static boolean factoryLogisticsEnabled() { return enabled.factory; }
     public static boolean maidEnabled() { return enabled.maid; }
     public static void register(ModContainer container, IEventBus bus) {
         container.registerConfig(ModConfig.Type.SERVER, SERVER_SPEC);
@@ -45,7 +47,7 @@ public final class FmpConfig {
     private static void refresh(ModConfig config) { if (config.getSpec() == SERVER_SPEC) refreshServer(); }
     public static void refreshServer() {
         if (!SERVER_SPEC.isLoaded()) { enabled = DEFAULTS; return; }
-        try { enabled = new Enabled(TACZ.get(), WAND.get(), GADGETS.get(), EFFORTLESS.get(), JEI.get(), EMI.get(), FXNT.get(), SOPHISTICATED.get(), MAID.get()); }
+        try { enabled = new Enabled(TACZ.get(), WAND.get(), GADGETS.get(), EFFORTLESS.get(), JEI.get(), EMI.get(), FXNT.get(), SOPHISTICATED.get(), MAID.get(), FACTORY.get()); }
         catch (RuntimeException invalid) { enabled = DEFAULTS; FeedMePackages.LOGGER.error("FMP configuration rejected; using complete defaults", invalid); }
     }
 }
