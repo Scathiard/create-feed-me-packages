@@ -960,6 +960,62 @@ public final class InteractionTests {
         edit.filter(slot,key); edit.insert(slot,key,sample.getAmount());
         ledger.replace(handle,before.state().revision(),before.withFluids(before.fluids().withState(edit.finish())));
     }
+    @GameTest(template = "empty")
+    public static void configuredShrinkUsesReadonlyPagedCellsAndRestoresWrites(GameTestHelper h) {
+        var slots=dev.scathiard.feedmepackages.FmpConfig.SLOTS.get(0);var groups=dev.scathiard.feedmepackages.FmpConfig.GROUPS.get(0);
+        int oldSlots=slots.get(),oldGroups=groups.get();
+        try {
+            slots.set(50);groups.set(32);dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            var player=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());var handle=AccessGate.resolve(player).handle();var ledger=CacheLedger.get(player.getServer());
+            var record=ledger.find(handle.cacheId());var key=ItemVariantKey.of(new ItemStack(Items.STONE),player.registryAccess());
+            var edit=record.state().edit();edit.filter(49,key);edit.insert(49,key,1800);ledger.replace(handle,record.state().revision(),record.withState(edit.finish()));
+            var window=UUID.randomUUID();var view=PanelNetwork.query(player,new PanelPackets.Query(window,player.containerMenu.containerId,true,999,6));
+            h.assertTrue(view==null,"Oversized viewport was accepted");
+            player.tickCount+=10;view=PanelNetwork.query(player,new PanelPackets.Query(window,player.containerMenu.containerId,true,48,6));
+            var hints=dev.scathiard.feedmepackages.network.MaterialHints.next(player);
+            h.assertTrue(hints!=null && hints.amounts().size()==50 && hints.amounts().get(49)==1800,"Extra cells missing from native crafting material hints");
+            int local=view.grid().localSlot(49);
+            h.assertTrue(local>=0 && view.cells().get(local).amount()==1800 && view.cells().size()<=36 && view.totalSlots()==50,"Last configured slot was missing from bounded page");
+            var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),player.registryAccess());
+            try {PanelPackets.Snapshot.CODEC.encode(buffer,view);h.assertTrue(view.equals(PanelPackets.Snapshot.CODEC.decode(buffer)),"Paged snapshot did not round trip");}finally{buffer.release();}
+            slots.set(9);groups.set(2);dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            player.tickCount+=10;view=PanelNetwork.query(player,new PanelPackets.Query(window,player.containerMenu.containerId,true,48,6));local=view.grid().localSlot(49);
+            h.assertTrue(view.totalSlots()==50 && !view.cells().get(local).writable() && view.cells().get(local).amount()==1800,"Shrinking config hid or rewrote retained stock");
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,3));
+            h.assertTrue(execute(player,Action.DEPOSIT,49,0,"")==Result.READ_ONLY && player.containerMenu.getCarried().getCount()==3,"Readonly slot consumed cursor");
+            player.containerMenu.setCarried(ItemStack.EMPTY);
+            h.assertTrue(execute(player,Action.TAKE_INVENTORY,49,64,"")==Result.OK && stock(player,49)==1736,"Readonly slot could not be taken through native action");
+            slots.set(50);groups.set(32);dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,3));
+            h.assertTrue(execute(player,Action.DEPOSIT,49,0,"")==Result.OK && stock(player,49)==1739,"Restored configuration did not restore writes");
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,3));var actionView=CacheActions.snapshot(player);
+            h.assertTrue(CacheActions.execute(player,new CacheActions.Intent(actionView.session(),actionView.record().state().revision(),Action.DEPOSIT,0,0,CacheActions.AUTO_DEPOSIT,""))==Result.OK
+                    && stock(player,49)==1742 && stock(player,0)==0,"Automatic drop failed to resolve an off-page exact filter");
+        } finally { slots.set(oldSlots);groups.set(oldGroups);dev.scathiard.feedmepackages.FmpConfig.refreshServer(); }
+        h.succeed();
+    }
+    @GameTest(template = "empty")
+    public static void configuredAdmissionKeepsExistingStockAndHonorsExplicitAllow(GameTestHelper h) {
+        var denied=dev.scathiard.feedmepackages.FmpConfig.DENIED;var allowed=dev.scathiard.feedmepackages.FmpConfig.ALLOWED;
+        var oldD=denied.get();var oldA=allowed.get();
+        try {
+            var player=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,8));
+            h.assertTrue(execute(player,Action.DEPOSIT,0,0,"")==Result.OK,"Admission fixture failed");
+            denied.set(java.util.List.of("minecraft:stone","#minecraft:logs"));allowed.set(java.util.List.of());dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,2));
+            h.assertTrue(execute(player,Action.DEPOSIT,0,0,"")==Result.DENIED && stock(player,0)==8 && player.containerMenu.getCarried().getCount()==2,"Config ban changed existing or incoming stock");
+            player.containerMenu.setCarried(ItemStack.EMPTY);
+            h.assertTrue(execute(player,Action.TAKE_INVENTORY,0,3,"")==Result.OK && stock(player,0)==5,"Ban prevented taking existing stock");
+            var oak=ItemVariantKey.of(new ItemStack(Items.OAK_LOG),player.registryAccess());
+            h.assertTrue(!dev.scathiard.feedmepackages.service.CachePolicy.admits(oak,player.registryAccess()),"Configured #tag denial not applied");
+            allowed.set(java.util.List.of("minecraft:stone","#minecraft:logs"));dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,2));
+            h.assertTrue(execute(player,Action.DEPOSIT,0,0,"")==Result.OK && stock(player,0)==7
+                    && dev.scathiard.feedmepackages.service.CachePolicy.admits(oak,player.registryAccess()),"Explicit ID/tag allow did not override configurable ban");
+        } finally {denied.set(oldD);allowed.set(oldA);dev.scathiard.feedmepackages.FmpConfig.refreshServer();}
+        h.succeed();
+    }
     private static long fluidStock(ServerPlayer player,int slot) {
         return CacheLedger.get(player.getServer()).find(AccessGate.resolve(player).handle().cacheId()).fluids().state().cells().get(slot).amount();
     }

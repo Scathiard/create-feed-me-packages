@@ -226,7 +226,7 @@ neoForge {
             if (project.hasProperty('fmpCompatReview')) {
                 if (!project.hasProperty('fmpGameTests')) throw new GradleException('Compatibility review requires isolated test sources')
                 def review = project.property('fmpCompatReview').toString()
-                if (!(review in ['templates','jei','emi','fluid','fluid-input','fxnt','sophisticated','maid','pallet','feedback','tacz','wand','gadgets','effortless']))
+                if (!(review in ['templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','feedback','tacz','wand','gadgets','effortless']))
                     throw new GradleException('Unknown compatibility review')
                 systemProperty 'fmp.compatReview', review
             }
@@ -252,6 +252,15 @@ neoForge {
                 gameDirectory = new File(referenceOutput, "run/gametest/fluid-lifecycle-${scenario.split(':')[0]}-converged1")
                 systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_lifecycle'
                 systemProperty 'fmp.fluidLifecycle', scenario
+            }
+            if (project.hasProperty('fmpCapacityLifecycle')) {
+                def scenario = project.property('fmpCapacityLifecycle').toString()
+                if (!project.hasProperty('fmpGameTests') || !(scenario ==~ /(write|shrink|restore|verify):[a-z0-9_-]+/))
+                    throw new GradleException('Capacity lifecycle requires test sources and <write|shrink|restore|verify>:<batch>')
+                def parts = scenario.split(':')
+                gameDirectory = new File(referenceOutput, "run/gametest/capacity-lifecycle-${parts[1]}")
+                systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_capacity'
+                systemProperty 'fmp.capacityLifecycle', parts[0]
             }
             if (project.hasProperty('fmpMaidFlight')) {
                 def scenario = project.property('fmpMaidFlight').toString()
@@ -323,6 +332,9 @@ tasks.named('test', Test).configure {
 tasks.named('processGameTestResources', ProcessResources).configure {
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') {
         into 'data/fmp_phantom_compat/structure'
+    }
+    from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') {
+        into 'data/fmp_capacity/structure'
     }
 }
 

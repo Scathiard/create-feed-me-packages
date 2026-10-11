@@ -40,7 +40,7 @@ public record CacheFluids(CacheState<FluidVariantKey> state, Map<FluidVariantKey
 
     public static CacheFluids empty(CacheState<?> context) {
         return new CacheFluids(new CacheState<>(context.id(), context.level(), context.revision(),
-                Collections.nCopies(context.cells().size(), Cell.<FluidVariantKey>empty()), Map.of()), Map.of());
+                Collections.nCopies(context.cells().size(), Cell.<FluidVariantKey>empty()), Map.of(), context.capacity(), Map.of(), Map.of()), Map.of());
     }
 
     @Override public Map<FluidVariantKey, ItemStack> residuals() {
@@ -71,14 +71,18 @@ public record CacheFluids(CacheState<FluidVariantKey> state, Map<FluidVariantKey
     /** Item-side changes preserve all fluid columns. Capacity changes are strict unless both sides are explicit. */
     CacheFluids align(CacheState<?> context) {
         if (!context.id().equals(state.id())) throw new IllegalArgumentException("Fluid cache identity changed");
-        var next = state;
-        if (context.level() != state.level()) {
-            if (context.level() < state.level()) throw new IllegalArgumentException("Fluid capacity cannot shrink");
-            var edit = state.edit();
-            for (int level = state.level(); level < context.level(); level++) edit.upgrade();
-            next = edit.finish();
+        var edit = state.edit();
+        if (context.level() < state.level()) throw new IllegalArgumentException("Fluid cache level cannot decrease");
+        for (int level = state.level(); level < context.level(); level++) edit.upgrade(context.capacity());
+        edit.resize(context.capacity());
+        var next = edit.finish();
+        // An item-side extent may retain empty or read-only cells after an earlier shrink.
+        if (next.cells().size() != context.cells().size()) {
+            var cells = new ArrayList<Cell<FluidVariantKey>>(next.cells());
+            while (cells.size() < context.cells().size()) cells.add(Cell.empty());
+            next = new CacheState<>(next.id(), next.level(), next.revision(), cells, next.orders(), next.capacity(),
+                    next.retainedCeilings(), next.requestedControls());
         }
-        return new CacheFluids(new CacheState<>(context.id(), context.level(), context.revision(), next.cells(),
-                next.orders()), residuals, suspendedResiduals);
+        return new CacheFluids(next.withRevision(context.revision()), residuals, suspendedResiduals);
     }
 }

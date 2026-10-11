@@ -17,6 +17,7 @@ final class FluidStorageCodec {
     static CompoundTag write(CacheFluids fluids, HolderLookup.Provider registries) {
         var tag = new CompoundTag(); tag.putInt("version", 1);
         tag.put("cells", writeCells(fluids.state()));
+        tag.put(CapacityCodec.KEY, CapacityCodec.write(fluids.state()));
         var orders = new ListTag();
         for (var order : fluids.state().orders().values()) {
             var row = new CompoundTag(); row.putUUID("id", order.id()); row.putUUID("player", order.player());
@@ -36,7 +37,7 @@ final class FluidStorageCodec {
     }
 
     static CacheFluids read(CompoundTag tag, CacheState<?> context, HolderLookup.Provider registries) {
-        fields(tag, Set.of("version", "cells", "orders", "residuals")); require(tag, "version", Tag.TAG_INT);
+        fields(tag, Set.of("version", "cells", "orders", "residuals", CapacityCodec.KEY)); require(tag, "version", Tag.TAG_INT);
         if (tag.getInt("version") != 1) throw new IllegalArgumentException("Unsupported fluid storage version");
         require(tag, "cells", Tag.TAG_COMPOUND); var cells = tag.getCompound("cells");
         fields(cells, Set.of("extent", "entries"));
@@ -57,7 +58,7 @@ final class FluidStorageCodec {
                     row.getLong("revision"), row.getInt("remaining"), row.getBoolean("uncertain"));
             if (orders.put(id, order) != null) throw new IllegalArgumentException("Duplicate fluid order");
         }
-        var state = readCells(cells, context, orders, registries);
+        var state = readCells(tag, cells, context, orders, registries);
         var residuals = new HashMap<FluidVariantKey, ItemStack>();
         var suspended = new HashMap<FluidVariantKey, CompoundTag>();
         var seen = new HashSet<FluidVariantKey>();
@@ -99,10 +100,10 @@ final class FluidStorageCodec {
         }
         result.put("entries", entries); return result;
     }
-    private static CacheState<FluidVariantKey> readCells(CompoundTag tag, CacheState<?> context,
+    private static CacheState<FluidVariantKey> readCells(CompoundTag holder, CompoundTag tag, CacheState<?> context,
             Map<UUID, SupplyOrder<FluidVariantKey>> orders, HolderLookup.Provider registries) {
         require(tag, "extent", Tag.TAG_INT);
-        if (tag.getInt("extent") != CacheLevel.of(context.level()).slots()) throw new IllegalArgumentException("Fluid cell count differs from cache");
+        if (tag.getInt("extent") != context.cells().size()) throw new IllegalArgumentException("Fluid cell count differs from cache");
         var cells = new ArrayList<Cell<FluidVariantKey>>(Collections.nCopies(context.cells().size(), Cell.empty()));
         var used = new HashSet<Integer>();
         for (var entry : compounds(tag, "entries")) {
@@ -116,7 +117,9 @@ final class FluidStorageCodec {
             cells.set(slot, new Cell<>(key, Math.toIntExact(row.getLong("amount")), Math.toIntExact(row.getLong("min")),
                     Math.toIntExact(row.getLong("max")), row.getLong("revision")));
         }
-        return new CacheState<>(context.id(), context.level(), context.revision(), cells, orders);
+        var state = CapacityCodec.read(holder, context.id(), context.level(), context.revision(), cells, orders);
+        if (!state.capacity().equals(context.capacity())) throw new IllegalArgumentException("Fluid capacity differs from cache");
+        return state;
     }
     private static void require(CompoundTag tag, String key, int type) {
         if (!tag.contains(key, type)) throw new IllegalArgumentException("Missing or mistyped fluid field: " + key);

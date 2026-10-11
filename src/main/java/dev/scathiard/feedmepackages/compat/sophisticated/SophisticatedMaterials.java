@@ -154,8 +154,7 @@ public final class SophisticatedMaterials {
                 if (changed.stream().anyMatch(d -> !ItemStack.matches(d.original.getItem(), d.before)))
                     throw new IllegalStateException("Native slot rollback was not retained");
                 var state = before.state();
-                var restored = new CacheState<>(state.id(), state.level(), published.state().revision() + 1, state.cells(),
-                        state.orders());
+                var restored = state.withRevision(published.state().revision() + 1);
                 ledger.replace(handle, published.state().revision(), before.withState(restored));
             } catch (RuntimeException | Error recovery) {
                 failed.addSuppressed(recovery);

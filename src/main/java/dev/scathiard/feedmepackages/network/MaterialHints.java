@@ -18,9 +18,11 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import java.util.*;
 import java.util.function.Consumer;
 
-/** Read-only view, separate from a GUI window. Template updates <=40KiB; count updates <=200 bytes. */
+/** Read-only view, separate from a GUI window. At most 128 configured cells; template updates <=144KiB, count updates <=1KiB. */
 public final class MaterialHints {
     private MaterialHints() {}
+    private static final int MAX_CELLS = dev.scathiard.feedmepackages.domain.CacheCapacity.MAX_SLOTS;
+    private static final int WIRE_LIMIT = 144 * 1024;
     public record Message(UUID generation, long serial, boolean full, boolean active, boolean cacheFirst,
                           List<String> templates, List<Integer> amounts, int menu, List<Integer> ownReservations,
                           List<Integer> reservedGrid, UUID cache) implements CustomPacketPayload {
@@ -35,7 +37,7 @@ public final class MaterialHints {
             if (ownReservations.size() != amounts.size() || reservedGrid.size() > 9 || menu < 0
                     || ownReservations.stream().anyMatch(n -> n < 0 || n > 4096) || reservedGrid.stream().anyMatch(n -> n < 0 || n > 4096))
                 throw new IllegalArgumentException("Invalid reservation hints");
-            if (serial < 1 || amounts.size() > 36 || templates.size() > 36 || (full ? templates.size() != amounts.size() : !templates.isEmpty())
+            if (serial < 1 || amounts.size() > MAX_CELLS || templates.size() > MAX_CELLS || (full ? templates.size() != amounts.size() : !templates.isEmpty())
                     || amounts.stream().anyMatch(n -> n < 0 || n > 4096) || (!active && (!full || !amounts.isEmpty())))
                 throw new IllegalArgumentException("Invalid material hints");
         }
@@ -46,10 +48,10 @@ public final class MaterialHints {
             for (int i = 0; i < m.amounts.size(); i++) { if (m.full) PanelPackets.text(b, m.templates.get(i), 1024); b.writeVarInt(m.amounts.get(i)); }
             b.writeVarInt(m.menu); for (int held : m.ownReservations) b.writeVarInt(held);
             b.writeVarInt(m.reservedGrid.size()); for (int held : m.reservedGrid) b.writeVarInt(held);
-            PanelPackets.written(b, start, 40960);
+            PanelPackets.written(b, start, WIRE_LIMIT);
         }, b -> {
-            PanelPackets.bound(b, 40960); var generation = b.readUUID(); var cache = b.readUUID(); long serial = b.readLong();
-            boolean full = b.readBoolean(), active = b.readBoolean(), first = b.readBoolean(); int size = PanelPackets.size(b, 36);
+            PanelPackets.bound(b, WIRE_LIMIT); var generation = b.readUUID(); var cache = b.readUUID(); long serial = b.readLong();
+            boolean full = b.readBoolean(), active = b.readBoolean(), first = b.readBoolean(); int size = PanelPackets.size(b, MAX_CELLS);
             var templates = new ArrayList<String>(); var amounts = new ArrayList<Integer>();
             for (int i = 0; i < size; i++) { if (full) templates.add(PanelPackets.text(b, 1024)); amounts.add(b.readVarInt()); }
             int menu = b.readVarInt(); var own = new ArrayList<Integer>(); for (int i = 0; i < size; i++) own.add(b.readVarInt());
@@ -77,7 +79,7 @@ public final class MaterialHints {
     private static Consumer<Message> clientReceiver = packet -> {};
     public static void receiveOnClient(Consumer<Message> consumer) { clientReceiver = Objects.requireNonNull(consumer); }
     public static void register(RegisterPayloadHandlersEvent event) {
-        event.registrar("converged-hints-3").playToClient(Message.TYPE, Message.CODEC, (packet, context) -> clientReceiver.accept(packet));
+        event.registrar("converged-hints-4").playToClient(Message.TYPE, Message.CODEC, (packet, context) -> clientReceiver.accept(packet));
     }
     public static void forget(ServerPlayer player) { LAST.remove(player); }
     public static void tick(ServerPlayer player) {
@@ -126,7 +128,7 @@ public final class MaterialHints {
             boolean named = filter != null && clientCanName(filter.encoded(), player);
             if (!named && cell.amount() > 0) nameless++;
             templates.add(named ? filter.encoded() : "");
-            amounts.add(named ? Math.max(0, cell.amount() - CraftingReservations.reservedCache(handle.cacheId(), amounts.size(), null)) : 0);
+            amounts.add(named ? Math.min(4096, Math.max(0, cell.amount() - CraftingReservations.reservedCache(handle.cacheId(), amounts.size(), null))) : 0);
         }
         int menu = player.containerMenu.containerId;
         var own = active ? CraftingReservations.cacheAmounts(player, amounts.size()) : List.<Integer>of();

@@ -125,6 +125,51 @@ public final class FoundationTests {
         probe.data.putString("phase",phase);probe.data.putUUID("writer",PROCESS);probe.setDirty();ledger.setDirty();
         FeedMePackages.LOGGER.info("FMP_FLUID_LIFECYCLE_PASSED case={} phase={} schema={} actualPlayerFiles=true locked={}",mode[0],phase,CacheLedger.SCHEMA,!ledger.problem().isEmpty());h.succeed();
     }
+    /** Dedicated fresh world, four process boundaries; never selected by the ordinary namespace. */
+    @GameTest(template="empty",templateNamespace="fmp_capacity")
+    public static void configuredCapacityAcrossProcesses(GameTestHelper h) {
+        String phase=System.getProperty("fmp.capacityLifecycle","");
+        h.assertTrue(List.of("write","shrink","restore","verify").contains(phase),"Dedicated capacity lifecycle required");
+        var server=h.getLevel().getServer();var registries=server.registryAccess();
+        var probe=server.overworld().getDataStorage().computeIfAbsent(new SavedData.Factory<>(PersistenceProbe::new,PersistenceProbe::load),"fmp_capacity_probe");
+        var ledger=CacheLedger.get(server);h.assertTrue(ledger.problem().isEmpty(),"Capacity world locked: "+ledger.problem());
+        var slots=dev.scathiard.feedmepackages.FmpConfig.SLOTS.get(0);var groups=dev.scathiard.feedmepackages.FmpConfig.GROUPS.get(0);
+        slots.set(phase.equals("shrink")?9:50);groups.set(phase.equals("shrink")?2:32);dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+        ServerPlayer player;
+        if(phase.equals("write")) {
+            h.assertTrue(probe.data.isEmpty(),"Capacity lifecycle world already holds evidence; use a new batch");
+            player=TestPlayers.real(h,UUID.randomUUID());TestPlayers.necklace(player).setStackInSlot(0,FmpRegistries.PENDANT.toStack());
+            var handle=AccessGate.resolve(player).handle();var before=ledger.find(handle.cacheId());var edit=before.state().edit();
+            var stone=ItemVariantKey.of(new ItemStack(Items.STONE),registries);var iron=ItemVariantKey.of(new ItemStack(Items.IRON_INGOT),registries);
+            edit.filter(0,stone);edit.insert(0,stone,1800);edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(1900,2000,64,128));
+            edit.filter(49,iron);edit.insert(49,iron,11);ledger.replace(handle,before.state().revision(),before.withState(edit.finish()));
+            before=ledger.find(handle.cacheId());var fluids=before.fluids().state().edit();var water=FluidVariantKey.of(new FluidStack(Fluids.WATER,1),registries);
+            fluids.filter(40,water);fluids.insert(40,water,24000);ledger.replace(handle,before.state().revision(),before.withFluids(before.fluids().withState(fluids.finish())));
+            probe.data.putUUID("player",player.getUUID());probe.data.putUUID("cache",handle.cacheId());
+        } else {
+            String prior=switch(phase){case "shrink"->"write";case "restore"->"shrink";default->"restore";};
+            h.assertTrue(!probe.data.isEmpty() && !PROCESS.equals(probe.data.getUUID("writer")) && probe.data.getString("phase").equals(prior),"Capacity evidence is not the prior JVM phase");
+            h.assertTrue(row(ledger,probe.data.getUUID("cache"),registries).equals(probe.data.getCompound("expected")),"Stopped-world cache changed during persisted decode");
+            player=TestPlayers.real(h,probe.data.getUUID("player"));h.assertTrue(server.getPlayerList().load(player).isPresent(),"Native player save missing");
+            var access=AccessGate.resolve(player);h.assertTrue(access.active() && access.handle().cacheId().equals(probe.data.getUUID("cache")),"Config change lost pendant identity");
+            var record=ledger.find(access.handle().cacheId());
+            h.assertTrue(record.state().cells().size()==50 && record.state().cells().get(0).amount()==1800
+                    && record.fluids().state().cells().get(40).amount()==24000,"Config change deleted stock or slot identity");
+            if(phase.equals("shrink")) {
+                h.assertTrue(!record.state().writable(0) && !record.state().writable(49) && !record.fluids().state().writable(40),"Shrink did not enforce readonly rights");
+                var view=dev.scathiard.feedmepackages.interaction.CacheActions.snapshot(player);
+                var result=dev.scathiard.feedmepackages.interaction.CacheActions.execute(player,new dev.scathiard.feedmepackages.interaction.CacheActions.Intent(view.session(),view.record().state().revision(),dev.scathiard.feedmepackages.interaction.CacheActions.Action.TAKE_INVENTORY,49,1,-1,""));
+                h.assertTrue(result==dev.scathiard.feedmepackages.interaction.CacheActions.Result.OK,"Retained slot could not be safely taken");
+            } else h.assertTrue(record.state().writable(0) && record.state().writable(49) && record.fluids().state().writable(40)
+                    && record.state().cells().get(0).settings().lower()==1900 && record.state().cells().get(0).settings().upper()==2000,"Restored config did not recover rights and requested controls");
+            h.assertTrue(ledger.find(access.handle().cacheId()).state().cells().get(49).amount()==10
+                    && player.getInventory().countItem(Items.IRON_INGOT)==1,"Native player plus cache conservation failed");
+        }
+        saveNativePlayer(player);probe.data.put("expected",row(ledger,probe.data.getUUID("cache"),registries));
+        probe.data.putString("phase",phase);probe.data.putUUID("writer",PROCESS);probe.setDirty();ledger.setDirty();
+        FeedMePackages.LOGGER.info("FMP_CAPACITY_LIFECYCLE_PASSED phase={} schema={} slots=50 itemsAndFluids=true nativePlayer=true",phase,CacheLedger.SCHEMA);h.succeed();
+    }
+
     private static void lifecycleSuspension(GameTestHelper h, ServerPlayer player) {
         var ledger=CacheLedger.get(player.getServer());var access=AccessGate.resolve(player);var before=ledger.find(access.handle().cacheId());
         var raw=before.fluids().suspendedResiduals();
@@ -198,8 +243,10 @@ public final class FoundationTests {
         edit.request(0, UUID.randomUUID(), owner, 27, true);
         old.replace(handle, source.state().revision(), source.withState(edit.finish())); old.setReturnAddress(id, "keep-return");
         var eight = old.save(new CompoundTag(), registry); eight.putInt("schema", 8); eight.remove("private_retirements"); eight.remove("return_handoffs");
-        for (Tag row : eight.getList("caches", Tag.TAG_COMPOUND))
+        for (Tag row : eight.getList("caches", Tag.TAG_COMPOUND)) {
+            ((CompoundTag)row).remove("capacity_rules"); ((CompoundTag)row).remove("astra_fluids");
             for (Tag cell : ((CompoundTag) row).getList("cells", Tag.TAG_COMPOUND)) ((CompoundTag) cell).remove("item_controls");
+        }
         var loaded = CacheLedger.load(eight, registry); var record = loaded.find(id);
         h.assertTrue(loaded.problem().isEmpty() && record.state().cells().get(0).settings().lower() == 128
                 && record.state().cells().get(1).settings().lower() == 32 && record.state().cells().get(1).amount() == 11
@@ -383,6 +430,56 @@ public final class FoundationTests {
         rejects(helper, loaded::createOrdinary);
         helper.assertTrue(invalid.equals(loaded.save(new CompoundTag(), registries)), "Rejected data overwritten");
         helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void configuredCapacityRetainsExactStockAndOriginalControlsAcrossReload(GameTestHelper h) {
+        var registries=h.getLevel().registryAccess();var ledger=new CacheLedger();var id=ledger.createOrdinary();
+        var handle=new CacheHandle(id,UUID.randomUUID(),null);var before=ledger.find(id);
+        var stone=ItemVariantKey.of(new ItemStack(Items.STONE),registries);var iron=ItemVariantKey.of(new ItemStack(Items.IRON_INGOT),registries);
+        var water=FluidVariantKey.of(new FluidStack(Fluids.WATER,1),registries);
+        var controls=new dev.scathiard.feedmepackages.domain.CellSettings(1900,2000,64,128);
+        var items=before.state().edit();items.resize(new dev.scathiard.feedmepackages.domain.CacheCapacity(50,32));
+        items.filter(0,stone);items.insert(0,stone,1800);items.settings(0,controls);items.filter(49,iron);items.insert(49,iron,11);
+        var grown=before.withState(items.finish());ledger.replace(handle,before.state().revision(),grown);var fluids=grown.fluids().state().edit();fluids.filter(40,water);fluids.insert(40,water,24000);
+        long grownRevision=grown.state().revision();grown=grown.withFluids(grown.fluids().withState(fluids.finish()));
+        ledger.replace(handle,grownRevision,grown);
+        var shrink=grown.state().edit();shrink.resize(new dev.scathiard.feedmepackages.domain.CacheCapacity(9,2));
+        var reduced=grown.withState(shrink.finish());ledger.replace(handle,grown.state().revision(),reduced);
+        var saved=ledger.save(new CompoundTag(),registries);var loaded=CacheLedger.load(saved,registries);
+        h.assertTrue(loaded.problem().isEmpty(),"Legal over-capacity stock locked on reload: "+loaded.problem());
+        var restored=loaded.find(id);
+        h.assertTrue(restored.state().equals(reduced.state()) && restored.fluids().state().equals(reduced.fluids().state()),"Capacity provenance changed across reload");
+        h.assertTrue(!restored.state().writable(0) && !restored.state().writable(49) && !restored.fluids().state().writable(40)
+                && restored.state().cells().get(0).amount()==1800 && restored.fluids().state().cells().get(40).amount()==24000,"Reduced stock was lost or writable");
+        var take=restored.state().edit();h.assertTrue(take.extract(49,1)==1,"Hidden retained slot was not extractable");
+        take.resize(new dev.scathiard.feedmepackages.domain.CacheCapacity(50,32));restored=restored.withState(take.finish());
+        h.assertTrue(restored.state().writable(49) && restored.state().cells().get(49).amount()==10
+                && restored.state().cells().get(0).settings().equals(controls) && restored.fluids().state().writable(40),"Restoring config did not restore exact controls and rights");
+        for(int fault=0;fault<3;fault++) {
+            var invalid=saved.copy();var row=invalid.getList("caches",Tag.TAG_COMPOUND).getCompound(0);
+            if(fault==0)row.remove("capacity_rules");
+            if(fault==1)row.getCompound("capacity_rules").getList("retained",Tag.TAG_COMPOUND).getCompound(0).putInt("ceiling",128);
+            if(fault==2)row.getCompound("capacity_rules").putInt("slots",129);
+            var rejected=CacheLedger.load(invalid,registries);
+            h.assertTrue(!rejected.problem().isEmpty() && rejected.save(new CompoundTag(),registries).equals(invalid),"Unexplained capacity accepted or raw invalid data discarded: "+fault);
+        }
+        h.succeed();
+    }
+    @GameTest(template = "empty")
+    public static void previousConvergedSchemaAddsCapacityWithoutChangingExistingFields(GameTestHelper h) {
+        var registries=h.getLevel().registryAccess();var ledger=new CacheLedger();var id=ledger.createOrdinary();
+        var source=ledger.save(new CompoundTag(),registries);source.putInt("schema",31001);
+        for(var element:source.getList("caches",Tag.TAG_COMPOUND)) {
+            var row=(CompoundTag)element;row.remove("capacity_rules");row.getCompound("astra_fluids").remove("capacity_rules");
+        }
+        var loaded=CacheLedger.load(source,registries);
+        h.assertTrue(loaded.problem().isEmpty() && loaded.find(id).state().equals(ledger.find(id).state()),"Previous converged schema lost its original state: "+loaded.problem());
+        var saved=loaded.save(new CompoundTag(),registries);saved.putInt("schema",31001);
+        for(var element:saved.getList("caches",Tag.TAG_COMPOUND)) {
+            var row=(CompoundTag)element;row.remove("capacity_rules");row.getCompound("astra_fluids").remove("capacity_rules");
+        }
+        h.assertTrue(saved.equals(source),"Additive capacity upgrade changed a previous field");h.succeed();
     }
 
     private static void rejects(GameTestHelper helper, Runnable action) {

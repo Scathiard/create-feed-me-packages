@@ -120,7 +120,7 @@ public final class ReturnService {
         boolean fluid = record.fluids().state().cells().get(slot).filter() != null;
         CacheState<? extends MaterialVariant> state = fluid ? record.fluids().state() : record.state();
         Cell<? extends MaterialVariant> cell = state.cells().get(slot);
-        if (cell.filter() == null || cell.settings().upper() < 0) return RETURN_UNKNOWN;
+        if (!state.writable(slot) || cell.filter() == null || cell.settings().upper() < 0) return RETURN_UNKNOWN;
         int overage = Math.max(0, cell.amount() - cell.settings().upper());
         if (overage == 0) return RETURN_UNKNOWN;
         Carrier carrier = findCarrier(player, handle, record.state(), carrierItem);

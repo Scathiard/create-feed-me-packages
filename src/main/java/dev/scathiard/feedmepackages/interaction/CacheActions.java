@@ -20,8 +20,10 @@ import java.util.*;
 /** Server-side panel intent interpreter. A session is context, never a substitute for current access. */
 public final class CacheActions {
     private CacheActions() {}
+    /** Opt-in panel drop: the server resolves the exact variant across all pages. */
+    public static final int AUTO_DEPOSIT = -2;
     public enum Action { DEPOSIT, TAKE_CURSOR, TAKE_INVENTORY, SET_GHOST, CLEAR_FILTER, THRESHOLDS, RESET_REQUEST, PREFERENCE, TERMINAL_ENABLED, CLEAR_NETWORK, TAKE_RESIDUAL, FILL_RECIPE, SET_RETURN_ADDRESS, RELEASE_PREVIEW, CREATIVE_BEGIN, CREATIVE_END, COLLECT_MATCHING, SUPPLY_SETTINGS, SET_FLUID_GHOST, TAKE_FLUID, PLACE_FLUID, DEPOSIT_FLUID, RELEASE_FLUID }
-    public enum Result { OK, STALE, NOT_ACTIVE, INVALID_ITEM, DUPLICATE_FILTER, FILTER_OCCUPIED, NO_SPACE, INVALID_REQUEST, MISSING_MATERIAL, UNSUPPORTED_RECIPE, TOO_COMPLEX }
+    public enum Result { OK, STALE, NOT_ACTIVE, INVALID_ITEM, DUPLICATE_FILTER, FILTER_OCCUPIED, NO_SPACE, INVALID_REQUEST, MISSING_MATERIAL, UNSUPPORTED_RECIPE, TOO_COMPLEX, READ_ONLY, DENIED }
     public record Intent(UUID session, long revision, Action action, int slot, int first, int second, String template) {
         public Intent {
             Objects.requireNonNull(session); Objects.requireNonNull(action); Objects.requireNonNull(template);
@@ -95,6 +97,7 @@ public final class CacheActions {
             for(var change:changes) {
                 int slot=change.slot();
                 if(slot<0 || slot>=before.state().cells().size() || !seen.add(slot)) return Result.INVALID_REQUEST;
+                if (!before.state().writable(slot) || !before.fluids().state().writable(slot)) return Result.READ_ONLY;
                 if (change.fluid()) {
                     var cell = before.fluids().state().cells().get(slot); var value = change.value();
                     if (cell.filter() == null || cell.filterRevision() != change.filterRevision()) return Result.STALE;
@@ -109,8 +112,8 @@ public final class CacheActions {
                 }
             }
             var items = edit.finish(); var fluids = fluidEdit.finish(); long revision = Math.max(items.revision(), fluids.revision());
-            var nextItems = new dev.scathiard.feedmepackages.domain.CacheState<>(items.id(), items.level(), revision, items.cells(), items.orders());
-            var nextFluids = new dev.scathiard.feedmepackages.domain.CacheState<>(fluids.id(), fluids.level(), revision, fluids.cells(), fluids.orders());
+            var nextItems = items.withRevision(revision);
+            var nextFluids = fluids.withRevision(revision);
             ledger.replace(access.handle(),before.state().revision(),before.withStates(nextItems, before.fluids().withState(nextFluids)));
             return Result.OK;
         } catch(IllegalArgumentException invalid) { return Result.INVALID_REQUEST; }
@@ -185,6 +188,22 @@ public final class CacheActions {
         }
         var carried = creativeCursor == null ? player.containerMenu.getCarried() : creativeCursor;
         int slot = intent.slot();
+        if (intent.action() == Action.DEPOSIT && intent.second() == AUTO_DEPOSIT) {
+            if (slot < -1 || slot >= before.state().cells().size()) return Result.INVALID_REQUEST;
+            ItemVariantKey key;
+            try { key = ItemVariantKey.of(carried, player.registryAccess()); }
+            catch (IllegalArgumentException invalid) { return Result.INVALID_ITEM; }
+            int existing = before.state().find(key);
+            java.util.function.IntPredicate empty = index -> before.state().writable(index) && before.fluids().state().writable(index)
+                    && before.state().cells().get(index).filter() == null && before.fluids().state().cells().get(index).filter() == null;
+            if (existing >= 0) slot = existing;
+            else if (slot < 0 || !empty.test(slot)) {
+                slot = -1;
+                for (int index=0;index<before.state().cells().size();index++) if (empty.test(index)) {slot=index;break;}
+            }
+            if (slot < 0) return Result.NO_SPACE;
+            intent = new Intent(intent.session(), intent.revision(), intent.action(), slot, intent.first(), -1, intent.template());
+        }
         if (slot < 0 || slot >= before.state().cells().size()) return Result.INVALID_REQUEST;
         if (FluidActions.handles(before, slot, intent.action()))
             return FluidActions.execute(player, access.handle(), before, intent, carried, creativeCursor != null, requestSeq);
@@ -192,6 +211,10 @@ public final class CacheActions {
         // cell actions below so a held preview never re-enters a plain insert (which would add stock).
         Result cursorResult = CursorReservations.action(player, access.handle(), slot, intent, creativeCursor, requestSeq);
         if (cursorResult != null) return cursorResult;
+        if (!before.state().writable(slot) && switch(intent.action()) {
+            case SET_GHOST, DEPOSIT, CLEAR_FILTER, THRESHOLDS, SUPPLY_SETTINGS -> true;
+            default -> false;
+        }) return Result.READ_ONLY;
         var cell = before.state().cells().get(slot); var edit = before.state().edit();
         ItemStack nextCursor = null; InventoryTransfer.Plan inventoryPlan = null;
         switch (intent.action()) {
@@ -201,6 +224,7 @@ public final class CacheActions {
                 ItemVariantKey variant;
                 try { variant = ItemVariantKey.decode(intent.template(), player.registryAccess()); }
                 catch (IllegalArgumentException invalid) { return Result.INVALID_ITEM; }
+                if (!dev.scathiard.feedmepackages.service.CachePolicy.admits(variant,player.registryAccess())) return Result.DENIED;
                 int duplicate = before.state().find(variant);
                 if (duplicate >= 0 && duplicate != slot) return Result.DUPLICATE_FILTER;
                 edit.filter(slot, variant);
@@ -213,6 +237,7 @@ public final class CacheActions {
                     if (carried.isEmpty() || carried.getCount() > carried.getMaxStackSize()) return Result.INVALID_ITEM;
                     variant = ItemVariantKey.of(carried, player.registryAccess());
                 } catch (IllegalArgumentException invalid) { return Result.INVALID_ITEM; }
+                if (!dev.scathiard.feedmepackages.service.CachePolicy.admits(variant,player.registryAccess())) return Result.DENIED;
                 int duplicate = before.state().find(variant);
                 if (duplicate >= 0 && duplicate != slot) return Result.DUPLICATE_FILTER;
                 if (cell.amount() > 0 && !variant.equals(cell.filter())) return Result.FILTER_OCCUPIED;
@@ -284,9 +309,10 @@ public final class CacheActions {
         List<CollectPlan.Target> targets = new ArrayList<>(state.cells().size());
         for (int cell = 0; cell < state.cells().size(); cell++) {
             var held = state.cells().get(cell);
-            if (held.filter() != null) targets.add(new CollectPlan.Target(cell, held.filter(), held.amount(), held.settings().upper(), true));
+            if (held.filter() != null) targets.add(new CollectPlan.Target(cell, held.filter(), held.amount(), held.settings().upper(),
+                    state.writable(cell) && dev.scathiard.feedmepackages.service.CachePolicy.admits(held.filter(),registries)));
         }
-        CollectPlan.Plan plan = CollectPlan.simulate(targets, sources, CacheLevel.of(state.level()).groupCapacity());
+        CollectPlan.Plan plan = CollectPlan.simulate(targets, sources, state.capacity().groups());
         if (plan.isEmpty()) return Result.OK;   // nothing moved, nothing to say (silence rule)
         InventoryTransfer.Plan inventoryPlan = InventoryTransfer.take(inventory, plan.moves());
         if (!inventoryPlan.stillValid(inventory)) return Result.STALE;

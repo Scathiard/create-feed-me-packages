@@ -140,4 +140,34 @@ class CacheGridTest {
         assertSame(CacheGrid.forCount(36), CacheGrid.forCount(36), "the shipped levels must be cached");
         assertEquals(0, CacheGrid.forCount(0).count());
     }
+    @Test void configuredPagesUsePersistentSlotIdentitiesAtEveryWidth() {
+        for (int total : new int[]{0, 1, 9, 16, 36, 37, 50, 128}) for (int limit=2; limit<=6; limit++) {
+            var seen=new HashSet<Integer>(); int columns=CacheGrid.columnsFor(total,limit);
+            var positions=new java.util.HashMap<Integer,String>();
+            for (int first=0; first<=CacheViewport.lastFirst(total,limit); first+=columns) {
+                var page=CacheGrid.window(total,first,limit);
+                assertTrue(page.count()<=36); assertTrue(page.rows()<=6);
+                for(int local=0;local<page.count();local++) {
+                    int storage=page.storageSlot(local); seen.add(storage);
+                    assertEquals(local,page.localSlot(storage));
+                    assertEquals(local,page.slot(page.row(local),page.column(local)));
+                    String location=at(first/columns+page.row(local),page.column(local));
+                    String old=positions.put(storage,location);
+                    if(old!=null)assertEquals(old,location,"Scrolling moved storage slot "+storage);
+                }
+            }
+            assertEquals(total,seen.size(),"Unreachable slots at width "+limit);
+            for(int slot=0;slot<total;slot++) assertTrue(seen.contains(slot));
+        }
+    }
+    @Test void configuredDefaultPagesKeepTheApprovedLevelLayout() {
+        for(int level=1;level<=5;level++) {
+            var expected=CacheGrid.forLevel(level);var actual=CacheGrid.window(expected.count(),0,6);
+            for(int local=0;local<actual.count();local++) {
+                int slot=actual.storageSlot(local);
+                assertEquals(expected.row(slot),actual.row(local));
+                assertEquals(expected.column(slot),actual.column(local));
+            }
+        }
+    }
 }

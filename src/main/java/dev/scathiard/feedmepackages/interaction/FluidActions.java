@@ -69,6 +69,10 @@ public final class FluidActions {
         int slot = intent.slot(); var state = before.fluids().state();
         if (slot < 0 || slot >= state.cells().size()) return Result.INVALID_REQUEST;
         if (operating(handle.cacheId())) return Result.STALE;
+        if ((!state.writable(slot) || !before.state().writable(slot)) && switch(intent.action()) {
+            case SET_GHOST, SET_FLUID_GHOST, DEPOSIT_FLUID, CLEAR_FILTER, THRESHOLDS -> true;
+            default -> false;
+        }) return Result.READ_ONLY;
         var cell = state.cells().get(slot); var ledger = CacheLedger.get(player.getServer());
         var itemCell = slot < before.state().cells().size() ? before.state().cells().get(slot) : Cell.<ItemVariantKey>empty();
         switch (intent.action()) {
@@ -90,6 +94,7 @@ public final class FluidActions {
                 FluidVariantKey key;
                 try { key = FluidVariantKey.decode(intent.template(), player.registryAccess()); }
                 catch (IllegalArgumentException invalid) { return Result.INVALID_ITEM; }
+                if (!dev.scathiard.feedmepackages.service.CachePolicy.admits(key,player.registryAccess())) return Result.DENIED;
                 int existing = state.find(key); if (existing >= 0 && existing != slot) return Result.DUPLICATE_FILTER;
                 var fluids = state.edit(); fluids.filter(slot, key);
                 var nextFluids = before.fluids().withState(fluids.finish());
@@ -106,6 +111,7 @@ public final class FluidActions {
                 ItemVariantKey key;
                 try { key = ItemVariantKey.decode(intent.template(), player.registryAccess()); }
                 catch (IllegalArgumentException invalid) { return Result.INVALID_ITEM; }
+                if (!dev.scathiard.feedmepackages.service.CachePolicy.admits(key,player.registryAccess())) return Result.DENIED;
                 int existing = before.state().find(key); if (existing >= 0 && existing != slot) return Result.DUPLICATE_FILTER;
                 var items = before.state().edit(); items.filter(slot, key);
                 var fluids = state.edit(); fluids.filter(slot, null);
@@ -200,9 +206,10 @@ public final class FluidActions {
             var contents = totals(handler, registries); var cell = before.fluids().state().cells().get(slot);
             var key = cell.filter() != null ? cell.filter() : contents.keySet().stream().findFirst().orElse(null);
             if (key == null || !contents.containsKey(key)) return Drained.refused(Result.INVALID_ITEM);
+            if (!dev.scathiard.feedmepackages.service.CachePolicy.admits(key,registries)) return Drained.refused(Result.DENIED);
             int existing = before.fluids().state().find(key);
             if (existing >= 0 && existing != slot) return Drained.refused(Result.DUPLICATE_FILTER);
-            int limit = (int)Math.min(Integer.MAX_VALUE, Math.max(0, (long)dev.scathiard.feedmepackages.domain.CacheLevel.of(before.state().level()).groupCapacity() * key.stackSize() - cell.amount()));
+            int limit = (int)Math.min(Integer.MAX_VALUE, Math.max(0, (long)before.state().capacity().items(key) - cell.amount()));
             if (limit == 0) return Drained.refused(Result.NO_SPACE);
             var drained = handler.drain(key.stack(registries, limit), IFluidHandler.FluidAction.EXECUTE);
             if (drained.isEmpty()) return Drained.refused(Result.NO_SPACE);

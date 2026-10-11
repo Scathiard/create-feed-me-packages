@@ -5,6 +5,44 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CacheStateTest {
+    @Test void configuredShrinkRetainsStockAndStableSlotsUntilCapacityRestored() {
+        var key = new TestVariant("stone", 64); var state = CacheState.<TestVariant>empty(UUID.randomUUID());
+        var edit = state.edit(); edit.resize(new CacheCapacity(50, 32)); edit.filter(0, key);
+        edit.filter(49, new TestVariant("iron", 64)); edit.insert(0, key, 1800);
+        edit.insert(49, new TestVariant("iron", 64), 11); edit.settings(0, new CellSettings(1900, 2000, 64, 128));
+        state = edit.finish(); var filteredRevision = state.cells().get(0).filterRevision();
+        edit = state.edit(); edit.resize(new CacheCapacity(9, 2)); state = edit.finish();
+        assertEquals(50, state.cells().size()); assertEquals(1800, state.cells().get(0).amount());
+        assertEquals(11, state.cells().get(49).amount()); assertFalse(state.writable(0)); assertFalse(state.writable(49));
+        assertEquals(0, state.requestable(0)); assertEquals(filteredRevision, state.cells().get(0).filterRevision());
+        var restricted = state.edit(); assertEquals(0, restricted.insert(0,key,1));
+        assertThrows(IllegalArgumentException.class, () -> restricted.settings(0,new CellSettings(-1,-1,1,-1)));
+        assertThrows(IllegalArgumentException.class, () -> restricted.filter(49,null));
+        assertEquals(1, restricted.extract(49,1)); state=restricted.finish();
+        edit=state.edit(); edit.resize(new CacheCapacity(50,32)); state=edit.finish();
+        assertTrue(state.writable(0)); assertTrue(state.writable(49)); assertEquals(10,state.cells().get(49).amount());
+        assertEquals(new CellSettings(1900,2000,64,128),state.cells().get(0).settings());
+        assertTrue(state.retainedCeilings().isEmpty()); assertTrue(state.requestedControls().isEmpty());
+    }
+    @Test void extractingConfiguredExcessReleasesOnlyThatCellAndExplicitSettingsReplacePriorRequest() {
+        var key=new TestVariant("fluid",8000); var state=CacheState.<TestVariant>empty(UUID.randomUUID());
+        var edit=state.edit(); edit.resize(new CacheCapacity(9,4)); edit.filter(0,key);edit.insert(0,key,24000);edit.thresholds(0,3,4);state=edit.finish();
+        edit=state.edit();edit.resize(new CacheCapacity(9,1));state=edit.finish();
+        assertFalse(state.writable(0)); assertEquals(24000,state.retainedCeilings().get(0));
+        edit=state.edit(); assertEquals(16000,edit.extract(0,16000));state=edit.finish();assertTrue(state.writable(0));
+        edit=state.edit();edit.thresholds(0,-1,-1);edit.resize(new CacheCapacity(9,4));state=edit.finish();
+        assertEquals(8000,state.cells().get(0).amount());assertEquals(-1,state.cells().get(0).settings().lower());
+    }
+    @Test void unknownExcessAndForgedRetentionRemainRejected() {
+        var key=new TestVariant("stone",64);var cells=new ArrayList<Cell<TestVariant>>(Collections.nCopies(9,Cell.empty()));
+        cells.set(0,new Cell<>(key,129,-1,-1,1));
+        assertThrows(IllegalArgumentException.class,()->new CacheState<>(UUID.randomUUID(),1,0,cells,Map.of()));
+        assertThrows(IllegalArgumentException.class,()->new CacheState<>(UUID.randomUUID(),1,0,cells,Map.of(),new CacheCapacity(9,2),Map.of(0,128),Map.of()));
+        assertThrows(IllegalArgumentException.class,()->new CacheCapacity(129,2));
+        assertThrows(IllegalArgumentException.class,()->new CacheCapacity(9,CacheCapacity.MAX_GROUPS+1));
+        assertTrue(new CacheCapacity(128,CacheCapacity.MAX_GROUPS).items(new TestVariant("fluid",8000))>2_000_000_000);
+    }
+
     @Test void batchAndPendingLimitUseItemCountsAndNeverManufactureDemand() {
         var settings = new CellSettings(64, -1, 64, -1);
         assertEquals(64, settings.requestable(63, 0));

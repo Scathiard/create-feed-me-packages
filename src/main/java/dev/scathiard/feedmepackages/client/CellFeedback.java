@@ -13,7 +13,8 @@ final class CellFeedback {
     static void clear() { ACTIVE.clear(); }
     static void accept(PanelPackets.Snapshot before,PanelPackets.Snapshot after,long now) {
         if (before==null || !before.window().equals(after.window()) || !Objects.equals(before.session(),after.session())
-                || before.cells().size()!=after.cells().size()) { clear();return; }
+                || before.cells().size()!=after.cells().size() || before.firstSlot()!=after.firstSlot()
+                || before.columnLimit()!=after.columnLimit() || before.totalSlots()!=after.totalSlots()) { clear();return; }
         for(int i=0;i<after.cells().size();i++) {
             if (!LogisticsPanel.feedbackVisible(i)) { ACTIVE.remove(i); continue; }
             var old=before.cells().get(i);var cell=after.cells().get(i);

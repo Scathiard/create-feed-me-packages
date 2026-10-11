@@ -17,7 +17,7 @@ public record CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<Item
         residuals = copyResiduals(residuals);
         Objects.requireNonNull(fluids);
         var fluid = fluids.state();
-        if (!state.id().equals(fluid.id()) || state.level() != fluid.level() || state.revision() != fluid.revision()) throw new IllegalArgumentException("Fluid context differs from cache");
+        if (!state.id().equals(fluid.id()) || state.level() != fluid.level() || state.revision() != fluid.revision() || !state.capacity().equals(fluid.capacity()) || state.cells().size() != fluid.cells().size()) throw new IllegalArgumentException("Fluid context differs from cache");
         for (int slot = 0; slot < state.cells().size(); slot++)
             if (fluid.cells().get(slot).filter() != null && state.cells().get(slot).filter() != null)
                 throw new IllegalArgumentException("Item and fluid filters occupy the same cache slot: " + slot);
@@ -44,7 +44,7 @@ public record CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<Item
         var context = next.state();
         if (!state.id().equals(context.id()) || state.level() != context.level())
             throw new IllegalArgumentException("Change shared fluid capacity through both typed states");
-        return withStates(new CacheState<>(state.id(), state.level(), context.revision(), state.cells(), state.orders()), next);
+        return withStates(state.withRevision(context.revision()), next);
     }
 
     /** Replace the residual for one cell; an empty box clears it. */

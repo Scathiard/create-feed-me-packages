@@ -9,6 +9,7 @@ import dev.scathiard.feedmepackages.client.SupplyCreativeScreen;
 import dev.scathiard.feedmepackages.client.SupplyInventoryScreen;
 import dev.scathiard.feedmepackages.domain.CacheDropTarget;
 import dev.scathiard.feedmepackages.domain.CacheGrid;
+import dev.scathiard.feedmepackages.domain.CacheViewport;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.item.PendantItem;
@@ -111,6 +112,9 @@ public final class LogisticsPanel {
     private static int waiting;
     private static int waitingSince;
     private static int firstRow;
+    private static int requestedFirstSlot;
+    private static int requestedColumnLimit = CacheViewport.COLUMNS;
+    private static int queuedScrollRow = -1;
     private static int selected;
     private static final Map<Integer, CellControlDraft> controlDrafts = new HashMap<>();
     private static int dragStartValue;
@@ -460,9 +464,10 @@ public final class LogisticsPanel {
             LogisticsPanel.notice("timeout");
         }
         flushPendingThresholds();
+        if (queuedScrollRow >= 0 && pageReady() && waiting == 0) scrollToRow(queuedScrollRow);
         if (tick - lastQuery >= 10) {
             lastQuery = tick;
-            PacketDistributor.sendToServer((CustomPacketPayload)new PanelPackets.Query(window, LogisticsPanel.MC.player.containerMenu.containerId, true), (CustomPacketPayload[])new CustomPacketPayload[0]);
+            PacketDistributor.sendToServer((CustomPacketPayload)new PanelPackets.Query(window, LogisticsPanel.MC.player.containerMenu.containerId, true, requestedFirstSlot, requestedColumnLimit), (CustomPacketPayload[])new CustomPacketPayload[0]);
         }
     }
 
@@ -537,7 +542,7 @@ public final class LogisticsPanel {
         predict = null;
         serial = -1L;
         selected = -1;
-        firstRow = 0;
+        firstRow = 0; requestedFirstSlot = 0; requestedColumnLimit = CacheViewport.COLUMNS; queuedScrollRow = -1;
         draggingSlider = false;
         draggingMaximum = false;
         dragMoved = false;
@@ -597,9 +602,25 @@ public final class LogisticsPanel {
         }
         if (incoming.serial() <= serial) {
             if (incoming.acknowledged()!=0) for(var draft:controlDrafts.values()) if(currentDraft(draft))
-                draft.snapshot(settings(snapshot.cells().get(draft.context().slot())),incoming.acknowledged(),incoming.result()==CacheActions.Result.OK);
+                draft.snapshot(settings(draftCell(draft)),incoming.acknowledged(),incoming.result()==CacheActions.Result.OK);
             return;
         }
+        if (incoming.status() == AccessGate.Status.ACTIVE && snapshot != null
+                && Objects.equals(snapshot.session(), incoming.session())) {
+            requestedFirstSlot = CacheViewport.first(incoming.totalSlots(), requestedFirstSlot, requestedColumnLimit);
+            if (incoming.firstSlot() != requestedFirstSlot || incoming.columnLimit() != requestedColumnLimit) return;
+        }
+        boolean changedPage = snapshot == null || !Objects.equals(snapshot.session(), incoming.session())
+                || snapshot.firstSlot() != incoming.firstSlot() || snapshot.columnLimit() != incoming.columnLimit()
+                || snapshot.totalSlots() != incoming.totalSlots();
+        if (changedPage) {
+            selected = -1; templateTarget = -1; predict = null; queuedReturnClick = null;
+            draggingSlider = false; draggingMaximum = false; dragContext = null;
+            if (snapshot == null || !Objects.equals(snapshot.session(), incoming.session())) {
+                firstRow = 0; queuedScrollRow = -1;
+            }
+        }
+        requestedFirstSlot = incoming.firstSlot(); requestedColumnLimit = incoming.columnLimit();
         boolean wasVisible = snapshot != null && snapshot.status() != AccessGate.Status.NOT_WORN;
         serial = incoming.serial();
         CellFeedback.accept(snapshot, incoming, net.minecraft.Util.getMillis());
@@ -617,7 +638,7 @@ public final class LogisticsPanel {
             draggingSlider=false; draggingMaximum=false; dragContext=null;
         }
         for (var draft : controlDrafts.values()) {
-            var cell = snapshot.cells().get(draft.context().slot());
+            var cell = draftCell(draft);
             draft.snapshot(settings(cell), incoming.acknowledged(), incoming.result() == CacheActions.Result.OK);
         }
         if (wasVisible && incoming.status() == AccessGate.Status.NOT_WORN) {
@@ -636,7 +657,7 @@ public final class LogisticsPanel {
             draggingSlider = false;
             draggingMaximum = false;
         }
-        if (selected >= incoming.cells().size() || selected >= 0 && incoming.cells().get(selected).template().isEmpty()) {
+        if (selected >= incoming.cells().size() || selected >= 0 && (incoming.cells().get(selected).template().isEmpty() || !incoming.cells().get(selected).writable())) {
             selected = -1;
         }
         HashSet<String> present = new HashSet<String>();
@@ -674,7 +695,7 @@ public final class LogisticsPanel {
             return;
         }
         int count = LogisticsPanel.active() ? snapshot.cells().size() : 0;
-        CacheGrid grid = CacheGrid.forCount(count);
+        CacheGrid grid = snapshot.grid();
         if (hidden) {
             CellFeedback.clear();
             // Fully hidden: only the entry square exists, at the place the fold button had. The inventory screen
@@ -684,9 +705,15 @@ public final class LogisticsPanel {
             return;
         }
         int availableColumns = Math.max(2, (LogisticsPanel.screen.width - screen.getXSize() - 12 - 2 * PanelLayout.SIDE) / PanelLayout.ROW);
-        int width = Math.min(PanelLayout.preferredWidth(grid), availableColumns * PanelLayout.ROW + 2 * PanelLayout.SIDE);
+        int width = Math.min(PanelLayout.preferredWidth(CacheGrid.window(snapshot.totalSlots(), 0, 6)), availableColumns * PanelLayout.ROW + 2 * PanelLayout.SIDE);
         if (!LogisticsPanel.bookOpen() && screen.getGuiLeft() < width + 8 && LogisticsPanel.screen.width >= screen.getXSize() + width + 12) {
             LogisticsPanel.shiftScreenTo(width + 8);
+        }
+        int nextColumns = Math.clamp((screen.getGuiLeft() - (bookOpen() ? PanelLayout.BOOK_WIDTH : 0)
+                - PanelLayout.GAP - PanelLayout.MARGIN - 2 * PanelLayout.SIDE) / PanelLayout.ROW, 2, CacheViewport.COLUMNS);
+        if (active() && nextColumns != requestedColumnLimit && preparePageChange()) {
+            requestedColumnLimit = nextColumns; requestedFirstSlot = 0; firstRow = 0; queuedScrollRow = -1;
+            clearPageSelection(); lastQuery = tick - 10;
         }
         layout = PanelLayout.compute(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
         int availableHeight = LogisticsPanel.screen.height - overlayBottomInset;
@@ -835,11 +862,12 @@ public final class LogisticsPanel {
                 tooltip = List.of(feedback);
             }
         }
-        if (layout.totalRows() > layout.visibleRows()) {
+        int scrollRows = snapshot == null ? 0 : CacheGrid.rowsFor(snapshot.totalSlots(), snapshot.columnLimit());
+        if (scrollRows > layout.visibleRows()) {
             PanelLayout.Rect rail = layout.scrollbar();
             g.fill(rail.x(), rail.y(), rail.x() + rail.width(), rail.y() + rail.height(), -13619412);
-            int thumb = Math.max(7, rail.height() * layout.visibleRows() / layout.totalRows());
-            int offset = (rail.height() - thumb) * firstRow / Math.max(1, layout.totalRows() - layout.visibleRows());
+            int thumb = Math.max(7, rail.height() * layout.visibleRows() / scrollRows);
+            int offset = (rail.height() - thumb) * scrollRow() / Math.max(1, scrollRows - layout.visibleRows());
             g.fill(rail.x(), rail.y() + offset, rail.x() + rail.width(), rail.y() + offset + thumb, -4152474);
         }
         if (!layout.compact()) {
@@ -973,6 +1001,7 @@ public final class LogisticsPanel {
             g.pose().popPose();
         }
         CellFeedback.render(g, box.slot(), x, y);
+        if (!cell.writable()) LogisticsPanel.overlay(g, x + 1, y + 16, 16, 1, 0xFFAA7777);
         boolean hover = r.contains(mouseX, mouseY);
         if (cell.residual()) {
             LogisticsPanel.overlay(g, x + 1, y + 13, 3, 3, -8206747);
@@ -980,19 +1009,19 @@ public final class LogisticsPanel {
                 tooltip = List.of(LogisticsPanel.tr("residual", new Object[0]));
             }
         }
-        if (!cell.template().isEmpty() && cell.minimum() >= 0 && cell.amount() < cell.minimum()) {
+        if (cell.writable() && !cell.template().isEmpty() && cell.minimum() >= 0 && cell.amount() < cell.minimum()) {
             int color = cell.pending() > 0 ? -8206747 : -7105653;
             LogisticsPanel.overlay(g, x + 3, y + 1, 1, 3, color);
             LogisticsPanel.overlay(g, x + 1, y + 3, 5, 1, color);
             LogisticsPanel.overlay(g, x + 2, y + 4, 3, 1, color);
         }
-        if (!cell.template().isEmpty() && cell.maximum() >= 0 && cell.amount() > cell.maximum()) {
+        if (cell.writable() && !cell.template().isEmpty() && cell.maximum() >= 0 && cell.amount() > cell.maximum()) {
             int color = cell.returnState() == dev.scathiard.feedmepackages.logistics.ReturnService.RETURN_SENT ? -2058918 : -6909823;
             LogisticsPanel.overlay(g, x + 1, y + 1, 5, 1, color);
             LogisticsPanel.overlay(g, x + 2, y + 2, 3, 1, color);
             LogisticsPanel.overlay(g, x + 3, y + 3, 1, 3, color);
         }
-        if (hover && !cell.template().isEmpty()) {
+        if (hover && cell.writable() && !cell.template().isEmpty()) {
             LogisticsPanel.overlay(g, box.dot().x(), box.dot().y() + 1, 4, 4, -2047362);
         }
         if (hover) {
@@ -1011,12 +1040,13 @@ public final class LogisticsPanel {
             if (cell.fluid()) tooltip.add(tr("fluid_take"));
             if (cell.fluid() || cell.template().isEmpty()) tooltip.add(tr("fluid_deposit"));
             if (cell.amount() == 0 && TemplateBrowsers.available()) tooltip.add(tr("template_hint",ClientBootstrap.SELECT_TEMPLATE.getTranslatedKeyMessage()));
-            if (cell.minimum() >= 0 && cell.amount() < cell.minimum() && mouseX < x + 7 && mouseY < y + 7) {
+            if (cell.writable() && cell.minimum() >= 0 && cell.amount() < cell.minimum() && mouseX < x + 7 && mouseY < y + 7) {
                 tooltip = List.of(LogisticsPanel.tr(cell.pending() > 0 ? "requested" : "shortage", new Object[0]));
             }
-            if (box.dot().contains(mouseX, mouseY) && !cell.template().isEmpty()) {
+            if (cell.writable() && box.dot().contains(mouseX, mouseY) && !cell.template().isEmpty()) {
                 tooltip = List.of(LogisticsPanel.tr("configure", new Object[0]));
             }
+            if (!cell.writable()) tooltip.add(tr("result.read_only"));
         }
     }
 
@@ -1052,19 +1082,26 @@ public final class LogisticsPanel {
     private static dev.scathiard.feedmepackages.domain.CellSettings settings(PanelPackets.CellView cell) {
         return new dev.scathiard.feedmepackages.domain.CellSettings(cell.minimum(), cell.maximum(), cell.batch(), cell.pendingLimit());
     }
+    private static PanelPackets.CellView draftCell(CellControlDraft draft) {
+        return snapshot.cells().get(snapshot.grid().localSlot(draft.context().slot()));
+    }
     private static boolean currentDraft(CellControlDraft draft) {
         var c = draft.context();
-        if (snapshot == null || !Objects.equals(snapshot.session(), c.session()) || c.slot() < 0 || c.slot() >= snapshot.cells().size()) return false;
-        var cell = snapshot.cells().get(c.slot());
-        return c.filter().equals(cell.template()) && c.filterRevision() == cell.filterRevision();
+        if (snapshot == null || !Objects.equals(snapshot.session(), c.session())) return false;
+        int local = snapshot.grid().localSlot(c.slot());
+        if (local < 0) return false;
+        var cell = snapshot.cells().get(local);
+        return cell.writable() && c.filter().equals(cell.template()) && c.filterRevision() == cell.filterRevision();
     }
     private static CellControlDraft controls() {
-        if (snapshot == null || selected < 0 || selected >= snapshot.cells().size()) return null;
+        if (!pageReady() || selected < 0 || selected >= snapshot.cells().size()) return null;
         var cell = snapshot.cells().get(selected);
-        var ctx = new CellControlDraft.Context(snapshot.session(), selected, cell.template(), cell.filterRevision());
-        var draft = controlDrafts.get(selected);
+        if (!cell.writable()) return null;
+        int storageSlot = snapshot.grid().storageSlot(selected);
+        var ctx = new CellControlDraft.Context(snapshot.session(), storageSlot, cell.template(), cell.filterRevision());
+        var draft = controlDrafts.get(storageSlot);
         if (draft == null || !ctx.equals(draft.context())) {
-            draft = new CellControlDraft(ctx, settings(cell)); controlDrafts.put(selected, draft);
+            draft = new CellControlDraft(ctx, settings(cell)); controlDrafts.put(storageSlot, draft);
         }
         return draft;
     }
@@ -1215,8 +1252,8 @@ public final class LogisticsPanel {
             return new QueuedPanelClick(window, snapshot.session(), QueuedClickKind.COPY_ADDRESS, -1, button, -1, "");
         }
         PanelLayout.Rect rail = inputLayout.scrollbar();
-        if (inputLayout.totalRows() > inputLayout.visibleRows() && rail.contains(x, y)) {
-            int row = (int)Math.round((y - rail.y()) * (inputLayout.totalRows() - inputLayout.visibleRows())
+        if (maxScrollRow() > 0 && rail.contains(x, y)) {
+            int row = (int)Math.round((y - rail.y()) * maxScrollRow()
                     / Math.max(1, rail.height() - 1));
             return new QueuedPanelClick(window, snapshot.session(), QueuedClickKind.SCROLL, -1, button, row, "");
         }
@@ -1226,7 +1263,7 @@ public final class LogisticsPanel {
         for (PanelLayout.CellBox box : inputLayout.cells()) {
             if (!box.bounds().contains(x, y)) continue;
             PanelPackets.CellView cell = snapshot.cells().get(box.slot());
-            if (box.dot().contains(x, y) && !cell.template().isEmpty() && LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
+            if (cell.writable() && box.dot().contains(x, y) && !cell.template().isEmpty() && LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
                 return new QueuedPanelClick(window, snapshot.session(), QueuedClickKind.TOGGLE_SLOT, box.slot(), button, -1, cell.template());
             }
             if (button == 1 && Screen.hasControlDown()) {
@@ -1253,10 +1290,7 @@ public final class LogisticsPanel {
             return;
         }
         if (click.kind() == QueuedClickKind.SCROLL) {
-            CellFeedback.clear();
-            firstRow = click.row();
-            selected = -1;
-            LogisticsPanel.updateLayout();
+            scrollToRow(click.row());
             return;
         }
         if (!LogisticsPanel.active() || click.slot() < 0 || click.slot() >= snapshot.cells().size()) {
@@ -1325,7 +1359,7 @@ public final class LogisticsPanel {
             }
             return true;
         }
-        if (waiting != 0) {
+        if (waiting != 0 || !pageReady()) {
             capturedButton = button;
             return true;
         }
@@ -1342,7 +1376,7 @@ public final class LogisticsPanel {
                 catch (IllegalArgumentException invalid) { notice("result.invalid_item"); }
                 return true;
             }
-            if (layout.cells().stream().anyMatch(c->c.slot()==snapshot.fluidPreview().slot() && c.bounds().contains(x,y)))
+            if (layout.cells().stream().anyMatch(c->snapshot.grid().storageSlot(c.slot())==snapshot.fluidPreview().slot() && c.bounds().contains(x,y)))
                 send(CacheActions.Action.RELEASE_FLUID,-1,snapshot.fluidPreview().sequence(),0,"");
             return true;
         }
@@ -1415,12 +1449,9 @@ public final class LogisticsPanel {
         // The one-key collect button sits in the right-hand cap. It is answered before the scrollbar rail so
         // its band is not stolen by the 2-pixel rail; elsewhere the rail behaves as before.
         PanelLayout.Rect rail = inputLayout.scrollbar();
-        if (inputLayout.totalRows() > inputLayout.visibleRows() && rail.contains(x, y)) {
-            CellFeedback.clear();
-            firstRow = (int) Math.round((y - rail.y()) * (inputLayout.totalRows() - inputLayout.visibleRows())
-                    / Math.max(1, rail.height() - 1));
-            selected = -1;
-            LogisticsPanel.updateLayout();
+        if (maxScrollRow() > 0 && rail.contains(x, y)) {
+            scrollToRow((int) Math.round((y - rail.y()) * maxScrollRow()
+                    / Math.max(1, rail.height() - 1)));
             return true;
         }
         if (!LogisticsPanel.active()) {
@@ -1434,7 +1465,7 @@ public final class LogisticsPanel {
         for (PanelLayout.CellBox box : inputLayout.cells()) {
             if (!box.bounds().contains(x, y)) continue;
             PanelPackets.CellView cell = snapshot.cells().get(box.slot());
-            if (box.dot().contains(x, y) && !cell.template().isEmpty() && LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
+            if (cell.writable() && box.dot().contains(x, y) && !cell.template().isEmpty() && LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
                 selected = selected == box.slot() ? -1 : box.slot();
                 LogisticsPanel.updateLayout();
                 return true;
@@ -1497,11 +1528,9 @@ public final class LogisticsPanel {
             cells.add(new CacheDropTarget.Cell(cell.template(),
                     cell.amount() >= groupCapacity * Math.max(1, cell.stackSize())));
         CacheDropTarget.Target target = CacheDropTarget.resolveDrop(cells, aimed, carried);
-        if (!target.hasTarget()) {
-            LogisticsPanel.notice("result.no_space");
-            return;
-        }
-        LogisticsPanel.send(CacheActions.Action.DEPOSIT, target.slot(), first, -1, "");
+        // The current page is only a hint: an existing matching cell may be off-screen.
+        LogisticsPanel.send(CacheActions.Action.DEPOSIT, target.hasTarget() ? target.slot() : -1,
+                first, CacheActions.AUTO_DEPOSIT, "");
     }
 
     private static boolean release(double x, double y, int button) {
@@ -1521,7 +1550,7 @@ public final class LogisticsPanel {
             dragMoved = false; capturedButton = -1; return true;
         }
         if (layout.slider() != null && layout.slider().contains(x,y)) { capturedButton = -1; return true; }
-        if (waiting != 0) { capturedButton = -1; return true; }
+        if (waiting != 0 || !pageReady()) { capturedButton = -1; return true; }
         if (capturedButton == button) {
             capturedButton = -1;
             return true;
@@ -1559,8 +1588,49 @@ public final class LogisticsPanel {
         }
         if(!layout.bounds().contains(x,y)) return false;
         if(waiting!=0 || layout.compact() || layout.hidden()) return true;
-        CellFeedback.clear();
-        firstRow += amount>0?-1:1; selected=-1; updateLayout(); return true;
+        if (amount != 0) scrollToRow((queuedScrollRow >= 0 ? queuedScrollRow : scrollRow()) + (amount > 0 ? -1 : 1));
+        return true;
+    }
+
+    private static boolean pageReady() {
+        return snapshot != null && requestedFirstSlot == snapshot.firstSlot() && requestedColumnLimit == snapshot.columnLimit();
+    }
+    private static int scrollRow() {
+        return requestedFirstSlot / CacheGrid.columnsFor(snapshot.totalSlots(), requestedColumnLimit) + firstRow;
+    }
+    private static int maxScrollRow() {
+        return snapshot == null || layout == null ? 0 : Math.max(0,
+                CacheGrid.rowsFor(snapshot.totalSlots(), snapshot.columnLimit()) - layout.visibleRows());
+    }
+    private static void clearPageSelection() {
+        selected = -1; templateTarget = -1; predict = null; queuedReturnClick = null;
+        draggingSlider = false; draggingMaximum = false; dragContext = null; CellFeedback.clear();
+    }
+    private static boolean preparePageChange() {
+        if (waiting != 0 || cursorPending || pendingCursorChange != null || previewRemaining > 0
+                || draggingSlider || draggingMaximum || !pageReady()) return false;
+        if (controlDrafts.values().stream().anyMatch(CellControlDraft::dirty)) {
+            submitControls(true); return false;
+        }
+        return true;
+    }
+    private static void scrollToRow(int requestedRow) {
+        if (!active() || layout == null || layout.hidden() || layout.compact()) return;
+        int row = Math.clamp(requestedRow, 0, maxScrollRow());
+        queuedScrollRow = row;
+        if (!preparePageChange()) return;
+        queuedScrollRow = -1;
+        int columns = CacheGrid.columnsFor(snapshot.totalSlots(), requestedColumnLimit);
+        int base = requestedFirstSlot / columns;
+        int localMax = Math.max(0, layout.totalRows() - layout.visibleRows());
+        clearPageSelection();
+        if (row >= base && row <= base + localMax) {
+            firstRow = row - base; updateLayout(); return;
+        }
+        int lastBase = CacheViewport.lastFirst(snapshot.totalSlots(), requestedColumnLimit) / columns;
+        int nextBase = Math.clamp(row - localMax, 0, lastBase);
+        requestedFirstSlot = nextBase * columns;
+        firstRow = row - nextBase; lastQuery = tick - 10;
     }
 
     private static boolean key(int key, int scan, int modifiers) {
@@ -1635,25 +1705,26 @@ public final class LogisticsPanel {
     private static void submitControls(boolean closing) {
         controlDrafts.entrySet().removeIf(e -> !currentDraft(e.getValue()));
         var drafts=controlDrafts.values().stream().filter(d->closing?d.dirty():d.ready(tick)).toList();
-        if(drafts.isEmpty())return;
-        var changes=drafts.stream().map(d->new CacheActions.SettingsChange(d.context().slot(),d.context().filterRevision(),d.value(),snapshot.cells().get(d.context().slot()).fluid())).toList();
+        if(drafts.isEmpty() || waiting != 0)return;
+        var changes=drafts.stream().map(d->new CacheActions.SettingsChange(d.context().slot(),d.context().filterRevision(),d.value(),draftCell(d).fluid())).toList();
         waiting=++sequence;waitingSince=tick;
         PacketDistributor.sendToServer(new PanelPackets.SettingsBatch(window,snapshot.session(),waiting,changes));
         for(var draft:drafts)draft.sentAll(waiting);
     }
 
     public static boolean recipeReady() {
-        return LogisticsPanel.active() && waiting == 0 && window != null;
+        return LogisticsPanel.active() && pageReady() && waiting == 0 && window != null;
     }
 
     public static boolean templateTarget(int slot) {
-        return recipeReady() && slot >= 0 && slot < snapshot.cells().size() && snapshot.cells().get(slot).amount() == 0
+        return recipeReady() && slot >= 0 && slot < snapshot.cells().size() && snapshot.cells().get(slot).writable() && snapshot.cells().get(slot).amount() == 0
                 && snapshot.fluidPreview().amount() == 0 && MC.player.containerMenu.getCarried().isEmpty() && (templateTarget < 0 || templateTarget == slot);
     }
     private static boolean beginTemplate(double x, double y) {
-        if (!active() || waiting != 0 || layout == null || hidden || layout.compact() || returnEditing || snapshot.fluidPreview().amount()>0 || !MC.player.containerMenu.getCarried().isEmpty()) return false;
+        if (!active() || !pageReady() || waiting != 0 || layout == null || hidden || layout.compact() || returnEditing || snapshot.fluidPreview().amount()>0 || !MC.player.containerMenu.getCarried().isEmpty()) return false;
         for (var cell : layout.cells()) if (cell.bounds().contains(x, y)) {
-            if (snapshot.cells().get(cell.slot()).amount() != 0) notice("result.filter_occupied");
+            if (!snapshot.cells().get(cell.slot()).writable()) notice("result.read_only");
+            else if (snapshot.cells().get(cell.slot()).amount() != 0) notice("result.filter_occupied");
             else if (!TemplateBrowsers.available()) notice("template_no_browser");
             else { templateTarget = cell.slot(); selected = -1; updateLayout(); notice("template_choose"); }
             return true;
@@ -1689,7 +1760,7 @@ public final class LogisticsPanel {
 
     public static List<PanelLayout.CellBox> visibleCells(Screen candidate) {
         if (!LogisticsPanel.current(candidate) || !LogisticsPanel.active() || layout == null
-                || layout.compact() || layout.hidden() || waiting != 0) {
+                || layout.compact() || layout.hidden() || waiting != 0 || !pageReady()) {
             return List.of();
         }
         return layout.cells();
@@ -1701,7 +1772,7 @@ public final class LogisticsPanel {
 
     private static boolean send(CacheActions.Action action, int slot, int first, int second, String template) {
         ItemStack held;
-        if (snapshot == null || snapshot.session() == null || waiting != 0 || cursorPending || pendingCursorChange != null || window == null) {
+        if (snapshot == null || snapshot.session() == null || waiting != 0 || cursorPending || pendingCursorChange != null || window == null || !pageReady()) {
             return false;
         }
         boolean creative = screen instanceof CreativeModeInventoryScreen && (action == CacheActions.Action.DEPOSIT || action == CacheActions.Action.TAKE_CURSOR || action == CacheActions.Action.DEPOSIT_FLUID);
@@ -1717,7 +1788,13 @@ public final class LogisticsPanel {
                 return false;
             }
         }
-        CacheActions.Intent intent = new CacheActions.Intent(snapshot.session(), snapshot.revision(), action, slot, first, second, template);
+        boolean cellAction = switch (action) {
+            case SET_GHOST, SET_FLUID_GHOST, DEPOSIT, DEPOSIT_FLUID, TAKE_CURSOR, TAKE_INVENTORY, TAKE_FLUID,
+                    CLEAR_FILTER, THRESHOLDS, SUPPLY_SETTINGS, RESET_REQUEST -> true;
+            default -> false;
+        };
+        CacheActions.Intent intent = new CacheActions.Intent(snapshot.session(), snapshot.revision(), action,
+                cellAction && slot >= 0 ? snapshot.grid().storageSlot(slot) : slot, first, second, template);
         waiting = ++sequence;
         waitingSince = tick;
         // The one-key collect is silent on every non-OK result (user's silence rule): its answer is only ever

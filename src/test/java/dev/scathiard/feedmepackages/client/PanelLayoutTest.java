@@ -799,7 +799,7 @@ class PanelLayoutTest {
         for (String guard : List.of(
                 "if (!LogisticsPanel.visible()) {",
                 "if (layout.hidden()) {",
-                "if (waiting != 0) {",
+                "if (waiting != 0 || !pageReady()) {",
                 "if (!insidePanel) {",
                 "if (returnClose == ReturnClose.SUBMITTED) {",
                 "if (button != 0 && button != 1) {",
@@ -808,7 +808,7 @@ class PanelLayoutTest {
                 "if (inputLayout.foldButton().contains(x, y)) {",
                 "if (inputLayout.transferButton().contains(x, y)) {",
                 "if (inputLayout.address().contains(x, y)) {",
-                "if (inputLayout.totalRows() > inputLayout.visibleRows() && rail.contains(x, y)) {",
+                "if (maxScrollRow() > 0 && rail.contains(x, y)) {",
                 "if (!LogisticsPanel.active()) {",
                 "for (PanelLayout.CellBox box : inputLayout.cells()) {",
                 "LogisticsPanel.depositAt(-1, button)")) {

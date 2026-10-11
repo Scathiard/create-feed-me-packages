@@ -21,7 +21,7 @@ import java.util.*;
 /** One world authority. Corrupt data produces a locked ledger, never an empty replacement. */
 public final class CacheLedger extends SavedData {
     public static final String NAME = "create_feed_me_packages_ledger";
-    public static final int SCHEMA = 31001; // Converged reference line: item controls and one-time private retirement.
+    public static final int SCHEMA = 31002; // Adds configured capacity provenance; all previous field units are unchanged.
     public static final int MAX_REDIRECT_VARIANTS = 4096;
     private static final Factory<CacheLedger> FACTORY = new Factory<>(CacheLedger::new, CacheLedger::load);
     private Map<UUID, CacheRecord> caches = Map.of();
@@ -237,7 +237,7 @@ public final class CacheLedger extends SavedData {
     public Mutation prepareOrdinaryUpgrade(CacheRecord source, int targetLevel) {
         writable(); sourceCurrent(source);
         if (source.owner() != null || source.state().level() + 1 != targetLevel) throw new IllegalArgumentException("Upgrade must advance one level");
-        var edit = source.state().edit(); edit.upgrade(); var result = source.withState(edit.finish());
+        var edit = source.state().edit(); edit.upgrade(dev.scathiard.feedmepackages.FmpConfig.rules().capacity(targetLevel)); var result = source.withState(edit.finish());
         var records = new HashMap<>(caches); records.put(result.state().id(), result);
         return new Mutation(records, personal, redirects, result);
     }
@@ -273,7 +273,7 @@ public final class CacheLedger extends SavedData {
         // Residual-only changes belong to the same optimistic transaction boundary as inventory.
         if (replacement.state().revision() == expectedRevision) {
             var state = replacement.state();
-            replacement = replacement.withState(new CacheState<>(state.id(), state.level(), nextRevision, state.cells(), state.orders()));
+            replacement = replacement.withState(state.withRevision(nextRevision));
         }
         var next = new HashMap<>(caches); next.put(handle.cacheId(), replacement); caches = Map.copyOf(next); setDirty();
     }
@@ -301,6 +301,7 @@ public final class CacheLedger extends SavedData {
                 data.put("item_controls", controls);
                 cells.add(data);
             }
+            row.put(CapacityCodec.KEY, CapacityCodec.write(state));
             row.put("cells", cells); ListTag orders = new ListTag();
             for (var order : state.orders().values()) {
                 CompoundTag data = new CompoundTag(); data.putUUID("id", order.id()); data.putUUID("player", order.player());
@@ -350,7 +351,7 @@ public final class CacheLedger extends SavedData {
             fields(tag, Set.of("schema", "integrity_key", "caches", "preferences", "redirects", "grants", "returnAddresses", "private_retirements", "return_handoffs"));
             require(tag, "schema", Tag.TAG_INT);
             int sourceSchema = tag.getInt("schema");
-            if (sourceSchema != SCHEMA && sourceSchema != 8 && sourceSchema != 2 && sourceSchema != 4 && sourceSchema != 5 && sourceSchema != 6 && sourceSchema != 7)
+            if (sourceSchema != SCHEMA && sourceSchema != 31001 && sourceSchema != 8 && sourceSchema != 2 && sourceSchema != 4 && sourceSchema != 5 && sourceSchema != 6 && sourceSchema != 7)
                 throw new IllegalArgumentException("Unsupported cache schema");
             require(tag, "integrity_key", Tag.TAG_BYTE_ARRAY);
             if (tag.getByteArray("integrity_key").length != 32) throw new IllegalArgumentException("Invalid world integrity state");
@@ -359,16 +360,18 @@ public final class CacheLedger extends SavedData {
             ListTag rows = compounds(tag, "caches");
             for (Tag element : rows) {
                 CompoundTag row = (CompoundTag)element;
-                fields(row, sourceSchema == SCHEMA ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids")
+                fields(row, sourceSchema == SCHEMA ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids", CapacityCodec.KEY)
+                        : sourceSchema == 31001 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids")
                         : Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals"));
+                if (sourceSchema == SCHEMA) require(row, CapacityCodec.KEY, Tag.TAG_COMPOUND);
                 require(row, "id", Tag.TAG_INT_ARRAY); require(row, "level", Tag.TAG_INT); require(row, "revision", Tag.TAG_LONG);
                 if (row.contains("owner")) require(row, "owner", Tag.TAG_INT_ARRAY);
                 UUID id = row.getUUID("id"); int level = row.getInt("level"); UUID owner = row.contains("owner") ? row.getUUID("owner") : null;
                 List<Cell<ItemVariantKey>> cells = new ArrayList<>(); var cellRows = compounds(row, "cells");
-                if (cellRows.size() != CacheLevel.of(level).slots()) throw new IllegalArgumentException("Invalid cell count");
+                if (cellRows.size() < 1 || cellRows.size() > CacheCapacity.MAX_SLOTS || !row.contains(CapacityCodec.KEY) && cellRows.size() != CacheLevel.of(level).slots()) throw new IllegalArgumentException("Invalid cell count");
                 for (Tag cellTag : cellRows) {
                     var cell = (CompoundTag)cellTag;
-                    fields(cell, sourceSchema == SCHEMA ? Set.of("filter", "amount", "min", "max", "revision", "item_controls")
+                    fields(cell, sourceSchema >= 31001 ? Set.of("filter", "amount", "min", "max", "revision", "item_controls")
                             : Set.of("filter", "amount", "min", "max", "revision"));
                     require(cell, "amount", Tag.TAG_INT); require(cell, "min", Tag.TAG_INT); require(cell, "max", Tag.TAG_INT); require(cell, "revision", Tag.TAG_LONG);
                     if (cell.contains("filter")) require(cell, "filter", Tag.TAG_STRING);
@@ -387,7 +390,7 @@ public final class CacheLedger extends SavedData {
                             throw new IllegalArgumentException("Legacy cache exceeds current capacity; original data preserved");
                     }
                     CellSettings settings = CellSettings.fromGroups(filter, min, max);
-                    if (sourceSchema == SCHEMA) {
+                    if (sourceSchema >= 31001) {
                         require(cell, "item_controls", Tag.TAG_COMPOUND); var controls = cell.getCompound("item_controls");
                         fields(controls, Set.of("lower", "upper", "batch", "pending_limit"));
                         for (String name : List.of("lower", "upper", "batch", "pending_limit")) require(controls, name, Tag.TAG_INT);
@@ -428,7 +431,7 @@ public final class CacheLedger extends SavedData {
                         residuals.put(ItemVariantKey.decode(seal.variant(), registries), box);
                     }
                 }
-                var state = new CacheState<>(id, level, row.getLong("revision"), cells, orders);
+                var state = CapacityCodec.read(row, id, level, row.getLong("revision"), cells, orders);
                 var fluids = CacheFluids.empty(state);
                 if (row.contains("astra_fluids")) {
                     require(row, "astra_fluids", Tag.TAG_COMPOUND);
@@ -463,7 +466,7 @@ public final class CacheLedger extends SavedData {
             // Schema <=6 persisted a vestigial capacity-grant table; the redesign removed that entitlement flow.
             // Tolerate the field so old worlds still migrate their caches, but treat the grants as obsolete.
             var retirements = new HashMap<UUID, Retirement>(); var receipts = new HashSet<UUID>(); var retiredCaches = new HashSet<UUID>();
-            if (sourceSchema == SCHEMA) {
+            if (sourceSchema >= 31001) {
                 for (Tag element : compounds(tag, "private_retirements")) {
                     var row = (CompoundTag) element; fields(row, Set.of("owner", "cache", "receipt", "completed"));
                     for (String name : List.of("owner", "cache", "receipt")) require(row, name, Tag.TAG_INT_ARRAY);
@@ -492,7 +495,7 @@ public final class CacheLedger extends SavedData {
             ledger.returnAddresses = Map.copyOf(returnAddresses);
             var holds = new HashMap<UUID, ReturnEscrow>();
             if (tag.contains("return_handoffs")) {
-                if (sourceSchema != SCHEMA) throw new IllegalArgumentException("Return escrows in a foreign schema");
+                if (sourceSchema < 31001) throw new IllegalArgumentException("Return escrows in a foreign schema");
                 var pending = compounds(tag, "return_handoffs");
                 if (pending.size() > caches.size()) throw new IllegalArgumentException("Too many return escrows");
                 for (Tag element : pending) {

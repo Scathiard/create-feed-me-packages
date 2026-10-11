@@ -46,6 +46,7 @@ public final class MaidAccess {
         var handle = new CacheHandle(id, maid.getUUID(), stack.get(FmpRegistries.NETWORK.get()));
         var hold = ledger.returnEscrow(id);
         if (hold != null) return unavailable(hold.rejected() ? AccessGate.Status.RETURN_REFUND : AccessGate.Status.RETURN_HELD);
+        dev.scathiard.feedmepackages.service.CachePolicy.synchronize(ledger,handle);
         return new AccessGate.Result(AccessGate.Status.ACTIVE, handle,
                 List.of(new AccessGate.Terminal(context.index(), stack, id, handle.networkId(), false)));
     }

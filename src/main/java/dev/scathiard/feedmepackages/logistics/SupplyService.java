@@ -37,6 +37,7 @@ public final class SupplyService {
         var ledger = CacheLedger.get(player.getServer());
         var before = ledger.find(handle.cacheId()); var state = fluid ? before.fluids().state() : before.state();
         if (slot < 0 || slot >= state.cells().size() || state.cells().get(slot).filter() == null) return 0;
+        if (!state.writable(slot) || !dev.scathiard.feedmepackages.service.CachePolicy.admits(state.cells().get(slot).filter(),player.registryAccess())) return 0;
         net.minecraft.world.item.ItemStack template; String encoded;
         if (fluid) {
             var key = before.fluids().state().cells().get(slot).filter();

@@ -35,7 +35,7 @@ public final class ParcelIntake {
             catch (IllegalArgumentException unsupported) { remainder.set(index, item); anyRemainder = true; continue; }
             if (key.equals(requested)) arrived = Math.addExact(arrived, item.getCount());
             int slot = state.find(key);
-            if (slot >= 0) {
+            if (slot >= 0 && dev.scathiard.feedmepackages.service.CachePolicy.admits(key,registries)) {
                 int accepted = edit.insert(slot, key, item.getCount());
                 item.shrink(accepted); moved = Math.addExact(moved, accepted);
             }

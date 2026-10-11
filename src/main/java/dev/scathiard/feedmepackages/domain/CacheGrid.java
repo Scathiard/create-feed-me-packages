@@ -67,9 +67,11 @@ public final class CacheGrid {
     private final int[] cellOfSlot;
     /** Cell index at a packed coordinate, or -1 when that position carries no cell. */
     private final int[] slotOfCell;
+    private int[] storageSlots;
 
     private CacheGrid(int count, int[] cellOfSlot, int columns, int rows) {
         this.count = count;
+        this.storageSlots = java.util.stream.IntStream.range(0,count).toArray();
         this.cellOfSlot = cellOfSlot;
         this.columns = Math.max(MIN_COLUMNS, columns);
         this.rows = Math.max(1, rows);
@@ -217,6 +219,38 @@ public final class CacheGrid {
                 grown[next++] = packed(column, row);
         return ofCoordinates(grown.length, grown);
     }
+
+    /** Page mapping reused from the reference scroll repair; storage IDs never depend on the visible row. */
+    private static int naturalColumns(int total) {
+        if(total>36)return CacheViewport.COLUMNS;
+        int columns=2;var base=forLevel(5);
+        for(int slot=0;slot<Math.max(0,total);slot++)columns=Math.max(columns,base.column(slot)+1);
+        return columns;
+    }
+    public static int columnsFor(int total,int limit){return Math.min(naturalColumns(total),Math.clamp(limit,2,6));}
+    public static int rowsFor(int total,int limit){
+        int columns=columnsFor(total,limit);
+        if(total>36 || columns<naturalColumns(total))return Math.max(1,Math.ceilDiv(Math.max(0,total),columns));
+        int rows=1;var base=forLevel(5);for(int slot=0;slot<Math.max(0,total);slot++)rows=Math.max(rows,base.row(slot)+1);return rows;
+    }
+    public static CacheGrid window(int total,int requestedFirst,int limit){
+        int columns=columnsFor(total,limit), first=CacheViewport.first(total,requestedFirst,limit)/columns;
+        int rows=Math.min(MAX_ROWS,rowsFor(total,limit)-first);var slots=new ArrayList<Integer>();var coordinates=new ArrayList<Integer>();
+        var base=forLevel(5);
+        for(int slot=0;slot<total;slot++){
+            int row,column;
+            if(columns<naturalColumns(total)){row=slot/columns;column=slot%columns;}
+            else if(slot<36){row=base.row(slot);column=base.column(slot);}
+            else{row=MAX_ROWS+(slot-36)/6;column=(slot-36)%6;}
+            if(row<first || row>=first+rows)continue;
+            slots.add(slot);coordinates.add(packed(column,row-first));
+        }
+        var grid=new CacheGrid(slots.size(),coordinates.stream().mapToInt(Integer::intValue).toArray(),columns,Math.max(1,rows));
+        grid.storageSlots=slots.stream().mapToInt(Integer::intValue).toArray();return grid;
+    }
+    public int storageSlot(int local){require(local);return storageSlots[local];}
+    public int localSlot(int storage){for(int i=0;i<storageSlots.length;i++)if(storageSlots[i]==storage)return i;return -1;}
+    public List<Integer> storageSlots(){return java.util.Arrays.stream(storageSlots).boxed().toList();}
 
     private void require(int slot) {
         if (slot < 0 || slot >= count) throw new IndexOutOfBoundsException("slot " + slot + " of " + count);

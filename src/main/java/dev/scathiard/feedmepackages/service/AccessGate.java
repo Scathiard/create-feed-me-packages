@@ -60,6 +60,7 @@ public final class AccessGate {
         var hold = ledger.returnEscrow(cacheId);
         if (hold != null) return new Result(hold.rejected() ? Status.RETURN_REFUND : Status.RETURN_HELD,
                 new CacheHandle(cacheId, player.getUUID(), network), terminals);
+        CachePolicy.synchronize(ledger, new CacheHandle(cacheId, player.getUUID(), network));
         return new Result(Status.ACTIVE, new CacheHandle(cacheId, player.getUUID(), network),
                 List.of(new Terminal(context.index(), stack, cacheId, network, false)));
     }

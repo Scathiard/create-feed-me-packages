@@ -19,12 +19,14 @@ public final class PanelPackets {
     private static <T extends CustomPacketPayload> CustomPacketPayload.Type<T> type(String path) {
         return new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, path));
     }
-    public record Query(UUID window, int menu, boolean open) implements CustomPacketPayload {
+    public record Query(UUID window, int menu, boolean open, int firstSlot, int columnLimit) implements CustomPacketPayload {
+        public Query(UUID window, int menu, boolean open, int firstSlot) { this(window, menu, open, firstSlot, 6); }
+        public Query(UUID window, int menu, boolean open) { this(window, menu, open, 0); }
         public static final Type<Query> TYPE = PanelPackets.type("panel_query");
         public static final StreamCodec<RegistryFriendlyByteBuf, Query> CODEC = StreamCodec.of((buf, value) -> {
-            buf.writeUUID(value.window); buf.writeVarInt(value.menu); buf.writeBoolean(value.open);
+            buf.writeUUID(value.window); buf.writeVarInt(value.menu); buf.writeBoolean(value.open); buf.writeVarInt(value.firstSlot); buf.writeVarInt(value.columnLimit);
         }, buf -> {
-            bound(buf, 128); var result = new Query(buf.readUUID(), buf.readVarInt(), buf.readBoolean()); end(buf); return result;
+            bound(buf, 128); var result = new Query(buf.readUUID(), buf.readVarInt(), buf.readBoolean(), buf.readVarInt(), buf.readVarInt()); end(buf); return result;
         });
         @Override public Type<Query> type() { return TYPE; }
     }
@@ -62,8 +64,13 @@ public final class PanelPackets {
         @Override public Type<SettingsBatch> type(){return TYPE;}
     }
     public record CellView(String template, int amount, int minimum, int maximum, int pending, int reserved, int stackSize,
-                           boolean residual, int returnState, int batch, int pendingLimit, long filterRevision, dev.scathiard.feedmepackages.domain.LogisticsSignal signal, boolean fluid) {
+                           boolean residual, int returnState, int batch, int pendingLimit, long filterRevision, dev.scathiard.feedmepackages.domain.LogisticsSignal signal, boolean fluid, boolean writable) {
         public CellView { Objects.requireNonNull(signal); }
+        public CellView(String template,int amount,int minimum,int maximum,int pending,int reserved,int stackSize,
+                boolean residual,int returnState,int batch,int pendingLimit,long filterRevision,
+                dev.scathiard.feedmepackages.domain.LogisticsSignal signal,boolean fluid){
+            this(template,amount,minimum,maximum,pending,reserved,stackSize,residual,returnState,batch,pendingLimit,filterRevision,signal,fluid,true);
+        }
         public CellView(String template, int amount, int minimum, int maximum, int pending, int reserved, int stackSize,
                         boolean residual, int returnState, int batch, int pendingLimit, long filterRevision,
                         dev.scathiard.feedmepackages.domain.LogisticsSignal signal) {
@@ -101,16 +108,18 @@ public final class PanelPackets {
             Objects.requireNonNull(template);
             if (amount < 0 || amount > 8000 || template.getBytes(StandardCharsets.UTF_8).length > 1024
                     || (amount == 0 ? slot != -1 || !template.isEmpty() || sequence != 0
-                    : slot < 0 || slot >= 36 || template.isEmpty() || sequence < 1)) throw new IllegalArgumentException("Invalid fluid preview");
+                    : slot < 0 || slot >= dev.scathiard.feedmepackages.domain.CacheCapacity.MAX_SLOTS || template.isEmpty() || sequence < 1)) throw new IllegalArgumentException("Invalid fluid preview");
         }
     }
     public record Snapshot(UUID window, UUID session, long serial, int acknowledged, CacheActions.Result result,
                            AccessGate.Status status, long revision, int level, int capacity, boolean personal,
                            boolean cacheFirst, boolean bound, String address, String returnAddress, String residualItem,
-                           List<CellView> cells, List<TerminalView> terminals, FluidPreviewView fluidPreview) implements CustomPacketPayload {
+                           List<CellView> cells, List<TerminalView> terminals, FluidPreviewView fluidPreview, int firstSlot, int totalSlots, int columnLimit) implements CustomPacketPayload {
         public Snapshot {
             cells = List.copyOf(cells); terminals = List.copyOf(terminals); Objects.requireNonNull(fluidPreview);
-            if (cells.size() > 36 || terminals.size() > MAX_TERMINALS) throw new IllegalArgumentException("Oversized panel model");
+            if (cells.size() > 36 || terminals.size() > MAX_TERMINALS || totalSlots<0 || totalSlots>dev.scathiard.feedmepackages.domain.CacheCapacity.MAX_SLOTS
+                    || firstSlot<0 || columnLimit<2 || columnLimit>6 || firstSlot!=dev.scathiard.feedmepackages.domain.CacheViewport.first(totalSlots,firstSlot,columnLimit)
+                    || cells.size()!=dev.scathiard.feedmepackages.domain.CacheGrid.window(totalSlots,firstSlot,columnLimit).count()) throw new IllegalArgumentException("Oversized panel model");
         }
         public Snapshot(UUID window, UUID session, long serial, int acknowledged, CacheActions.Result result,
                         AccessGate.Status status, long revision, int level, int capacity, boolean personal,
@@ -119,6 +128,12 @@ public final class PanelPackets {
             this(window, session, serial, acknowledged, result, status, revision, level, capacity, personal, cacheFirst, bound,
                     address, returnAddress, residualItem, cells, terminals, FluidPreviewView.NONE);
         }
+        public Snapshot(UUID window, UUID session, long serial, int acknowledged, CacheActions.Result result,
+                AccessGate.Status status,long revision,int level,int capacity,boolean personal,boolean cacheFirst,boolean bound,
+                String address,String returnAddress,String residualItem,List<CellView> cells,List<TerminalView> terminals,FluidPreviewView fluidPreview){
+            this(window,session,serial,acknowledged,result,status,revision,level,capacity,personal,cacheFirst,bound,address,returnAddress,residualItem,cells,terminals,fluidPreview,0,cells.size(),6);
+        }
+        public dev.scathiard.feedmepackages.domain.CacheGrid grid(){return dev.scathiard.feedmepackages.domain.CacheGrid.window(totalSlots,firstSlot,columnLimit);}
         /** Uniform group capacity: same for all items at this level. */
         public int groupCapacity() { return capacity / 64; }
         public static final Type<Snapshot> TYPE = PanelPackets.type("panel_snapshot");
@@ -132,11 +147,12 @@ public final class PanelPackets {
         text(b, s.address, 128); text(b, s.returnAddress, 128); text(b, s.residualItem, 256); b.writeVarInt(s.cells.size());
         for (var c : s.cells) {
             text(b, c.template, 1024); b.writeVarInt(c.amount); b.writeVarInt(c.minimum); b.writeVarInt(c.maximum); b.writeVarInt(c.pending); b.writeVarInt(c.reserved); b.writeVarInt(c.stackSize); b.writeBoolean(c.residual); b.writeVarInt(c.returnState);
-            b.writeVarInt(c.batch); b.writeVarInt(c.pendingLimit); b.writeLong(c.filterRevision); b.writeVarLong(c.signal.sequence()); b.writeEnum(c.signal.kind()); b.writeBoolean(c.fluid);
+            b.writeVarInt(c.batch); b.writeVarInt(c.pendingLimit); b.writeLong(c.filterRevision); b.writeVarLong(c.signal.sequence()); b.writeEnum(c.signal.kind()); b.writeBoolean(c.fluid); b.writeBoolean(c.writable);
         }
         b.writeVarInt(s.terminals.size());
         for (var t : s.terminals) { b.writeVarInt(t.slot); b.writeBoolean(t.personal); b.writeBoolean(t.disabled); text(b, t.network, 36); }
         b.writeVarInt(s.fluidPreview.slot); text(b, s.fluidPreview.template, 1024); b.writeVarInt(s.fluidPreview.amount); b.writeVarInt(s.fluidPreview.sequence);
+        b.writeVarInt(s.firstSlot);b.writeVarInt(s.totalSlots);b.writeVarInt(s.columnLimit);
         written(b, start, S2C_LIMIT);
     }
     private static Snapshot decodeSnapshot(RegistryFriendlyByteBuf b) {
@@ -145,11 +161,12 @@ public final class PanelPackets {
         var status = b.readEnum(AccessGate.Status.class); long revision = b.readLong();
         int level = b.readVarInt(), capacity = b.readVarInt(); boolean personal = b.readBoolean(), cacheFirst = b.readBoolean(), bound = b.readBoolean();
         String address = text(b, 128), returnAddress = text(b, 128), residual = text(b, 256); int size = size(b, 36); List<CellView> cells = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) cells.add(new CellView(text(b, 1024), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readBoolean(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readLong(), new dev.scathiard.feedmepackages.domain.LogisticsSignal(b.readVarLong(), b.readEnum(dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.class)), b.readBoolean()));
+        for (int i = 0; i < size; i++) cells.add(new CellView(text(b, 1024), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readBoolean(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readLong(), new dev.scathiard.feedmepackages.domain.LogisticsSignal(b.readVarLong(), b.readEnum(dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.class)), b.readBoolean(), b.readBoolean()));
         size = size(b, MAX_TERMINALS); List<TerminalView> terminals = new ArrayList<>(size);
         for (int i = 0; i < size; i++) terminals.add(new TerminalView(b.readVarInt(), b.readBoolean(), b.readBoolean(), text(b, 36)));
         var preview = new FluidPreviewView(b.readVarInt(), text(b, 1024), b.readVarInt(), b.readVarInt());
-        end(b); return new Snapshot(window, session, serial, ack, result, status, revision, level, capacity, personal, cacheFirst, bound, address, returnAddress, residual, cells, terminals, preview);
+        int firstSlot=b.readVarInt(),totalSlots=b.readVarInt(),columns=b.readVarInt();
+        end(b); return new Snapshot(window, session, serial, ack, result, status, revision, level, capacity, personal, cacheFirst, bound, address, returnAddress, residual, cells, terminals, preview,firstSlot,totalSlots,columns);
     }
     static int size(RegistryFriendlyByteBuf b, int max) {
         int size = b.readVarInt(); if (size < 0 || size > max) throw new DecoderException("Panel list limit exceeded"); return size;

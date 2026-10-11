@@ -22,7 +22,7 @@ public final class FluidParcelIntake {
         if (slot < 0) throw new IllegalArgumentException("No matching fluid filter");
         var edit = state.edit();
         int allowed = contents.getAmount();
-        int accepted = edit.insert(slot, requested, allowed);
+        int accepted = dev.scathiard.feedmepackages.service.CachePolicy.admits(requested,registries) ? edit.insert(slot, requested, allowed) : 0;
         var remaining = FluidPackages.remainder(box, accepted);
         if (!arrived) edit.arrived(requestId, contents.getAmount());
         return new Plan(edit.finish(), remaining, accepted);

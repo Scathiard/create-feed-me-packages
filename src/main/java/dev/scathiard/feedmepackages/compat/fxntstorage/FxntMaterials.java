@@ -208,8 +208,7 @@ public final class FxntMaterials {
                 else if (target.getItem().isEmpty() && ledger.find(handle.cacheId()) == published) {
                     view.restore();
                     var state = before.state();
-                    var restored = new CacheState<>(state.id(), state.level(), published.state().revision() + 1, state.cells(),
-                            state.orders());
+                    var restored = state.withRevision(published.state().revision() + 1);
                     ledger.replace(handle, published.state().revision(), before.withState(restored));
                 } else {
                     uncertainDestination = true;
