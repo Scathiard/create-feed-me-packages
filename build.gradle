@@ -400,6 +400,7 @@ tasks.named('test', Test).configure {
 }
 
 tasks.named('processGameTestResources', ProcessResources).configure {
+    from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_maid_lifecycle/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_config_startup/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') {
         into 'data/fmp_phantom_compat/structure'
@@ -427,6 +428,18 @@ if (project.hasProperty('fmpPackaged') || project.hasProperty('fmpPhantomPublish
             if (paths.any { sourceOutputs.contains(it) } || artifacts.size() != 1) throw new GradleException('Packaged run contains development outputs or lacks its single main JAR')
             println "FMP_PACKAGED_SOURCE jar=${artifacts.first()} developmentOutputs=0"
         }
+    }
+}
+
+// Negative loader smoke only: remove the required runtime artifact, not its compile API.
+if (project.hasProperty('fmpProbeMissing')) {
+    def missing = project.property('fmpProbeMissing').toString()
+    tasks.withType(net.neoforged.moddevgradle.internal.RunGameTask).configureEach {
+        def removed = { File f -> missing == 'create' ? f.name.startsWith('create-1.21.1-') : f.name.startsWith('curios-neoforge-') }
+        def originalRuntime = project.files(new ArrayList<>(classpathProvider.from))
+        classpathProvider.setFrom(originalRuntime.filter { !removed(it) })
+        setClasspath(project.files(classpath.files.findAll { !removed(it) }))
+        doFirst { if ((classpathProvider.files + classpath.files).any { removed(it) }) throw new GradleException('Missing-dependency probe failed to remove its runtime JAR') }
     }
 }
 

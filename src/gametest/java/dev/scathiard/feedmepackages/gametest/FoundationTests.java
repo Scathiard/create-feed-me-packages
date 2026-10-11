@@ -484,7 +484,7 @@ public final class FoundationTests {
             if(fault==1)row.getCompound("capacity_rules").getList("retained",Tag.TAG_COMPOUND).getCompound(0).putInt("ceiling",128);
             if(fault==2)row.getCompound("capacity_rules").putInt("slots",129);
             var rejected=CacheLedger.load(invalid,registries);
-            h.assertTrue(!rejected.problem().isEmpty() && rejected.save(new CompoundTag(),registries).equals(invalid),"Unexplained capacity accepted or raw invalid data discarded: "+fault);
+            h.assertTrue(rejected.problem().contains(id.toString()) && rejected.save(new CompoundTag(),registries).equals(invalid),"Unexplained capacity accepted, unlocatable, or raw invalid data discarded: "+fault);
         }
         h.succeed();
     }
@@ -709,7 +709,14 @@ public final class FoundationTests {
             helper.assertTrue(server.getPlayerList().load(player).isPresent(), "Native player-file load failed");
             var access = AccessGate.resolve(player); UUID expectedId = probe.data.getUUID("cache_" + index);
             helper.assertTrue(access.active() && access.handle().cacheId().equals(expectedId), "Curios cache identity did not survive native player-file load");
-            helper.assertTrue(row(ledger, expectedId, registries).equals(probe.data.getCompound("record_" + index)), "World cache state changed across JVM");
+            var expected = probe.data.getCompound("record_" + index).copy();
+            if (probe.data.getInt("schema") == 31001 && !expected.contains("capacity_rules")) {
+                // Approved additive schema change only. All original fields still compare exactly.
+                var capacity = dev.scathiard.feedmepackages.domain.CacheCapacity.defaults(expected.getInt("level"));
+                var added = new CompoundTag(); added.putInt("version",1); added.putInt("slots",capacity.slots()); added.putInt("groups",capacity.groups());
+                added.put("retained",new ListTag()); added.put("requested",new ListTag()); expected.put("capacity_rules",added);
+            }
+            helper.assertTrue(row(ledger, expectedId, registries).equals(expected), "World cache state changed across JVM outside approved additive capacity fields");
             helper.assertTrue(!ledger.cacheFirst(player.getUUID()), "Prior saved preference reactivated after JVM restart");
             helper.assertTrue(player.getInventory().getItem(12).is(Items.DIAMOND) && player.getInventory().getItem(12).getCount() == 13,
                     "Real vanilla player inventory was not restored");

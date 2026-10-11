@@ -347,6 +347,7 @@ public final class CacheLedger extends SavedData {
 
     public static CacheLedger load(CompoundTag tag, HolderLookup.Provider registries) {
         var ledger = new CacheLedger();
+        String context = "ledger header";
         try {
             fields(tag, Set.of("schema", "integrity_key", "caches", "preferences", "redirects", "grants", "returnAddresses", "private_retirements", "return_handoffs"));
             require(tag, "schema", Tag.TAG_INT);
@@ -358,8 +359,10 @@ public final class CacheLedger extends SavedData {
             ledger.integrityKey = tag.getByteArray("integrity_key").clone();
             var caches = new HashMap<UUID, CacheRecord>(); var personal = new HashMap<UUID, UUID>();
             ListTag rows = compounds(tag, "caches");
+            int cacheIndex = 0;
             for (Tag element : rows) {
                 CompoundTag row = (CompoundTag)element;
+                context = "cache row " + cacheIndex++ + (row.hasUUID("id") ? " (" + row.getUUID("id") + ")" : " (invalid identity)");
                 fields(row, sourceSchema == SCHEMA ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids", CapacityCodec.KEY)
                         : sourceSchema == 31001 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids")
                         : Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals"));
@@ -440,6 +443,7 @@ public final class CacheLedger extends SavedData {
                 if (caches.put(id, new CacheRecord(state, owner, residuals, fluids)) != null) throw new IllegalArgumentException("Duplicate cache identity");
                 if (owner != null && personal.put(owner, id) != null) throw new IllegalArgumentException("Duplicate personal cache");
             }
+            context = "ledger metadata";
             var preferences = new HashMap<UUID, Boolean>();
             for (Tag element : compounds(tag, "preferences")) {
                 var row = (CompoundTag)element;
@@ -506,9 +510,9 @@ public final class CacheLedger extends SavedData {
             }
             ledger.returnEscrows = Map.copyOf(holds);
         } catch (RuntimeException failure) {
-            ledger.problem = "Cache data rejected: " + failure.getClass().getSimpleName();
+            ledger.problem = "Cache data rejected at " + context + ": " + failure.getClass().getSimpleName();
             ledger.preserved = tag.copy();
-            FeedMePackages.LOGGER.error("FMP cache ledger locked; original data retained", failure);
+            FeedMePackages.LOGGER.error("FMP cache ledger locked at {}; original data retained", context, failure);
         }
         return ledger;
     }
