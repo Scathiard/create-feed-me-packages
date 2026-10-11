@@ -15,7 +15,7 @@ import java.util.*;
 /** Animation/recipe hints only. These stacks never enter a player's real inventory. */
 public final class ClientMaterials {
     private ClientMaterials() {}
-    private static UUID generation;
+    private static UUID generation, cache;
     private static long serial;
     private static boolean active, first;
     private static final Set<String> NOTED = new HashSet<>();
@@ -24,12 +24,17 @@ public final class ClientMaterials {
     private static List<Integer> ownReservations = List.of(), reservedGrid = List.of();
     private static int menu;
     public static void register() {
+        dev.scathiard.feedmepackages.compat.effortless.EffortlessMaterials.clientSources(() -> ClientCompatibility.effortlessSourcesAvailable() ? stacks() : List.of());
+        dev.scathiard.feedmepackages.compat.gadgets.GadgetMaterials.clientSources(() -> ClientCompatibility.gadgetsSourcesAvailable() ? stacks() : List.of());
+        dev.scathiard.feedmepackages.compat.tacz.TaczMaterials.clientSources(() -> ClientCompatibility.taczSourcesAvailable() ? stacks() : List.of());
+
         MaterialHints.receiveOnClient(ClientMaterials::accept); AmmoService.clientQuery(ClientMaterials::ammo);
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> clear());
     }
-    public static void clear() { generation = null; serial = 0; active = false; first = false; prototypes = List.of(); counts = List.of(); ownReservations = List.of(); reservedGrid = List.of(); }
+    public static void clear() { generation = null; cache = null; serial = 0; active = false; first = false; prototypes = List.of(); counts = List.of(); ownReservations = List.of(); reservedGrid = List.of(); }
     public static boolean active() { return active && Minecraft.getInstance().player != null && !Minecraft.getInstance().player.isSpectator(); }
     public static boolean cacheFirst() { return false; }
+    public static UUID cacheId() { return cache; }
     public static long version() { return serial; }
     public static List<ItemStack> stacks() {
         return stacks(false);
@@ -76,6 +81,7 @@ public final class ClientMaterials {
                 nextCounts.set(i, 0); nextOwn.set(i, 0);
             }
             if (nameless > 0) skip("namelessCellWithStock", nameless + " hinted cell(s) carry stock but no name this client can decode; they stay out of the material view");
+            cache = packet.active() ? packet.cache() : null;
             counts = nextCounts; first = false; active = packet.active(); serial = packet.serial();
             ownReservations = nextOwn; reservedGrid = packet.reservedGrid(); menu = packet.menu();
         } catch (IllegalArgumentException invalid) { clear(); FeedMePackages.LOGGER.warn("Rejected invalid material hints: {}", invalid.getMessage()); }

@@ -31,6 +31,10 @@ public final class FeedMePackages {
 
     public FeedMePackages(IEventBus modBus, ModContainer modContainer) {
         FmpRegistries.register(modBus);
+        FmpConfig.register(modContainer, modBus);
+        dev.scathiard.feedmepackages.item.PocketPalletItem.hooks();
+        modBus.addListener(dev.scathiard.feedmepackages.network.PalletNetwork::register);
+        modBus.addListener(dev.scathiard.feedmepackages.network.CompatibilityStatus::register);
         modBus.addListener(this::setup);
         modBus.addListener(PanelNetwork::register);
         modBus.addListener(MaterialHints::register);
@@ -39,7 +43,7 @@ public final class FeedMePackages {
             if (event.getEntity() instanceof ServerPlayer player) PanelNetwork.forget(player);
         });
         NeoForge.EVENT_BUS.addListener((PlayerEvent.PlayerLoggedOutEvent event) -> {
-            if (event.getEntity() instanceof ServerPlayer player) { CraftingReservations.forget(player); PanelNetwork.forget(player); MaterialHints.forget(player); ReturnService.forget(player); }
+            if (event.getEntity() instanceof ServerPlayer player) { CraftingReservations.forget(player); PanelNetwork.forget(player); MaterialHints.forget(player); ReturnService.forget(player); dev.scathiard.feedmepackages.network.CompatibilityStatus.forget(player); }
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent event) -> ReturnService.clearTransient());
         NeoForge.EVENT_BUS.addListener((PlayerEvent.PlayerChangeGameModeEvent event) -> {
@@ -53,6 +57,7 @@ public final class FeedMePackages {
 
     private void setup(FMLCommonSetupEvent event) {
         event.enqueueWork(() -> {
+            dev.scathiard.feedmepackages.compat.wand.WandMaterials.initialize();
             ICurioItem behavior = new ICurioItem() {
                 @Override public boolean canEquip(SlotContext context, ItemStack stack) {
                     return dev.scathiard.feedmepackages.service.AccessGate.canEquip(context, stack);
@@ -70,6 +75,7 @@ public final class FeedMePackages {
             SupplyService.tick(player);
             ReturnService.tick(player);
             MaterialHints.tick(player);
+            dev.scathiard.feedmepackages.network.CompatibilityStatus.tick(player);
         }
     }
 }

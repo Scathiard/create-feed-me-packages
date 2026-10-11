@@ -23,8 +23,13 @@ public final class MaterialHints {
     private MaterialHints() {}
     public record Message(UUID generation, long serial, boolean full, boolean active, boolean cacheFirst,
                           List<String> templates, List<Integer> amounts, int menu, List<Integer> ownReservations,
-                          List<Integer> reservedGrid) implements CustomPacketPayload {
+                          List<Integer> reservedGrid, UUID cache) implements CustomPacketPayload {
+        public Message(UUID generation, long serial, boolean full, boolean active, boolean cacheFirst,
+                       List<String> templates, List<Integer> amounts, int menu, List<Integer> ownReservations, List<Integer> reservedGrid) {
+            this(generation, serial, full, active, cacheFirst, templates, amounts, menu, ownReservations, reservedGrid, new UUID(0, 0));
+        }
         public Message {
+            Objects.requireNonNull(cache);
             templates = List.copyOf(templates); amounts = List.copyOf(amounts);
             ownReservations = List.copyOf(ownReservations); reservedGrid = List.copyOf(reservedGrid);
             if (ownReservations.size() != amounts.size() || reservedGrid.size() > 9 || menu < 0
@@ -36,20 +41,20 @@ public final class MaterialHints {
         }
         public static final Type<Message> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "material_hints"));
         public static final StreamCodec<RegistryFriendlyByteBuf, Message> CODEC = StreamCodec.of((b, m) -> {
-            int start = b.writerIndex(); b.writeUUID(m.generation); b.writeLong(m.serial); b.writeBoolean(m.full); b.writeBoolean(m.active); b.writeBoolean(m.cacheFirst);
+            int start = b.writerIndex(); b.writeUUID(m.generation); b.writeUUID(m.cache); b.writeLong(m.serial); b.writeBoolean(m.full); b.writeBoolean(m.active); b.writeBoolean(m.cacheFirst);
             b.writeVarInt(m.amounts.size());
             for (int i = 0; i < m.amounts.size(); i++) { if (m.full) PanelPackets.text(b, m.templates.get(i), 1024); b.writeVarInt(m.amounts.get(i)); }
             b.writeVarInt(m.menu); for (int held : m.ownReservations) b.writeVarInt(held);
             b.writeVarInt(m.reservedGrid.size()); for (int held : m.reservedGrid) b.writeVarInt(held);
             PanelPackets.written(b, start, 40960);
         }, b -> {
-            PanelPackets.bound(b, 40960); var generation = b.readUUID(); long serial = b.readLong();
+            PanelPackets.bound(b, 40960); var generation = b.readUUID(); var cache = b.readUUID(); long serial = b.readLong();
             boolean full = b.readBoolean(), active = b.readBoolean(), first = b.readBoolean(); int size = PanelPackets.size(b, 36);
             var templates = new ArrayList<String>(); var amounts = new ArrayList<Integer>();
             for (int i = 0; i < size; i++) { if (full) templates.add(PanelPackets.text(b, 1024)); amounts.add(b.readVarInt()); }
             int menu = b.readVarInt(); var own = new ArrayList<Integer>(); for (int i = 0; i < size; i++) own.add(b.readVarInt());
             int gridSize = PanelPackets.size(b, 9); var grid = new ArrayList<Integer>(); for (int i = 0; i < gridSize; i++) grid.add(b.readVarInt());
-            PanelPackets.end(b); return new Message(generation, serial, full, active, first, templates, amounts, menu, own, grid);
+            PanelPackets.end(b); return new Message(generation, serial, full, active, first, templates, amounts, menu, own, grid, cache);
         });
         @Override public Type<Message> type() { return TYPE; }
     }
@@ -72,7 +77,7 @@ public final class MaterialHints {
     private static Consumer<Message> clientReceiver = packet -> {};
     public static void receiveOnClient(Consumer<Message> consumer) { clientReceiver = Objects.requireNonNull(consumer); }
     public static void register(RegisterPayloadHandlersEvent event) {
-        event.registrar("2").playToClient(Message.TYPE, Message.CODEC, (packet, context) -> clientReceiver.accept(packet));
+        event.registrar("converged-hints-3").playToClient(Message.TYPE, Message.CODEC, (packet, context) -> clientReceiver.accept(packet));
     }
     public static void forget(ServerPlayer player) { LAST.remove(player); }
     public static void tick(ServerPlayer player) {
@@ -141,7 +146,8 @@ public final class MaterialHints {
         boolean full = last == null || !Objects.equals(last.handle, handle) || !last.message.templates.equals(templates) || !active;
         UUID generation = full ? UUID.randomUUID() : last.message.generation;
         long serial = last == null ? 1 : Math.incrementExact(last.message.serial);
-        var stored = new Message(generation, serial, true, active, first, templates, amounts, menu, own, grid); LAST.put(player, new Sent(handle, stored));
-        return full ? stored : new Message(generation, serial, false, active, first, List.of(), amounts, menu, own, grid);
+        var cache = handle == null ? new UUID(0, 0) : handle.cacheId();
+        var stored = new Message(generation, serial, true, active, first, templates, amounts, menu, own, grid, cache); LAST.put(player, new Sent(handle, stored));
+        return full ? stored : new Message(generation, serial, false, active, first, List.of(), amounts, menu, own, grid, cache);
     }
 }

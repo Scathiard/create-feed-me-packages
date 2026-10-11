@@ -7,6 +7,25 @@ import java.util.HashSet;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PanelLayoutTest {
+    @Test void palletViewsKeepEveryTargetReachableAtSeveralGuiSizes() {
+        for (boolean spiral : new boolean[]{false, true}) for (int count : new int[]{0, 1, 40, 80, 4096})
+            for (int[] size : new int[][]{{320,240},{427,240},{854,480},{1920,1080}}) {
+                java.util.Set<Integer> reached = new java.util.HashSet<>(); int first = 0;
+                while (true) {
+                    var view = dev.scathiard.feedmepackages.domain.PalletLayout.view(spiral,count,first,size[0],size[1]);
+                    for (var tile : view.tiles()) {
+                        assertTrue(tile.x() >= 0 && tile.x() + 24 <= size[0] && tile.y() >= 50 && tile.y() + 24 <= size[1] - 26);
+                        assertTrue(tile.contains(tile.x()+12,tile.y()+12)); reached.add(tile.index());
+                        for (var other : view.tiles()) if (tile != other)
+                            assertFalse(tile.x() < other.x()+24 && tile.x()+24 > other.x() && tile.y() < other.y()+24 && tile.y()+24 > other.y());
+                    }
+                    if (view.first() == view.maximum()) break;
+                    first = Math.min(view.maximum(),view.first()+view.step());
+                }
+                assertEquals(count,reached.size());
+            }
+    }
+
     @Test void scrollingChangesExactItemsAndStopsAtNineStacksBeforeUnlimited() {
         for (int stack : new int[]{64,16,1}) {
             int max=9*stack;
@@ -472,10 +491,10 @@ class PanelLayoutTest {
     }
 
     /**
-     * Exactly the three sheets the user drew ship in the mod: the whole texture folder is enumerated, so a leftover
+     * The three user-drawn button sheets and each implemented feature sheet are enumerated, so a leftover
      * duplicate (the intermediate {@code button_transfer.png}) or any filler sheet fails the build.
      */
-    @Test void theModShipsExactlyTheThreeButtonSheets() throws Exception {
+    @Test void shippedGuiSheetsMatchTheCurrentFeatures() throws Exception {
         var sheet = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/button.png");
         assertNotNull(sheet, "the transfer sheet is missing");
         java.nio.file.Path gui;
@@ -489,8 +508,8 @@ class PanelLayoutTest {
                 .filter(name -> name.endsWith(".png"))
                 .sorted()
                 .toList();
-        assertEquals(List.of("button.png", "button_fold.png", "button_unfold.png", "panel.png", "slot_source.png"),
-                shipped, "the texture folder must hold exactly the three button sheets plus panel and slot art");
+        assertEquals(List.of("button.png", "button_fold.png", "button_unfold.png", "pallet_slots.png", "panel.png", "slot_source.png"),
+                shipped, "the texture folder must hold the three buttons, pallet slots, panel and slot art");
     }
     /**
      * The three button tooltips are capped at FOUR Chinese characters (user: "按钮说明删减到四个字"), which is what

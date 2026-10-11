@@ -10,10 +10,12 @@ version = mod_version
 def referenceRoot = file('../../../reference-build-safe')
 def referenceOutput = new File(referenceRoot, 'v0.3.0-converged')
 layout.buildDirectory = new File(referenceOutput, 'build-output')
+def dependencyInput = new File(referenceRoot, 'v0.3.0-astra')
 def runProfile = "neo${project.neo_version}" + (project.hasProperty('withCouriers') ? '-paper' : '') +
         (project.hasProperty('withMobile') ? '-mobile' : '') +
         (project.hasProperty('withPhantom') ? '-phantom102' : '') +
         (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-converged1'
+['withTacz','withWand','withGadgets','withEffortless'].each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
 if (project.hasProperty('fmpPhantomReview')) {
     if (!project.hasProperty('withPhantom')) throw new GradleException('Phantom review requires the locked official transport JAR')
     runProfile += '-phantom-review'
@@ -94,6 +96,26 @@ dependencies {
         localRuntime files(artifact)
     }
 
+    if (project.hasProperty('withTacz')) {
+        def tacz = new File(dependencyInput, 'dependencies/artifacts/tacz/1.1.8-hotfix-r6/tacz-neoforge-1.21.1-1.1.8-hotfix-r6.jar')
+        if (!tacz.isFile()) throw new GradleException('Missing pinned, isolated TaCZ 1.1.8-hotfix-r6 test artifact')
+        localRuntime files(tacz)
+    }
+    if (project.hasProperty('withWand')) {
+        def wand = new File(dependencyInput, 'dependencies/artifacts/constructionwand/2.16.12/constructionwand-kots-1.21.1-2.16.12.jar')
+        if (!wand.isFile()) throw new GradleException('Missing pinned, isolated Construction Wand KOTS 2.16.12 test artifact')
+        localRuntime files(wand)
+    }
+    if (project.hasProperty('withGadgets')) {
+        def gadgets = new File(dependencyInput, 'dependencies/artifacts/buildinggadgets2/1.3.9/buildinggadgets2-1.3.9.jar')
+        if (!gadgets.isFile()) throw new GradleException('Missing pinned, isolated Building Gadgets 2 1.3.9 test artifact')
+        localRuntime files(gadgets)
+    }
+    if (project.hasProperty('withEffortless')) {
+        def effortless = new File(dependencyInput, "dependencies/artifacts/effortlessbuilding/4.2/effortlessbuilding-4.2+1.21.1.jar")
+        if (!effortless.isFile()) throw new GradleException('Missing pinned, isolated Effortless Building test artifact')
+        localRuntime files(effortless)
+    }
     compileOnly "mezz.jei:jei-1.21.1-common-api:${jei_version}"
     compileOnly "mezz.jei:jei-1.21.1-neoforge-api:${jei_version}"
     if (project.hasProperty('withJei')) {

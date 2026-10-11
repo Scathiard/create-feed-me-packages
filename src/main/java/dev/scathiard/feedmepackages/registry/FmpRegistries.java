@@ -32,6 +32,7 @@ public final class FmpRegistries {
     public static final DeferredItem<PendantItem> PENDANT = ITEMS.register("supply_chain_pendant", () -> new PendantItem(new Item.Properties().stacksTo(1)));
     // Legacy decoder only: no Curios behavior, personal access, crafting or creative entry.
     public static final DeferredItem<Item> PERSONAL_PENDANT = ITEMS.register("personal_supply_chain_pendant", () -> new Item(new Item.Properties().stacksTo(1)));
+    public static final DeferredItem<dev.scathiard.feedmepackages.item.PocketPalletItem> POCKET_PALLET = ITEMS.register("pocket_pallet", () -> new dev.scathiard.feedmepackages.item.PocketPalletItem(new Item.Properties()));
     public static final DeferredItem<Item> ASSEMBLY_TEMPLATE = ITEMS.register("assembly_template", () -> new Item(new Item.Properties().stacksTo(1)));
     public static final List<DeferredItem<SupplyLinkItem>> UPGRADE_LINKS = IntStream.rangeClosed(2, 5).mapToObj(level ->
             ITEMS.register("upgrade_link_" + level, () -> new SupplyLinkItem(new Item.Properties(), level))).toList();
@@ -55,7 +56,7 @@ public final class FmpRegistries {
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB = TABS.register("supplies", () -> CreativeModeTab.builder()
             .title(Component.translatable("itemGroup.create_feed_me_packages"))
             .icon(() -> PENDANT.toStack()).displayItems((parameters, output) -> {
-                output.accept(PENDANT);
+                output.accept(PENDANT); output.accept(POCKET_PALLET);
                 output.accept(ASSEMBLY_TEMPLATE); UPGRADE_LINKS.forEach(output::accept);
                 LINK_FRAMES.forEach(output::accept); INCOMPLETE_LINKS.forEach(output::accept);
             }).build());

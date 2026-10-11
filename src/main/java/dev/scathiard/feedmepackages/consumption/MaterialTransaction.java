@@ -132,16 +132,27 @@ public final class MaterialTransaction {
         if (!valid()) return false;
         var next = edit.finish();
         if (!next.equals(original.state())) ledger.replace(handle, revision(), original.withState(next));
-        for (int i = 0; i < 36; i++) player.getInventory().items.set(i, inventory.get(i).copy());
+        publishInventoryChanges(player, inventory);
         committed = true; player.getInventory().setChanged(); return true;
     }
     boolean commitPreparation(net.minecraft.world.inventory.AbstractContainerMenu menu, List<ItemStack> display) {
         if (!preparation || !valid()) return false;
-        for (int i = 0; i < 36; i++) player.getInventory().items.set(i, preparationInventory.get(i).copy());
+        publishInventoryChanges(player, preparationInventory);
         CraftingReservations.install(player, menu, handle, allocations, display);
         committed = true; player.getInventory().setChanged(); return true;
     }
     private void ensurePlanning() { if (committed) throw new IllegalStateException("Material plan already committed"); }
+    /** Publish an already validated, synchronous simulation without restacking unrelated/native objects. */
+    static void publishInventoryChanges(ServerPlayer player, List<ItemStack> after) {
+        var live = player.getInventory().items;
+        if (after.size() != 36 || live.size() != 36) throw new IllegalArgumentException("Expected ordinary player inventory");
+        for (int i = 0; i < 36; i++) {
+            var current = live.get(i); var next = after.get(i);
+            if (ItemStack.matches(current, next)) continue;
+            if (!current.isEmpty() && !next.isEmpty() && ItemStack.isSameItemSameComponents(current, next)) current.setCount(next.getCount());
+            else live.set(i, next.isEmpty() ? ItemStack.EMPTY : next.copy());
+        }
+    }
     public static List<ItemStack> copyInventory(ServerPlayer player) { return copies(player.getInventory().items); }
     public static List<ItemStack> copies(List<ItemStack> stacks) {
         var result = new ArrayList<ItemStack>(stacks.size()); for (var stack : stacks) result.add(stack.copy()); return result;

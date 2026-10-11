@@ -26,19 +26,22 @@ public final class CraftingReservations {
     private static final class Session {
         final WeakReference<AbstractContainerMenu> menu;
         final CacheHandle handle;
+        final net.minecraft.world.item.crafting.RecipeManager recipes;
         List<Source> sources;
         List<ItemStack> display;
         boolean materialized;
-        Session(AbstractContainerMenu menu, CacheHandle handle, List<Source> sources, List<ItemStack> display) {
+        boolean rearranging;
+        Session(ServerPlayer player, AbstractContainerMenu menu, CacheHandle handle, List<Source> sources, List<ItemStack> display) {
             this.menu = new WeakReference<>(menu); this.handle = handle;
+            this.recipes = player.getServer().getRecipeManager();
             this.sources = new ArrayList<>(sources); this.display = MaterialTransaction.copies(display);
         }
     }
     private static final Map<ServerPlayer, Session> SESSIONS = new WeakHashMap<>();
     private static long epoch;
-    public static long epoch() { return epoch + dev.scathiard.feedmepackages.interaction.CursorReservations.epoch(); }
+    public static long epoch() { return epoch + dev.scathiard.feedmepackages.interaction.CursorReservations.epoch() + WorldPlacement.epoch(); }
     static void install(ServerPlayer player, AbstractContainerMenu menu, CacheHandle handle, List<Source> sources, List<ItemStack> display) {
-        SESSIONS.put(player, new Session(menu, handle, sources, display)); epoch++;
+        SESSIONS.put(player, new Session(player, menu, handle, sources, display)); epoch++;
     }
     public static int reservedCache(UUID cache, int cell, ServerPlayer except) {
         int sum = 0;
@@ -49,7 +52,7 @@ public final class CraftingReservations {
         }
         // A cursor preview reserves the same cache stock; every consumer reads this single gate so
         // the reserve is subtracted exactly once (it is shared, not double-counted per caller).
-        return sum + dev.scathiard.feedmepackages.interaction.CursorReservations.reserved(cache, cell);
+        return Math.addExact(sum + dev.scathiard.feedmepackages.interaction.CursorReservations.reserved(cache, cell), WorldPlacement.reserved(cache, cell));
     }
     public static int reservedInventory(ServerPlayer player, int slot) {
         var session = SESSIONS.get(player);
@@ -66,6 +69,11 @@ public final class CraftingReservations {
         var result = new ArrayList<Integer>(Collections.nCopies(size, 0)); var session = SESSIONS.get(player);
         if (session != null && !session.materialized) for (var s : session.sources) if (s.cache) result.set(s.index, result.get(s.index) + s.amount);
         return List.copyOf(result);
+    }
+    public static int cacheAmount(ServerPlayer player, int slot) {
+        var session = SESSIONS.get(player);
+        return session == null || session.materialized ? 0
+                : session.sources.stream().filter(s -> s.cache && s.index == slot).mapToInt(Source::amount).sum();
     }
     public static List<ItemStack> realGrid(ServerPlayer player, AbstractContainerMenu menu) {
         var grid = MaterialTransaction.copies(CraftingService.grid(menu).getItems()); var session = SESSIONS.get(player);
@@ -102,6 +110,7 @@ public final class CraftingReservations {
     private static boolean valid(ServerPlayer player, Session session) {
         var menu = session.menu.get(); var access = AccessGate.resolve(player);
         if (menu == null || player.containerMenu != menu || !menu.stillValid(player) || !access.active()
+                || player.getServer().getRecipeManager() != session.recipes
                 || !session.handle.equals(access.handle()) || player.isSpectator()
                 || !MaterialTransaction.matches(session.display, CraftingService.grid(menu).getItems())) return false;
         var record = CacheLedger.get(player.getServer()).find(session.handle.cacheId());
@@ -125,7 +134,9 @@ public final class CraftingReservations {
     public static final class Scope implements AutoCloseable {
         private final ServerPlayer player; private final Session session;
         private boolean closed;
-        private Scope(ServerPlayer player, Session session) { this.player = player; this.session = session; }
+        private Scope(ServerPlayer player, Session session) {
+            this.player = player; this.session = session;
+        }
         @Override public void close() {
             if (closed || session == null) return; closed = true;
             if (SESSIONS.get(player) == session && session.materialized) finish(player, session);
@@ -145,7 +156,7 @@ public final class CraftingReservations {
         if (player.containerMenu != menu || !CraftingService.supported(menu) || !access.active() || player.isSpectator()) return new Scope(player, null);
         if (click != ClickType.QUICK_CRAFT && click != ClickType.PICKUP_ALL && (slot < 0 || slot > CraftingService.grid(menu).getContainerSize()))
             return new Scope(player, null);
-        if (session == null) session = new Session(menu, access.handle(), List.of(), CraftingService.grid(menu).getItems());
+        if (session == null) session = new Session(player, menu, access.handle(), List.of(), CraftingService.grid(menu).getItems());
         var ledger = CacheLedger.get(player.getServer()); var record = ledger.find(session.handle.cacheId()); var edit = record.state().edit();
         var inventory = MaterialTransaction.copyInventory(player);
         for (var source : session.sources) {
@@ -155,14 +166,40 @@ public final class CraftingReservations {
         }
         var next = edit.finish();
         if (!next.equals(record.state())) ledger.replace(session.handle, record.state().revision(), record.withState(next));
-        for (int i = 0; i < 36; i++) player.getInventory().items.set(i, inventory.get(i));
+        MaterialTransaction.publishInventoryChanges(player, inventory);
         session.materialized = true; SESSIONS.put(player, session); epoch++;
         return new Scope(player, session);
     }
-    /** Observe a complete native take so a lease only follows the material the click really spent. */
+    /** A native bulk edit may permute/merge grid slots without using menu.clicked. */
+    public static Scope beginGridEdit(ServerPlayer player, AbstractContainerMenu menu) {
+        var scope = begin(player, menu, 0, 0, ClickType.PICKUP);
+        if (scope.session != null) scope.session.rearranging = true;
+        return scope;
+    }
+    /** Reconcile only the materials the native operation actually consumed. */
     public static void reconcile(ServerPlayer player) {
         var session = SESSIONS.get(player); if (session == null || !session.materialized || session.menu.get() == null) return;
         var current = CraftingService.grid(session.menu.get()).getItems();
+        if (session.rearranging) {
+            // Keep leases only for the exact variants still in the grid, assigning each remaining
+            // item once. Moved-out items stay debited; rotated/spread items keep their backing.
+            var available = MaterialTransaction.copies(current);
+            var remaining = new ArrayList<Source>();
+            for (var source : session.sources) {
+                int left = source.amount;
+                for (int slot = 0; slot < available.size() && left > 0; slot++) {
+                    var stack = available.get(slot);
+                    if (!ItemStack.isSameItemSameComponents(source.prototype, stack)) continue;
+                    int count = Math.min(left, stack.getCount());
+                    if (count > 0) {
+                        remaining.add(new Source(source.cache, source.index, slot, source.prototype, count));
+                        stack.shrink(count); left -= count;
+                    }
+                }
+            }
+            session.sources = remaining; session.display = MaterialTransaction.copies(current);
+            return;
+        }
         var remaining = new ArrayList<Source>(session.sources);
         for (int slot = 0; slot < session.display.size(); slot++) {
             var before = session.display.get(slot); var after = current.get(slot); final int index = slot;
@@ -235,8 +272,8 @@ public final class CraftingReservations {
         if (left > 0) dev.scathiard.feedmepackages.FeedMePackages.LOGGER.warn("Crafting source changed during native operation; {} real inputs retained in grid", left);
         var next = edit.finish();
         if (!next.equals(record.state())) ledger.replace(session.handle, record.state().revision(), record.withState(next));
-        for (int i = 0; i < 36; i++) player.getInventory().items.set(i, inventory.get(i));
-        session.sources = restored; session.materialized = false; epoch++;
+        MaterialTransaction.publishInventoryChanges(player, inventory);
+        session.sources = restored; session.materialized = false; session.rearranging = false; epoch++;
         player.getInventory().setChanged();
         if (restored.isEmpty()) SESSIONS.remove(player);
         var menu = session.menu.get(); if (menu != null) { menu.slotsChanged(CraftingService.grid(menu)); menu.broadcastChanges(); }
