@@ -139,7 +139,7 @@
   "gui.create_feed_me_packages.compat.emi_server_mismatch": "[喂我发包] EMI 服务端材料接口不兼容，已停用缓存供料。原有取料不受修改。",
   "gui.create_feed_me_packages.compat.emi_client_mismatch": "[喂我发包] EMI 客户端材料接口不兼容，已停用缓存供料。原有取料不受修改。",
   "gui.create_feed_me_packages.compat.emi_server_missing": "[喂我发包] 只有客户端安装了 EMI；缓存取料需要服务端也安装 EMI。原有物品栏取料仍可使用。",
-  "message.create_feed_me_packages.compat.fluid_residual_suspended": "FluidLogistics 未安装：当前缓存的 %s 个流体余包已原样保留，重装后可继续拆包。普通物品仍可使用；这些余包处理前暂不能私人化合并。",
+  "message.create_feed_me_packages.compat.fluid_residual_suspended": "保留了 %s 个流体余包；装回 FluidLogistics 后可继续收取。",
   "gui.create_feed_me_packages.compat.tacz_server_missing": "TaCZ 缓存供弹不可用：服务端未安装 TaCZ。",
   "gui.create_feed_me_packages.compat.tacz_config_disabled": "TaCZ 缓存供弹已被服务端关闭，普通背包供弹不受影响。",
   "gui.create_feed_me_packages.compat.tacz_server_mismatch": "TaCZ 缓存供弹不可用：服务端的枪械接口不匹配，已保留原生供弹。",
@@ -183,5 +183,12 @@
   "command.create_feed_me_packages.recovery.busy": "原生物流调用尚未结束，当前不能人工处理；未修改任何来源。",
   "gui.create_feed_me_packages.template_no_browser": "需要 JEI 或 EMI 才能打开模板选择",
   "gui.create_feed_me_packages.template_choose": "点击 JEI / EMI 物品设置过滤；右键或 Esc 取消",
-  "gui.create_feed_me_packages.template_hint": "%s：从物品浏览器选品"
+  "gui.create_feed_me_packages.template_hint": "%s：从物品浏览器选品",
+  "gui.create_feed_me_packages.fluid_preview": "点击背包中的容器灌入；右键取消",
+  "gui.create_feed_me_packages.fluid_stock": "液体：%s / %s mB（1 B = 1000 mB）",
+  "gui.create_feed_me_packages.fluid_take": "点击预览 1 桶；Shift 点击预览 8 桶。灌入容器后才扣库存。",
+  "gui.create_feed_me_packages.fluid_deposit": "拿起单个容器，Alt 点击格子可存入其中的液体。",
+  "gui.create_feed_me_packages.controls.fluid_pending": "在途：%s mB",
+  "gui.create_feed_me_packages.controls.fluid_reserved": "流体不使用此项",
+  "gui.create_feed_me_packages.controls.fluid_step": "滚轮：±8 桶"
 }

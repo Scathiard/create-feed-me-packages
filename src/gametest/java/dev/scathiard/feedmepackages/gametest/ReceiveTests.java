@@ -1,4 +1,8 @@
 package dev.scathiard.feedmepackages.gametest;
+import dev.scathiard.feedmepackages.fluid.FluidVariantKey;
+import dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages;
+import net.neoforged.neoforge.fluids.FluidStack;
+import net.minecraft.world.level.material.Fluids;
 
 import com.simibubi.create.AllDataComponents;
 import com.simibubi.create.content.logistics.box.PackageItem;
@@ -419,5 +423,206 @@ public final class ReceiveTests {
             h.assertTrue(query.get().cells().getFirst().signal().sequence()==0,"Reopened panel replayed closed-window intake");
         } finally { dev.scathiard.feedmepackages.network.PanelNetwork.forget(f.player); }
         h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void nativeFluidParcelEntersFullInventoryAndRetainsExactRemainder(GameTestHelper h) {
+        if (!fluidAvailable(h)) return;
+        var named = new FluidStack(Fluids.WATER, 1); named.set(DataComponents.CUSTOM_NAME, Component.literal("exact water"));
+        var f = fluidSetup(h, named, 15950, 125); var box = f.box(125);
+        box.set(DataComponents.CUSTOM_NAME, Component.literal("original fluid parcel"));
+        var tank = PackageItem.getContents(box).getStackInSlot(0).copy(); tank.set(DataComponents.CUSTOM_NAME, Component.literal("original inner tank"));
+        var contents = NonNullList.withSize(9, ItemStack.EMPTY); contents.set(0, tank); box.set(AllDataComponents.PACKAGE_CONTENTS, ItemContainerContents.fromItems(contents));
+        ParcelAuthentication.applyFluid(f.ledger(), f.player().registryAccess(), box, box.get(FmpRegistries.FLUID_PARCEL_SEAL.get()));
+        for (int i = 0; i < 36; i++) f.player().getInventory().setItem(i, new ItemStack(Items.STONE, 64));
+        var held = f.player().getInventory().getItem(0);
+        h.assertTrue(box.getItem().getClass().getName().endsWith("FluidPackageItem") && f.player().getInventory().add(box) && box.isEmpty(),
+                "Native fluid package did not enter the real full-inventory receive hook");
+        var rest = f.residual(); var saved = CacheLedger.load(f.ledger().save(new CompoundTag(), f.player().registryAccess()), f.player().registryAccess());
+        h.assertTrue(f.amount() == 16000  &&  FluidPackages.read(rest).getAmount() == 75  &&  f.record().fluids().state().pending(0) == 0
+                 &&  f.player().getInventory().getItem(0) == held,
+                "Partial fluid receipt lost stock or touched a full bag");
+        h.assertTrue(rest.get(DataComponents.CUSTOM_NAME).getString().equals("original fluid parcel")
+                && PackageItem.getContents(rest).getStackInSlot(0).get(DataComponents.CUSTOM_NAME).getString().equals("original inner tank")
+                && FluidStack.isSameFluidSameComponents(named, FluidPackages.read(rest))
+                && ParcelAuthentication.validFluid(f.ledger(), f.player().registryAccess(), rest, rest.get(FmpRegistries.FLUID_PARCEL_SEAL.get()))
+                && saved.problem().isEmpty() && ItemStack.matches(saved.find(f.handle().cacheId()).fluids().residual(f.key()), rest),
+                "Remainder lost outer/inner metadata, fluid components, authentication or persistence"); h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void fluidReceiptNeedsNoEquipmentAndDoesNotArriveTwice(GameTestHelper h) {
+        if (!fluidAvailable(h)) return;
+        var f = fluidSetup(h, new FluidStack(Fluids.WATER, 1), 0, 1000);
+        h.assertTrue(ReceiveService.receive(f.player(), f.box(1000)) && f.amount() == 1000 && f.residual().isEmpty(),
+                "No-air receipt did not accept a full bucket without equipment");
+        var current = f.record(); var edit = current.fluids().state().edit(); edit.request(0, UUID.randomUUID(), f.player().getUUID(), 1, false);
+        f.ledger().replace(f.handle(), current.state().revision(), current.withFluids(current.fluids().withState(edit.finish())));
+        current = f.record(); ReceiveService.resume(f.player()); ReceiveService.resume(f.player());
+        h.assertTrue(f.record() == current && f.record().fluids().state().pending(0) == 1 && f.amount() == 1000,
+                "Repeated receipt continuation changed goods or a later order"); h.succeed();
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 200)
+    public static void splitFluidParcelsConserveTheSameExactContentsWithoutEquipment(GameTestHelper h) {
+        if (!fluidAvailable(h)) return;
+        var whole = fluidSetup(h, new FluidStack(Fluids.WATER, 1), 0, 125);
+        var split = fluidSetup(h, new FluidStack(Fluids.WATER, 1), 0, 125);
+        h.assertTrue(ReceiveService.receive(whole.player(), whole.box(125)), "Whole native fluid parcel refused");
+        for (int i = 0; i < 125; i++) h.assertTrue(ReceiveService.receive(split.player(), split.box(1)), "One-mB native parcel refused");
+        h.assertTrue(whole.amount() == 125 && split.amount() == 125 && whole.residual().isEmpty() && split.residual().isEmpty()
+                && whole.record().fluids().state().pending(0) == 0 && split.record().fluids().state().pending(0) == 0,
+                "Splitting changed fluid contents or order settlement"); h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void invalidFluidPackagesPassUnchangedAndCannotBorrowItemAuthentication(GameTestHelper h) {
+        if (!fluidAvailable(h)) return;
+        var f = fluidSetup(h, new FluidStack(Fluids.WATER, 1), 0, 1000);
+        for (int failure = 0; failure < 7; failure++) {
+            var box = f.box(1000); var seal = box.get(FmpRegistries.FLUID_PARCEL_SEAL.get());
+            if (failure == 0) box.remove(FmpRegistries.FLUID_PARCEL_SEAL.get());
+            if (failure == 1) PackageItem.addAddress(box, "not-the-owner");
+            if (failure == 2) box.setCount(2);
+            if (failure == 3) {
+                box = FluidPackages.create(new FluidStack(Fluids.LAVA, 1000)); PackageItem.addAddress(box, seal.address());
+                ParcelAuthentication.applyFluid(f.ledger(), f.player().registryAccess(), box, seal);
+            }
+            if (failure == 4) {
+                var mixed = NonNullList.withSize(9, ItemStack.EMPTY); mixed.set(0, PackageItem.getContents(box).getStackInSlot(0).copy());
+                mixed.set(1, new ItemStack(Items.DIAMOND)); box.set(AllDataComponents.PACKAGE_CONTENTS, ItemContainerContents.fromItems(mixed));
+                ParcelAuthentication.applyFluid(f.ledger(), f.player().registryAccess(), box, seal);
+            }
+            if (failure == 5) box.set(FmpRegistries.PARCEL_SEAL.get(), seal);
+            if (failure == 6) {
+                box.remove(FmpRegistries.FLUID_PARCEL_SEAL.get()); ParcelAuthentication.apply(f.ledger(), f.player().registryAccess(), box, seal);
+                var itemSigned = box.get(FmpRegistries.PARCEL_SEAL.get()); box.remove(FmpRegistries.PARCEL_SEAL.get()); box.set(FmpRegistries.FLUID_PARCEL_SEAL.get(), itemSigned);
+            }
+            rejectFluid(h, f, box);
+        }
+        h.assertTrue(FluidPackages.status() == FluidPackages.Status.READY && ReceiveService.receive(f.player(), f.box(1000)),
+                "Invalid input disabled valid native fluid reception"); h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void fluidResidualSlotsAreBoundedAndDoNotBlockOtherVariants(GameTestHelper h) {
+        if (!fluidAvailable(h)) return;
+        var f = fluidSetup(h, new FluidStack(Fluids.WATER, 1), 15999, 1000);
+        h.assertTrue(ReceiveService.receive(f.player(), f.box(1000)), "Initial fluid parcel refused");
+        rejectFluid(h, f, f.box(1000));
+        var before = f.record(); var edit = before.fluids().state().edit();
+        var lava = FluidVariantKey.of(new FluidStack(Fluids.LAVA, 1), f.player().registryAccess());
+        edit.filter(1, lava); edit.insert(1, lava, 15999);
+        f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(edit.finish())));
+        var lavaBox = FluidPackages.create(new FluidStack(Fluids.LAVA, 500)); var address = SupplyService.address(f.player()); PackageItem.addAddress(lavaBox, address);
+        ParcelAuthentication.applyFluid(f.ledger(), f.player().registryAccess(), lavaBox, new ParcelSeal(UUID.randomUUID(), f.handle().cacheId(),
+                f.player().getUUID(), UUID.randomUUID(), lava.encoded(), f.record().fluids().state().cells().get(1).filterRevision(), address, false, ""));
+        h.assertTrue(ReceiveService.receive(f.player(), lavaBox) && FluidPackages.read(f.record().fluids().residual(lava)).getAmount() == 499
+                && FluidPackages.read(f.residual()).getAmount() == 999, "Unrelated fluid cells contended for one residual slot");
+        before = f.record(); edit = before.fluids().state().edit(); edit.extract(0, 2000);
+        f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(edit.finish())));
+        ReceiveService.resume(f.player());
+        h.assertTrue(f.amount() == 14999 && f.residual().isEmpty() && FluidPackages.read(f.record().fluids().residual(lava)).getAmount() == 499,
+                "Resuming one fluid residual removed or charged another"); h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void fluidReceiptFollowsWornAccessButOwnedRemainderCanFollowOrdinaryPendant(GameTestHelper h) {
+        if (!fluidAvailable(h)) return;
+        var f = fluidSetup(h, new FluidStack(Fluids.WATER, 1), 16000, 125); var box = f.box(125);
+        var pendant = TestPlayers.necklace(f.player()).getStackInSlot(0); TestPlayers.necklace(f.player()).setStackInSlot(0, ItemStack.EMPTY);
+        rejectFluid(h, f, box); TestPlayers.necklace(f.player()).setStackInSlot(0, pendant);
+        var stranger = TestPlayers.create(h, pendant.copy());
+        h.assertTrue(!ReceiveService.receive(stranger, box) && box.getCount() == 1, "A new holder intercepted someone else's incoming parcel");
+        TestPlayers.necklace(stranger).setStackInSlot(0, ItemStack.EMPTY);
+        h.assertTrue(ReceiveService.receive(f.player(), box) && f.amount() == 16000 && FluidPackages.read(f.residual()).getAmount() == 125,
+                "A full cache lost its authenticated fluid remainder");
+        TestPlayers.necklace(f.player()).setStackInSlot(0, ItemStack.EMPTY); TestPlayers.necklace(stranger).setStackInSlot(0, pendant);
+        var before = f.record(); var edit = before.fluids().state().edit();
+        h.assertTrue(edit.extract(0, 125) == 125, "Fixture failed to free exactly the residual volume");
+        f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(edit.finish())));
+        ReceiveService.resume(stranger);
+        h.assertTrue(f.amount() == 16000 && f.residual().isEmpty(),
+                "Owned fluid remainder did not follow the ordinary pendant"); h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void unrelatedNativePackageWithAFluidSealIsNeverConsumed(GameTestHelper h) {
+        var f = fluidSetup(h, new FluidStack(Fluids.WATER, 1), 0, 1000);
+        var box = PackageItem.containing(List.of(new ItemStack(Items.DIAMOND, 4))); var address = SupplyService.address(f.player()); PackageItem.addAddress(box, address);
+        ParcelAuthentication.applyFluid(f.ledger(), f.player().registryAccess(), box, new ParcelSeal(UUID.randomUUID(), f.handle().cacheId(), f.player().getUUID(),
+                f.request(), f.key().encoded(), f.record().fluids().state().cells().get(0).filterRevision(), address, false, ""));
+        rejectFluid(h, f, box); h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void invalidatedFluidResidualWaitsThenReturnsWholeWithoutCycling(GameTestHelper h) {
+        if (!fluidAvailable(h)) return;
+        var f = fluidSetup(h, new FluidStack(Fluids.WATER, 1), 15950, 125);
+        h.assertTrue(ReceiveService.receive(f.player(), f.box(125)), "Fluid residual setup failed");
+        var residual = f.residual(); var before = f.record(); var edit = before.fluids().state().edit();
+        edit.extract(0, 16000); edit.filter(0, null);
+        f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(edit.finish())));
+        for (int i = 0; i < 36; i++) f.player().getInventory().setItem(i, new ItemStack(Items.STONE, 64));
+        before = f.record(); ReceiveService.resume(f.player());
+        var saved = CacheLedger.load(f.ledger().save(new CompoundTag(), f.player().registryAccess()), f.player().registryAccess());
+        h.assertTrue(f.record() == before && ItemStack.matches(residual, f.residual()) && saved.problem().isEmpty()
+                && ItemStack.matches(residual, saved.find(f.handle().cacheId()).fluids().residual(f.key())),
+                "Invalidated fluid residual was lost or could not survive persistence");
+        var pendant = TestPlayers.necklace(f.player()).getStackInSlot(0); TestPlayers.necklace(f.player()).setStackInSlot(0, ItemStack.EMPTY);
+        f.player().getInventory().setItem(0, ItemStack.EMPTY); ReceiveService.resume(f.player());
+        h.assertTrue(f.record() == before && f.player().getInventory().getItem(0).isEmpty(), "Unworn fluid cache returned a parcel");
+        TestPlayers.necklace(f.player()).setStackInSlot(0, pendant); ReceiveService.resume(f.player());
+        var returned = f.player().getInventory().getItem(0); before = f.record();
+        for (int tick = 0; tick < 10; tick++) ReceiveService.resume(f.player());
+        h.assertTrue(f.residual().isEmpty() && ItemStack.matches(returned, residual) && FluidPackages.read(returned).getAmount() == 75
+                && f.record() == before && f.player().getInventory().getItem(0) == returned,
+                "Fluid handback altered the original parcel, cycled ownership or duplicated contents"); h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void unverifiableFluidResidualRemainsIntactWithFreeInventory(GameTestHelper h) {
+        if (!fluidAvailable(h)) return;
+        var f = fluidSetup(h, new FluidStack(Fluids.WATER, 1), 15950, 125);
+        h.assertTrue(ReceiveService.receive(f.player(), f.box(125)), "Fluid residual setup failed");
+        var bad = f.residual(); bad.remove(FmpRegistries.FLUID_PARCEL_SEAL.get()); var before = f.record();
+        f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withResidual(f.key(), bad)));
+        before = f.record();
+        for (int tick = 0; tick < 10; tick++) ReceiveService.resume(f.player());
+        h.assertTrue(f.record() == before && ItemStack.matches(bad, f.residual()) && f.player().getInventory().isEmpty(),
+                "Unverifiable fluid became spendable or disappeared"); h.succeed();
+    }
+
+    private static boolean fluidAvailable(GameTestHelper h) {
+        if (!net.neoforged.fml.ModList.get().isLoaded("fluidlogistics")) {
+            FeedMePackages.LOGGER.info("FMP_FLUID_TEST_SKIPPED: optional author artifact absent"); h.succeed(); return false;
+        }
+        h.assertTrue(FluidPackages.status() == FluidPackages.Status.READY, "Installed FluidLogistics interface unavailable"); return true;
+    }
+
+    private record FluidFixture(ServerPlayer player, CacheLedger ledger, CacheHandle handle, FluidVariantKey key, UUID request) {
+        CacheRecord record() { return ledger.find(handle.cacheId()); }
+        long amount() { return record().fluids().state().cells().get(0).amount(); }
+        ItemStack residual() { return record().fluids().residual(key); }
+        ItemStack box(int amount) {
+            var box = FluidPackages.create(key.stack(player.registryAccess(), amount)); var address = SupplyService.address(player); PackageItem.addAddress(box, address);
+            ParcelAuthentication.applyFluid(ledger, player.registryAccess(), box, new ParcelSeal(UUID.randomUUID(), handle.cacheId(), player.getUUID(),
+                    request, key.encoded(), record().fluids().state().cells().get(0).filterRevision(), address, false, "")); return box;
+        }
+    }
+
+    private static FluidFixture fluidSetup(GameTestHelper h, FluidStack sample, int initial, int request) {
+        var player = TestPlayers.create(h, FmpRegistries.PENDANT.toStack());
+        var handle = AccessGate.resolve(player).handle(); var ledger = CacheLedger.get(player.getServer()); var before = ledger.find(handle.cacheId());
+        var key = FluidVariantKey.of(sample, player.registryAccess()); var order = UUID.randomUUID(); var edit = before.fluids().state().edit();
+        edit.filter(0, key); edit.thresholds(0, 2, -1); edit.request(0, order, player.getUUID(), request, false); edit.insert(0, key, initial);
+        ledger.replace(handle, before.state().revision(), before.withFluids(before.fluids().withState(edit.finish())));
+        return new FluidFixture(player, ledger, handle, key, order);
+    }
+
+    private static void rejectFluid(GameTestHelper h, FluidFixture f, ItemStack box) {
+        var original = box.copy(); var record = f.record();
+        h.assertTrue(!ReceiveService.receive(f.player(), box) && ItemStack.matches(original, box) && f.record() == record,
+                "Rejected fluid parcel changed caller contents or cache state");
     }
 }

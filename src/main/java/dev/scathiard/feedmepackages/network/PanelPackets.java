@@ -50,20 +50,25 @@ public final class PanelPackets {
         public static final Type<SettingsBatch> TYPE=PanelPackets.type("cell_settings");
         public static final StreamCodec<RegistryFriendlyByteBuf,SettingsBatch> CODEC=StreamCodec.of((b,v)->{
             int start=b.writerIndex(); b.writeUUID(v.window);b.writeUUID(v.session);b.writeVarInt(v.sequence);b.writeVarInt(v.changes.size());
-            for(var c:v.changes) {b.writeVarInt(c.slot());b.writeLong(c.filterRevision());var s=c.value();b.writeVarInt(s.lower());b.writeVarInt(s.upper());b.writeVarInt(s.batch());b.writeVarInt(s.pendingLimit());}
+            for(var c:v.changes) {b.writeVarInt(c.slot());b.writeLong(c.filterRevision());var s=c.value();b.writeVarInt(s.lower());b.writeVarInt(s.upper());b.writeVarInt(s.batch());b.writeVarInt(s.pendingLimit());b.writeBoolean(c.fluid());}
             written(b,start,C2S_LIMIT);
         },b->{
             bound(b,C2S_LIMIT);var window=b.readUUID();var session=b.readUUID();int sequence=b.readVarInt(),count=size(b,36);
             var changes=new ArrayList<CacheActions.SettingsChange>();
             for(int i=0;i<count;i++)changes.add(new CacheActions.SettingsChange(b.readVarInt(),b.readLong(),
-                new dev.scathiard.feedmepackages.domain.CellSettings(b.readVarInt(),b.readVarInt(),b.readVarInt(),b.readVarInt())));
+                new dev.scathiard.feedmepackages.domain.CellSettings(b.readVarInt(),b.readVarInt(),b.readVarInt(),b.readVarInt()),b.readBoolean()));
             end(b);return new SettingsBatch(window,session,sequence,changes);
         });
         @Override public Type<SettingsBatch> type(){return TYPE;}
     }
     public record CellView(String template, int amount, int minimum, int maximum, int pending, int reserved, int stackSize,
-                           boolean residual, int returnState, int batch, int pendingLimit, long filterRevision, dev.scathiard.feedmepackages.domain.LogisticsSignal signal) {
+                           boolean residual, int returnState, int batch, int pendingLimit, long filterRevision, dev.scathiard.feedmepackages.domain.LogisticsSignal signal, boolean fluid) {
         public CellView { Objects.requireNonNull(signal); }
+        public CellView(String template, int amount, int minimum, int maximum, int pending, int reserved, int stackSize,
+                        boolean residual, int returnState, int batch, int pendingLimit, long filterRevision,
+                        dev.scathiard.feedmepackages.domain.LogisticsSignal signal) {
+            this(template, amount, minimum, maximum, pending, reserved, stackSize, residual, returnState, batch, pendingLimit, filterRevision, signal, false);
+        }
         public CellView(String template, int amount, int minimum, int maximum, int pending, int reserved, int stackSize,
                         boolean residual, int returnState, int batch, int pendingLimit, long filterRevision) {
             this(template, amount, minimum, maximum, pending, reserved, stackSize, residual, returnState, batch, pendingLimit, filterRevision,
@@ -90,13 +95,29 @@ public final class PanelPackets {
         @Override public Type<CursorUpdate> type() { return TYPE; }
     }
     public record TerminalView(int slot, boolean personal, boolean disabled, String network) {}
+    public record FluidPreviewView(int slot, String template, int amount, int sequence) {
+        public static final FluidPreviewView NONE = new FluidPreviewView(-1, "", 0, 0);
+        public FluidPreviewView {
+            Objects.requireNonNull(template);
+            if (amount < 0 || amount > 8000 || template.getBytes(StandardCharsets.UTF_8).length > 1024
+                    || (amount == 0 ? slot != -1 || !template.isEmpty() || sequence != 0
+                    : slot < 0 || slot >= 36 || template.isEmpty() || sequence < 1)) throw new IllegalArgumentException("Invalid fluid preview");
+        }
+    }
     public record Snapshot(UUID window, UUID session, long serial, int acknowledged, CacheActions.Result result,
                            AccessGate.Status status, long revision, int level, int capacity, boolean personal,
                            boolean cacheFirst, boolean bound, String address, String returnAddress, String residualItem,
-                           List<CellView> cells, List<TerminalView> terminals) implements CustomPacketPayload {
+                           List<CellView> cells, List<TerminalView> terminals, FluidPreviewView fluidPreview) implements CustomPacketPayload {
         public Snapshot {
-            cells = List.copyOf(cells); terminals = List.copyOf(terminals);
+            cells = List.copyOf(cells); terminals = List.copyOf(terminals); Objects.requireNonNull(fluidPreview);
             if (cells.size() > 36 || terminals.size() > MAX_TERMINALS) throw new IllegalArgumentException("Oversized panel model");
+        }
+        public Snapshot(UUID window, UUID session, long serial, int acknowledged, CacheActions.Result result,
+                        AccessGate.Status status, long revision, int level, int capacity, boolean personal,
+                        boolean cacheFirst, boolean bound, String address, String returnAddress, String residualItem,
+                        List<CellView> cells, List<TerminalView> terminals) {
+            this(window, session, serial, acknowledged, result, status, revision, level, capacity, personal, cacheFirst, bound,
+                    address, returnAddress, residualItem, cells, terminals, FluidPreviewView.NONE);
         }
         /** Uniform group capacity: same for all items at this level. */
         public int groupCapacity() { return capacity / 64; }
@@ -111,10 +132,11 @@ public final class PanelPackets {
         text(b, s.address, 128); text(b, s.returnAddress, 128); text(b, s.residualItem, 256); b.writeVarInt(s.cells.size());
         for (var c : s.cells) {
             text(b, c.template, 1024); b.writeVarInt(c.amount); b.writeVarInt(c.minimum); b.writeVarInt(c.maximum); b.writeVarInt(c.pending); b.writeVarInt(c.reserved); b.writeVarInt(c.stackSize); b.writeBoolean(c.residual); b.writeVarInt(c.returnState);
-            b.writeVarInt(c.batch); b.writeVarInt(c.pendingLimit); b.writeLong(c.filterRevision); b.writeVarLong(c.signal.sequence()); b.writeEnum(c.signal.kind());
+            b.writeVarInt(c.batch); b.writeVarInt(c.pendingLimit); b.writeLong(c.filterRevision); b.writeVarLong(c.signal.sequence()); b.writeEnum(c.signal.kind()); b.writeBoolean(c.fluid);
         }
         b.writeVarInt(s.terminals.size());
         for (var t : s.terminals) { b.writeVarInt(t.slot); b.writeBoolean(t.personal); b.writeBoolean(t.disabled); text(b, t.network, 36); }
+        b.writeVarInt(s.fluidPreview.slot); text(b, s.fluidPreview.template, 1024); b.writeVarInt(s.fluidPreview.amount); b.writeVarInt(s.fluidPreview.sequence);
         written(b, start, S2C_LIMIT);
     }
     private static Snapshot decodeSnapshot(RegistryFriendlyByteBuf b) {
@@ -123,10 +145,11 @@ public final class PanelPackets {
         var status = b.readEnum(AccessGate.Status.class); long revision = b.readLong();
         int level = b.readVarInt(), capacity = b.readVarInt(); boolean personal = b.readBoolean(), cacheFirst = b.readBoolean(), bound = b.readBoolean();
         String address = text(b, 128), returnAddress = text(b, 128), residual = text(b, 256); int size = size(b, 36); List<CellView> cells = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) cells.add(new CellView(text(b, 1024), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readBoolean(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readLong(), new dev.scathiard.feedmepackages.domain.LogisticsSignal(b.readVarLong(), b.readEnum(dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.class))));
+        for (int i = 0; i < size; i++) cells.add(new CellView(text(b, 1024), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readBoolean(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readLong(), new dev.scathiard.feedmepackages.domain.LogisticsSignal(b.readVarLong(), b.readEnum(dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.class)), b.readBoolean()));
         size = size(b, MAX_TERMINALS); List<TerminalView> terminals = new ArrayList<>(size);
         for (int i = 0; i < size; i++) terminals.add(new TerminalView(b.readVarInt(), b.readBoolean(), b.readBoolean(), text(b, 36)));
-        end(b); return new Snapshot(window, session, serial, ack, result, status, revision, level, capacity, personal, cacheFirst, bound, address, returnAddress, residual, cells, terminals);
+        var preview = new FluidPreviewView(b.readVarInt(), text(b, 1024), b.readVarInt(), b.readVarInt());
+        end(b); return new Snapshot(window, session, serial, ack, result, status, revision, level, capacity, personal, cacheFirst, bound, address, returnAddress, residual, cells, terminals, preview);
     }
     static int size(RegistryFriendlyByteBuf b, int max) {
         int size = b.readVarInt(); if (size < 0 || size > max) throw new DecoderException("Panel list limit exceeded"); return size;

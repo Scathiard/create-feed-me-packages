@@ -37,7 +37,7 @@ public final class MaterialTransaction {
     static Optional<MaterialTransaction> prepare(ServerPlayer player) { return open(player, true); }
     private static Optional<MaterialTransaction> open(ServerPlayer player, boolean preparation) {
         var access = AccessGate.resolve(player);
-        return access.active() && !player.isSpectator() && player.getInventory().items.size() == 36
+        return access.active() && !dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId()) && !player.isSpectator() && player.getInventory().items.size() == 36
                 ? Optional.of(new MaterialTransaction(player, access.handle(), preparation)) : Optional.empty();
     }
     public CacheHandle handle() { return handle; }
@@ -120,7 +120,8 @@ public final class MaterialTransaction {
         return true;
     }
     public boolean valid() {
-        if (committed || !player.getServer().isSameThread() || player.isSpectator()) return false;
+        if (committed || !player.getServer().isSameThread() || player.isSpectator()
+                || dev.scathiard.feedmepackages.interaction.FluidActions.operating(handle.cacheId())) return false;
         var access = AccessGate.resolve(player); var current = ledger.find(handle.cacheId());
         if (!access.active() || !handle.equals(access.handle()) || current == null
                 || current.state().revision() != revision() || CraftingReservations.epoch() != reservationEpoch) return false;

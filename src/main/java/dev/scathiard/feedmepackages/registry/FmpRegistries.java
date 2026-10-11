@@ -53,6 +53,7 @@ public final class FmpRegistries {
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<String>> OWNER_NAME = COMPONENTS.register("owner_name", () -> DataComponentType.<String>builder().persistent(Codec.STRING).networkSynchronized(ByteBufCodecs.STRING_UTF8).build());
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<Boolean>> PREVIEW = COMPONENTS.register("preview", () -> DataComponentType.<Boolean>builder().persistent(Codec.BOOL).networkSynchronized(ByteBufCodecs.BOOL).build());
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<ParcelSeal>> PARCEL_SEAL = COMPONENTS.register("parcel_seal", () -> DataComponentType.<ParcelSeal>builder().persistent(ParcelSeal.CODEC).build());
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<ParcelSeal>> FLUID_PARCEL_SEAL = COMPONENTS.register("fluid_parcel_seal", () -> DataComponentType.<ParcelSeal>builder().persistent(ParcelSeal.CODEC).build());
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> TAB = TABS.register("supplies", () -> CreativeModeTab.builder()
             .title(Component.translatable("itemGroup.create_feed_me_packages"))
             .icon(() -> PENDANT.toStack()).displayItems((parameters, output) -> {

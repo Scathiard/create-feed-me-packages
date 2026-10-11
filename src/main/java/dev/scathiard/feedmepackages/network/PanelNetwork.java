@@ -39,7 +39,7 @@ public final class PanelNetwork {
         }
     }
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("6-converged2");
+        var registrar = event.registrar("7-converged-fluid");
         registrar.playToServer(PanelPackets.Query.TYPE, PanelPackets.Query.CODEC, (packet, context) -> {
             var reply = query((ServerPlayer) context.player(), packet); if (reply != null) context.reply(reply);
         });
@@ -152,6 +152,16 @@ public final class PanelNetwork {
             }
             window.feedback.page(0, record.state().cells().size());
             for (int i = 0; i < record.state().cells().size(); i++) {
+                var fluidCell = record.fluids().state().cells().get(i);
+                if (fluidCell.filter() != null) {
+                    String template = fluidCell.filter().encoded();
+                    int reserved = (int)Math.min(Integer.MAX_VALUE, dev.scathiard.feedmepackages.interaction.FluidActions.reserved(access.handle().cacheId(), i));
+                    cells.add(new PanelPackets.CellView(template, fluidCell.amount(), fluidCell.settings().lower(), fluidCell.settings().upper(),
+                            record.fluids().state().pending(i), reserved, fluidCell.filter().stackSize(), record.fluids().hasResidual(fluidCell.filter()),
+                            dev.scathiard.feedmepackages.logistics.ReturnService.dispatchState(access.handle(), returnAddress, i, "fluid:" + template, fluidCell.settings().upper()),
+                            1, -1, fluidCell.filterRevision(), window.feedback.get(i), true));
+                    continue;
+                }
                 var cell = record.state().cells().get(i);
                 boolean slotResidual = cell.filter() != null && !record.residual(cell.filter()).isEmpty();
                 int reserved = cell.filter() == null ? 0 : dev.scathiard.feedmepackages.interaction.CursorReservations.reserved(access.handle().cacheId(), i);
@@ -162,10 +172,12 @@ public final class PanelNetwork {
             for (var box : record.residuals().values())
                 if (!box.isEmpty()) { residualItem = BuiltInRegistries.ITEM.getKey(box.getItem()).toString(); break; }
         }
+        var fluid = dev.scathiard.feedmepackages.interaction.FluidActions.preview(player);
         return new PanelPackets.Snapshot(window.id, view.session(), ++window.serial, ack, result, access.status(),
                 record == null ? -1 : record.state().revision(), record == null ? 0 : record.state().level(),
                 record == null ? 0 : CacheLevel.of(record.state().level()).capacity(), record != null && record.owner() != null,
                 view.cacheFirst(), access.active() && access.handle().networkId() != null, SupplyService.address(player),
-                returnAddress == null ? "" : returnAddress, residualItem, cells, terminals);
+                returnAddress == null ? "" : returnAddress, residualItem, cells, terminals,
+                new PanelPackets.FluidPreviewView(fluid.slot(), fluid.template(), fluid.amount(), fluid.sequence()));
     }
 }

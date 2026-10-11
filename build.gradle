@@ -15,7 +15,7 @@ def runProfile = "neo${project.neo_version}" + (project.hasProperty('withCourier
         (project.hasProperty('withMobile') ? '-mobile' : '') +
         (project.hasProperty('withPhantom') ? '-phantom102' : '') +
         (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-converged1'
-['withTacz','withWand','withGadgets','withEffortless','withEmi','withFxnt','withSophisticated','withMaid'].each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
+['withTacz','withWand','withGadgets','withEffortless','withEmi','withFxnt','withSophisticated','withMaid','withFluid'].each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
 if (project.hasProperty('fmpPhantomReview')) {
     if (!project.hasProperty('withPhantom')) throw new GradleException('Phantom review requires the locked official transport JAR')
     runProfile += '-phantom-review'
@@ -121,6 +121,11 @@ dependencies {
     compileOnly 'dev.emi:emi-neoforge:1.1.24+1.21.1:api'
     if (project.hasProperty('withEmi')) localRuntime 'dev.emi:emi-neoforge:1.1.24+1.21.1'
     if (project.hasProperty('withFxnt')) localRuntime files(new File(dependencyInput, 'dependencies/artifacts/fxntstorage/1.3.4/fxntstorage-1.3.4+mc-1.21.1-neoforge.jar'))
+    if (project.hasProperty('withFluid')) {
+        def fluid = new File(dependencyInput, 'dependencies/artifacts/fluidlogistics/1.2.9/fluidlogistics-1.2.9.jar')
+        if (!fluid.isFile()) throw new GradleException('Missing pinned, isolated FluidLogistics 1.2.9 test artifact')
+        localRuntime files(fluid)
+    }
     if (project.hasProperty('withMaid')) {
         def maid = new File(dependencyInput, 'dependencies/artifacts/touhoulittlemaid/1.5.3/touhoulittlemaid-1.5.3-neoforge+mc1.21.1.jar')
         if (!maid.isFile()) throw new GradleException('Missing pinned isolated Touhou Little Maid artifact')
@@ -196,6 +201,14 @@ neoForge {
             type = 'gameTestServer'
             gameDirectory = file("${referenceOutput}/run/gametest/${runProfile}")
             systemProperty 'fmp.requirePriorPersistence', project.findProperty('fmpRequirePriorPersistence') ?: 'false'
+            if (project.hasProperty('fmpFluidLifecycle')) {
+                def scenario = project.property('fmpFluidLifecycle').toString()
+                if (!project.hasProperty('fmpGameTests') || !(scenario ==~ /(plain|residual):(write|absent|absent-again|restore)/))
+                    throw new GradleException('Fluid lifecycle requires test sources and plain|residual:write|absent|absent-again|restore')
+                gameDirectory = new File(referenceOutput, "run/gametest/fluid-lifecycle-${scenario.split(':')[0]}-converged1")
+                systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_lifecycle'
+                systemProperty 'fmp.fluidLifecycle', scenario
+            }
             if (project.hasProperty('fmpLegacyWorldReview')) {
                 systemProperty 'fmp.legacyBackup', new File(referenceOutput, 'legacy023-before').absolutePath
                 systemProperty 'fmp.legacyJar', file('../../../release/stable/v0.2.3/create-feed-me-packages-0.2.3.jar').absolutePath

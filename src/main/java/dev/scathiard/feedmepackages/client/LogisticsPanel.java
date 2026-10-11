@@ -104,6 +104,7 @@ public final class LogisticsPanel {
     private static PanelPackets.Snapshot snapshot;
     private static PanelLayout layout;
     private static final Map<String, ItemStack> ICONS;
+    private static final Map<String, net.neoforged.neoforge.fluids.FluidStack> FLUID_ICONS = new HashMap<>();
     private static int tick;
     private static int lastQuery;
     private static int sequence;
@@ -173,7 +174,7 @@ public final class LogisticsPanel {
 
     private record Predict(UUID window, UUID session, int slot, String variant, int sequence, long baseSerial, int result) {}
     private enum QueuedClickKind {
-        COPY_ADDRESS, SCROLL, TOGGLE_SLOT, CLEAR_FILTER, DEPOSIT, TAKE_INVENTORY, TAKE_CURSOR
+        COPY_ADDRESS, SCROLL, TOGGLE_SLOT, CLEAR_FILTER, DEPOSIT, DEPOSIT_FLUID, TAKE_INVENTORY, TAKE_CURSOR
     }
     private record QueuedPanelClick(UUID window, UUID session, QueuedClickKind kind, int slot, int button, int row, String template) {}
     private static Component feedback;
@@ -550,7 +551,7 @@ public final class LogisticsPanel {
         pendingReturnBuffer = null;
         queuedReturnClick = null;
         tooltip = List.of();
-        ICONS.clear();
+        ICONS.clear(); FLUID_ICONS.clear();
         feedback = null;
     }
     public static void beforeContainerClose(AbstractContainerScreen<?> closing) {
@@ -642,6 +643,11 @@ public final class LogisticsPanel {
         for (PanelPackets.CellView cell : incoming.cells()) {
             if (cell.template().isEmpty()) continue;
             present.add(cell.template());
+            if (cell.fluid()) {
+                try { FLUID_ICONS.put(cell.template(), dev.scathiard.feedmepackages.fluid.FluidVariantKey.decode(cell.template(), MC.player.registryAccess()).stack(MC.player.registryAccess(),1)); }
+                catch (IllegalArgumentException invalid) { notice("invalid_display"); }
+                continue;
+            }
             if (ICONS.containsKey(cell.template())) continue;
             try {
                 ICONS.put(cell.template(), ItemVariantKey.decode(cell.template(), (HolderLookup.Provider)LogisticsPanel.MC.player.registryAccess()).stack((HolderLookup.Provider)LogisticsPanel.MC.player.registryAccess(), 1));
@@ -650,7 +656,7 @@ public final class LogisticsPanel {
                 LogisticsPanel.notice("invalid_display");
             }
         }
-        ICONS.keySet().retainAll(present);
+        ICONS.keySet().retainAll(present); FLUID_ICONS.keySet().retainAll(present);
         LogisticsPanel.updateLayout();
         if (runQueuedReturn) {
             LogisticsPanel.runQueuedPanelClick();
@@ -760,6 +766,15 @@ public final class LogisticsPanel {
             browserDrag.template().render(g, mouseX - 8, mouseY - 8); g.pose().popPose();
         }
 
+        if (snapshot.fluidPreview().amount() > 0 && MC.player.containerMenu.getCarried().isEmpty()) {
+            var preview = snapshot.fluidPreview(); var g = event.getGuiGraphics();
+            try {
+                var fluid = dev.scathiard.feedmepackages.fluid.FluidVariantKey.decode(preview.template(), MC.player.registryAccess()).stack(MC.player.registryAccess(),1);
+                g.pose().pushPose(); g.pose().translate(0,0,400);
+                TemplateBrowsers.renderFluid(g,fluid,mouseX-8,mouseY-8); g.pose().popPose();
+                tooltip=List.of(fluid.getHoverName(),Component.literal(preview.amount()+" mB"),tr("fluid_preview"));
+            } catch (IllegalArgumentException invalid) { notice("invalid_display"); }
+        }
         if (layout.compact()) {
             tooltip = List.of();
             LogisticsPanel.button(event.getGuiGraphics(), layout.bounds().x(), layout.bounds().y(), "+", "expand");
@@ -930,7 +945,8 @@ public final class LogisticsPanel {
         int y = r.y();
         renderSlot(g, x, y);
         ItemStack icon = ICONS.getOrDefault(cell.template(), ItemStack.EMPTY);
-        if (!icon.isEmpty()) {
+        var fluidIcon = FLUID_ICONS.getOrDefault(cell.template(), net.neoforged.neoforge.fluids.FluidStack.EMPTY);
+        if (!icon.isEmpty() || !fluidIcon.isEmpty()) {
             // Display "in-cell" quantity = cache amount minus the live cursor preview (P). During the
             // pre-confirmation wait a client-side prediction overrides this one cell so the number
             // changes immediately; a matching ack clears the prediction and the authoritative value
@@ -942,9 +958,9 @@ public final class LogisticsPanel {
             if (display == 0) {
                 g.setColor(1.0f, 1.0f, 1.0f, 0.45f);
             }
-            g.renderItem(icon, x + 1, y + 1);
+            if (cell.fluid()) TemplateBrowsers.renderFluid(g,fluidIcon,x+1,y+1); else g.renderItem(icon, x + 1, y + 1);
             g.setColor(1.0f, 1.0f, 1.0f, 1.0f);
-            String amount = Integer.toString(display);
+            String amount = cell.fluid() ? CellControlArtwork.fluidQuantity(display) : Integer.toString(display);
             float scale = Math.min(1.0f, 16.0f / (float)LogisticsPanel.MC.font.width(amount));
             g.pose().pushPose();
             PoseStack poseStack = g.pose();
@@ -981,17 +997,20 @@ public final class LogisticsPanel {
         }
         if (hover) {
             tooltip = new ArrayList<Component>();
-            if (!icon.isEmpty()) {
-                tooltip.addAll(Screen.getTooltipFromItem((Minecraft)MC, (ItemStack)icon));
+            if (!icon.isEmpty() || !fluidIcon.isEmpty()) {
+                if (cell.fluid()) tooltip.add(fluidIcon.getHoverName()); else tooltip.addAll(Screen.getTooltipFromItem((Minecraft)MC, (ItemStack)icon));
                 int display = Math.max(0, cell.amount() - cell.reserved());
                 if (predict != null && predict.slot() == box.slot() && predict.window().equals(window))
                     display = Math.max(0, predict.result());
-                tooltip.add(LogisticsPanel.tr("stock", display, snapshot.groupCapacity() * cell.stackSize()));
-                if (cell.stackSize() > 1) {
+                tooltip.add(LogisticsPanel.tr(cell.fluid() ? "fluid_stock" : "stock", display, snapshot.groupCapacity() * cell.stackSize()));
+                if (!cell.fluid() && cell.stackSize() > 1) {
                     tooltip.add(LogisticsPanel.tr("stock_groups", cell.amount() / cell.stackSize(), snapshot.groupCapacity()));
                 }
                 if (display == 0 && cell.reserved() > 0) tooltip.add(LogisticsPanel.tr("held_preview", new Object[0]));
             }
+            if (cell.fluid()) tooltip.add(tr("fluid_take"));
+            if (cell.fluid() || cell.template().isEmpty()) tooltip.add(tr("fluid_deposit"));
+            if (cell.amount() == 0 && TemplateBrowsers.available()) tooltip.add(tr("template_hint",ClientBootstrap.SELECT_TEMPLATE.getTranslatedKeyMessage()));
             if (cell.minimum() >= 0 && cell.amount() < cell.minimum() && mouseX < x + 7 && mouseY < y + 7) {
                 tooltip = List.of(LogisticsPanel.tr(cell.pending() > 0 ? "requested" : "shortage", new Object[0]));
             }
@@ -1055,10 +1074,16 @@ public final class LogisticsPanel {
         var cell = snapshot.cells().get(selected); var r = layout.slider();
         var parcel = new ItemStack(net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
                 ResourceLocation.fromNamespaceAndPath("create", "cardboard_package_10x8")));
-        CellControlArtwork.render(g, r, draft.value(), cellCapacity(), cell.pending(), parcel);
+        CellControlArtwork.render(g, r, draft.value(), cellCapacity(), cell.pending(), parcel, cell.fluid());
         if (!r.contains(mouseX, mouseY)) return;
         tooltip = List.of();
         for (int field=0;field<5;field++) if (CellControlGeometry.field(r,field).contains(mouseX,mouseY)) {
+            if (cell.fluid()) {
+                tooltip = field == 4 ? List.of(tr("controls.fluid_pending", cell.pending()), tr("controls.reset"))
+                        : field < 2 ? List.of(tr("controls.fluid_reserved"))
+                        : List.of(tr(field == 2 ? "controls.lower" : "controls.upper"), tr("controls.fluid_step"));
+                break;
+            }
             tooltip = field == 4 ? List.of(tr("controls.pending",cell.pending()),tr("controls.reset"),tr("controls.late"))
                     : List.of(tr("controls."+new String[]{"batch","limit","lower","upper"}[field]),tr("controls.wheel"));
             if (field == 0 && draft.value().lower()>0 && draft.value().upper() >= 0
@@ -1208,7 +1233,7 @@ public final class LogisticsPanel {
                 return new QueuedPanelClick(window, snapshot.session(), QueuedClickKind.CLEAR_FILTER, box.slot(), button, -1, cell.template());
             }
             if (!LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
-                return new QueuedPanelClick(window, snapshot.session(), QueuedClickKind.DEPOSIT, box.slot(), button, -1, cell.template());
+                return new QueuedPanelClick(window, snapshot.session(), Screen.hasAltDown() || cell.fluid() ? QueuedClickKind.DEPOSIT_FLUID : QueuedClickKind.DEPOSIT, box.slot(), button, -1, cell.template());
             }
             return new QueuedPanelClick(window, snapshot.session(), Screen.hasShiftDown() ? QueuedClickKind.TAKE_INVENTORY : QueuedClickKind.TAKE_CURSOR, box.slot(), button, -1, cell.template());
         }
@@ -1250,12 +1275,15 @@ public final class LogisticsPanel {
         }
         switch (click.kind()) {
             case CLEAR_FILTER -> LogisticsPanel.send(CacheActions.Action.CLEAR_FILTER, click.slot(), 0, -1, "");
+            case DEPOSIT_FLUID -> LogisticsPanel.send(CacheActions.Action.DEPOSIT_FLUID, click.slot(), 0, 0, "");
             case DEPOSIT -> LogisticsPanel.send(CacheActions.Action.DEPOSIT, click.slot(), click.button() == 1 ? 1 : 0, -1, "");
             case TAKE_INVENTORY -> {
+                if (cell.fluid()) { send(CacheActions.Action.TAKE_FLUID,click.slot(),8000,0,""); break; }
                 ItemStack item = ICONS.getOrDefault(cell.template(), ItemStack.EMPTY);
                 LogisticsPanel.send(CacheActions.Action.TAKE_INVENTORY, click.slot(), click.button() == 1 ? 1 : item.getMaxStackSize(), -1, "");
             }
             case TAKE_CURSOR -> {
+                if (cell.fluid()) { send(CacheActions.Action.TAKE_FLUID,click.slot(),1000,0,""); break; }
                 ItemStack item = ICONS.getOrDefault(cell.template(), ItemStack.EMPTY);
                 LogisticsPanel.send(CacheActions.Action.TAKE_CURSOR, click.slot(), click.button() == 1 ? 1 : item.getMaxStackSize(), -1, "");
             }
@@ -1299,6 +1327,23 @@ public final class LogisticsPanel {
         }
         if (waiting != 0) {
             capturedButton = button;
+            return true;
+        }
+        if (active() && snapshot.fluidPreview().amount() > 0) {
+            capturedButton=button;
+            if (button != 0 || !MC.player.containerMenu.getCarried().isEmpty()) {
+                send(CacheActions.Action.RELEASE_FLUID,-1,snapshot.fluidPreview().sequence(),0,""); return true;
+            }
+            for (var slot : screen.getMenu().slots) {
+                int index=slot.getSlotIndex();
+                if (slot.container != MC.player.getInventory() || index<0 || index>=36 || !slot.isActive() || !slot.mayPickup(MC.player)) continue;
+                if (!new PanelLayout.Rect(screen.getGuiLeft()+slot.x,screen.getGuiTop()+slot.y,16,16).contains(x,y) || slot.getItem().isEmpty()) continue;
+                try { send(CacheActions.Action.PLACE_FLUID,snapshot.fluidPreview().slot(),index,snapshot.fluidPreview().sequence(),ItemVariantKey.of(slot.getItem(),MC.player.registryAccess()).encoded()); }
+                catch (IllegalArgumentException invalid) { notice("result.invalid_item"); }
+                return true;
+            }
+            if (layout.cells().stream().anyMatch(c->c.slot()==snapshot.fluidPreview().slot() && c.bounds().contains(x,y)))
+                send(CacheActions.Action.RELEASE_FLUID,-1,snapshot.fluidPreview().sequence(),0,"");
             return true;
         }
         PanelLayout inputLayout = layout;
@@ -1398,6 +1443,8 @@ public final class LogisticsPanel {
                 LogisticsPanel.send(CacheActions.Action.CLEAR_FILTER, box.slot(), 0, -1, "");
             } else if (!LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
                 LogisticsPanel.depositAt(box.slot(), button);
+            } else if (cell.fluid()) {
+                send(CacheActions.Action.TAKE_FLUID,box.slot(),Screen.hasShiftDown()?8000:1000,0,"");
             } else {
                 ItemStack item = ICONS.getOrDefault(cell.template(), ItemStack.EMPTY);
                 LogisticsPanel.send(Screen.hasShiftDown() ? CacheActions.Action.TAKE_INVENTORY : CacheActions.Action.TAKE_CURSOR, box.slot(), button == 1 ? 1 : item.getMaxStackSize(), -1, "");
@@ -1429,6 +1476,9 @@ public final class LogisticsPanel {
      * doing nothing.
      */
     private static void depositAt(int aimed, int button) {
+        if (aimed >= 0 && (Screen.hasAltDown() || snapshot.cells().get(aimed).fluid())) {
+            send(CacheActions.Action.DEPOSIT_FLUID,aimed,0,0,""); return;
+        }
         int first = button == 1 ? 1 : 0;
         String carried;
         try {
@@ -1496,11 +1546,11 @@ public final class LogisticsPanel {
         if (!visible()) return false;
         if (!layout.hidden() && layout.slider() != null && layout.slider().contains(x,y)) {
             var draft=controls(); if (draft==null || amount==0 || draggingSlider || draggingMaximum) return true;
-            var value=draft.value(); int step=Screen.hasShiftDown()?snapshot.cells().get(selected).stackSize():1;
+            var value=draft.value(); boolean fluid=snapshot.cells().get(selected).fluid(); int step=fluid?8000:Screen.hasShiftDown()?snapshot.cells().get(selected).stackSize():1;
             int direction=amount>0?1:-1, cap=cellCapacity(), nine=9*snapshot.cells().get(selected).stackSize();
             int lower=value.lower(),upper=value.upper(),batch=value.batch(),limit=value.pendingLimit();
-            if(CellControlGeometry.field(layout.slider(),0).contains(x,y)) batch=CellControlDraft.wheel(batch,direction,step,1,nine,false);
-            else if(CellControlGeometry.field(layout.slider(),1).contains(x,y)) limit=CellControlDraft.wheel(limit,direction,step,1,nine,true);
+            if(!fluid && CellControlGeometry.field(layout.slider(),0).contains(x,y)) batch=CellControlDraft.wheel(batch,direction,step,1,nine,false);
+            else if(!fluid && CellControlGeometry.field(layout.slider(),1).contains(x,y)) limit=CellControlDraft.wheel(limit,direction,step,1,nine,true);
             else if(CellControlGeometry.field(layout.slider(),2).contains(x,y)) {
                 lower=CellControlDraft.wheel(Math.max(0,lower),direction,step,0,upper<0?cap:upper,false); if(lower==0) lower=-1;
             } else if(CellControlGeometry.field(layout.slider(),3).contains(x,y)) upper=CellControlDraft.wheel(upper,direction,step,Math.max(0,lower),cap,true);
@@ -1572,6 +1622,7 @@ public final class LogisticsPanel {
         var draft=controls(); if(draft==null || layout.slider()==null || !dragMoved && Math.abs(x-dragOriginX)<2) return;
         dragMoved=true; var value=draft.value(); int cap=cellCapacity();
         int next=CellControlGeometry.draggedValue(dragStartValue,x-dragOriginX,cap);
+        if (snapshot.cells().get(selected).fluid()) next=Math.clamp(Math.round(next/8000f)*8000,0,cap);
         int lower=value.lower(),upper=value.upper();
         if(maximum) upper=next>=cap?-1:Math.max(next,Math.max(0,lower));
         else { lower=Math.min(next,upper<0?cap:upper); if(lower==0) lower=-1; }
@@ -1585,7 +1636,7 @@ public final class LogisticsPanel {
         controlDrafts.entrySet().removeIf(e -> !currentDraft(e.getValue()));
         var drafts=controlDrafts.values().stream().filter(d->closing?d.dirty():d.ready(tick)).toList();
         if(drafts.isEmpty())return;
-        var changes=drafts.stream().map(d->new CacheActions.SettingsChange(d.context().slot(),d.context().filterRevision(),d.value())).toList();
+        var changes=drafts.stream().map(d->new CacheActions.SettingsChange(d.context().slot(),d.context().filterRevision(),d.value(),snapshot.cells().get(d.context().slot()).fluid())).toList();
         waiting=++sequence;waitingSince=tick;
         PacketDistributor.sendToServer(new PanelPackets.SettingsBatch(window,snapshot.session(),waiting,changes));
         for(var draft:drafts)draft.sentAll(waiting);
@@ -1597,10 +1648,10 @@ public final class LogisticsPanel {
 
     public static boolean templateTarget(int slot) {
         return recipeReady() && slot >= 0 && slot < snapshot.cells().size() && snapshot.cells().get(slot).amount() == 0
-                && MC.player.containerMenu.getCarried().isEmpty() && (templateTarget < 0 || templateTarget == slot);
+                && snapshot.fluidPreview().amount() == 0 && MC.player.containerMenu.getCarried().isEmpty() && (templateTarget < 0 || templateTarget == slot);
     }
     private static boolean beginTemplate(double x, double y) {
-        if (!active() || waiting != 0 || layout == null || hidden || layout.compact() || returnEditing || !MC.player.containerMenu.getCarried().isEmpty()) return false;
+        if (!active() || waiting != 0 || layout == null || hidden || layout.compact() || returnEditing || snapshot.fluidPreview().amount()>0 || !MC.player.containerMenu.getCarried().isEmpty()) return false;
         for (var cell : layout.cells()) if (cell.bounds().contains(x, y)) {
             if (snapshot.cells().get(cell.slot()).amount() != 0) notice("result.filter_occupied");
             else if (!TemplateBrowsers.available()) notice("template_no_browser");
@@ -1624,9 +1675,10 @@ public final class LogisticsPanel {
     public static boolean setTemplate(int slot, TemplateBrowsers.Template template) {
         if (!templateTarget(slot) || template == null || template.isEmpty()) return false;
         try {
-            if (!template.fluid().isEmpty()) { notice("result.invalid_item"); return false; }
-            String encoded = ItemVariantKey.of(template.item(), MC.player.registryAccess()).encoded();
-            if (!send(CacheActions.Action.SET_GHOST, slot, 0, -1, encoded)) return false;
+            boolean fluid = !template.fluid().isEmpty();
+            String encoded = fluid ? dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(template.fluid(), MC.player.registryAccess()).encoded()
+                    : ItemVariantKey.of(template.item(), MC.player.registryAccess()).encoded();
+            if (!send(fluid ? CacheActions.Action.SET_FLUID_GHOST : CacheActions.Action.SET_GHOST, slot, 0, -1, encoded)) return false;
             templateSequence = waiting; return true;
         } catch (IllegalArgumentException invalid) { notice("result.invalid_item"); return false; }
     }
@@ -1652,7 +1704,7 @@ public final class LogisticsPanel {
         if (snapshot == null || snapshot.session() == null || waiting != 0 || cursorPending || pendingCursorChange != null || window == null) {
             return false;
         }
-        boolean creative = screen instanceof CreativeModeInventoryScreen && (action == CacheActions.Action.DEPOSIT || action == CacheActions.Action.TAKE_CURSOR);
+        boolean creative = screen instanceof CreativeModeInventoryScreen && (action == CacheActions.Action.DEPOSIT || action == CacheActions.Action.TAKE_CURSOR || action == CacheActions.Action.DEPOSIT_FLUID);
         String cursor = "";
         int count = 0;
         if (creative && !(held = LogisticsPanel.MC.player.containerMenu.getCarried()).isEmpty()) {
@@ -1675,7 +1727,7 @@ public final class LogisticsPanel {
         if (creative) {
             cursorSession = snapshot.session(); cursorOperation = waiting;
             cursorExpected = MC.player.containerMenu.getCarried().copy(); cursorPending = true;
-            if (action == CacheActions.Action.DEPOSIT) pendingCursorChange = new PendingCursorChange(window, cursorSession, waiting, cursorExpected);
+            if (action == CacheActions.Action.DEPOSIT || action == CacheActions.Action.DEPOSIT_FLUID) pendingCursorChange = new PendingCursorChange(window, cursorSession, waiting, cursorExpected);
             if (action == CacheActions.Action.TAKE_CURSOR) {
                 previewSeq = waiting; previewRemaining = 0; previewVariant = null; previewConfirmed = false;
             } else if (!previewConfirmed) previewSeq = 0;

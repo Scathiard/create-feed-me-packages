@@ -6,6 +6,7 @@ import dev.scathiard.feedmepackages.registry.FmpRegistries;
 import dev.scathiard.feedmepackages.service.AccessGate;
 import dev.scathiard.feedmepackages.storage.*;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import java.util.*;
 
@@ -17,9 +18,14 @@ public final class ReceiveService {
     private static final Map<ServerPlayer, UUID> WARNED_RESIDUALS = new WeakHashMap<>();
     private record Plan(CacheRecord replacement) {}
 
-    private static Plan simulate(net.minecraft.world.entity.LivingEntity player, CacheHandle handle, ItemStack box, boolean residual) {
+    private static Plan simulate(LivingEntity player, CacheHandle handle, ItemStack box, boolean residual) {
+        if (box.has(FmpRegistries.FLUID_PARCEL_SEAL.get())) {
+            var candidate = dev.scathiard.feedmepackages.fluid.FluidReceipt.simulate(player, handle, box, residual);
+            return candidate == null ? null : new Plan(candidate);
+        }
         var seal = box.get(FmpRegistries.PARCEL_SEAL.get());
         if (seal == null) return null;
+        if (dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.isFamily(box)) return null;
         // A residual is already owned by this cache; its next lawful holder may resume it.
         // External handoffs still require the original recipient, including arrived parcels.
         if (residual ? !seal.arrived() : !seal.playerId().equals(player.getUUID())) return null;
@@ -50,15 +56,18 @@ public final class ReceiveService {
         } else if (residual) {
             nextResiduals.remove(requested);
         }
-        return new Plan(new CacheRecord(intake.state(), record.owner(), nextResiduals));
+        return new Plan(record.withState(intake.state()).withResidual(requested, nextResiduals.getOrDefault(requested, ItemStack.EMPTY)));
     }
 
-    public static boolean receive(ServerPlayer player, ItemStack source) { return receive(LogisticsEndpoint.player(player), source); }
+    public static boolean receive(ServerPlayer player, ItemStack source) {
+        return receive(LogisticsEndpoint.player(player), source);
+    }
     public static boolean receive(LogisticsEndpoint endpoint, ItemStack source) {
         var player = endpoint.entity();
-        if (source.isEmpty() || !source.has(FmpRegistries.PARCEL_SEAL.get())) return false;
+        if (source.isEmpty() || !source.has(FmpRegistries.PARCEL_SEAL.get()) && !source.has(FmpRegistries.FLUID_PARCEL_SEAL.get())) return false;
         var access = endpoint.access(); if (!access.active()) return false;
-        if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(access.handle().cacheId())) return false;
+        if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(access.handle().cacheId())
+                || dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId())) return false;
         var ledger = CacheLedger.get(player.getServer()); var before = ledger.find(access.handle().cacheId());
         Plan plan = simulate(player, access.handle(), source, false); if (plan == null) return false;
         var again = endpoint.access();
@@ -66,14 +75,19 @@ public final class ReceiveService {
         // No callbacks between the state replacement and relinquishing the original stack.
         ledger.replace(access.handle(), before.state().revision(), plan.replacement()); source.setCount(0);
         LogisticsSignals.received(before.state(), plan.replacement().state());
-        if (player instanceof ServerPlayer serverPlayer) serverPlayer.getInventory().setChanged(); return true;
+        LogisticsSignals.received(before.fluids().state(), plan.replacement().fluids().state());
+        if (player instanceof ServerPlayer serverPlayer) serverPlayer.getInventory().setChanged();
+        return true;
     }
 
-    public static void resume(ServerPlayer player) { resume(LogisticsEndpoint.player(player)); }
+    public static void resume(ServerPlayer player) {
+        resume(LogisticsEndpoint.player(player));
+    }
     public static void resume(LogisticsEndpoint endpoint) {
         var player = endpoint.entity();
         var access = endpoint.access(); if (!access.active()) return;
-        if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(access.handle().cacheId())) return;
+        if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(access.handle().cacheId())
+                || dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId())) return;
         var ledger = CacheLedger.get(player.getServer());
         if (ledger.find(access.handle().cacheId()).anyResidual()) {
             // Resume every cell's residual independently; different cells never contend.
@@ -83,6 +97,14 @@ public final class ReceiveService {
                 if (plan != null) {
                     ledger.replace(access.handle(), record.state().revision(), plan.replacement());
                     LogisticsSignals.received(record.state(), plan.replacement().state());
+                }
+            }
+            for (var entry : List.copyOf(ledger.find(access.handle().cacheId()).fluids().residuals().entrySet())) {
+                var record = ledger.find(access.handle().cacheId());
+                var plan = simulate(player, access.handle(), entry.getValue(), true);
+                if (plan != null) {
+                    ledger.replace(access.handle(), record.state().revision(), plan.replacement());
+                    LogisticsSignals.received(record.fluids().state(), plan.replacement().fluids().state());
                 }
             }
             if (player instanceof ServerPlayer serverPlayer) returnUnmatchedResidual(serverPlayer, access.handle());
@@ -115,6 +137,21 @@ public final class ReceiveService {
             ledger.replace(handle, current.state().revision(), current.withResidual(variant, ItemStack.EMPTY));
             inventory.commit(player.getInventory());
             player.containerMenu.broadcastChanges();
+        }
+        for (var entry : List.copyOf(ledger.find(handle.cacheId()).fluids().residuals().entrySet())) {
+            var box = entry.getValue(); var seal = box.get(FmpRegistries.FLUID_PARCEL_SEAL.get());
+            if (seal == null || !seal.arrived() || !ParcelAuthentication.validFluid(ledger, player.registryAccess(), box, seal)) {
+                if (!handle.cacheId().equals(WARNED_RESIDUALS.put(player, handle.cacheId())))
+                    dev.scathiard.feedmepackages.FeedMePackages.LOGGER.warn("Retained unverifiable fluid residual in cache {}; nothing moved", handle.cacheId());
+                continue;
+            }
+            var target = ledger.fluidParcelTarget(seal.cacheId(), entry.getKey(), seal.filterRevision());
+            if (target != null && target.cacheId().equals(handle.cacheId())) continue;
+            var current = ledger.find(handle.cacheId());
+            var inventory = InventoryTransfer.insert(player.getInventory(), box, 1);
+            if (inventory.moved() != 1 || !inventory.stillValid(player.getInventory())) continue;
+            ledger.replace(handle, current.state().revision(), current.withFluids(current.fluids().withResidual(entry.getKey(), ItemStack.EMPTY)));
+            inventory.commit(player.getInventory()); player.containerMenu.broadcastChanges();
         }
     }
 

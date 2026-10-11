@@ -83,7 +83,7 @@ public final class EffortlessOperation implements AutoCloseable {
             var access=AccessGate.resolve(player);
             if(access.active() && access.handle().equals(receipt.cache)) {
                 var ledger=CacheLedger.get(player.getServer());var record=ledger.find(receipt.cache.cacheId());
-                if(record!=null && ledger.returnEscrow(receipt.cache.cacheId())==null) {
+                if(record!=null && !dev.scathiard.feedmepackages.interaction.FluidActions.operating(receipt.cache.cacheId()) && ledger.returnEscrow(receipt.cache.cacheId())==null) {
                     var key=ItemVariantKey.of(stack,player.registryAccess());int slot=record.state().find(key);
                     if(slot>=0) {
                         var edit=record.state().edit();int restored=edit.insert(slot,key,stack.getCount());

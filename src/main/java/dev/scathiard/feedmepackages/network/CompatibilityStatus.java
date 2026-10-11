@@ -30,6 +30,7 @@ public final class CompatibilityStatus {
         @Override public Type<Message> type() { return TYPE; }
     }
     private static final Map<ServerPlayer, Message> LAST = new WeakHashMap<>();
+    private static final Map<ServerPlayer, java.util.UUID> SUSPENDED = new WeakHashMap<>();
     private static Consumer<Message> receiver = message -> {};
     public static void receiveOnClient(Consumer<Message> value) { receiver = java.util.Objects.requireNonNull(value); }
     public static void register(RegisterPayloadHandlersEvent event) {
@@ -57,7 +58,13 @@ public final class CompatibilityStatus {
         if (player.tickCount % 20 != 0) return;
         var now = new Message(tacz(), wand(), gadgets(), effortless(), fxnt(), emi(), sophisticated(), maid());
         if (!now.equals(LAST.put(player, now))) PacketDistributor.sendToPlayer(player, now);
+        var access = dev.scathiard.feedmepackages.service.AccessGate.resolve(player);
+        var record = access.active() ? dev.scathiard.feedmepackages.storage.CacheLedger.get(player.getServer()).find(access.handle().cacheId()) : null;
+        if (record != null && record.fluids().hasSuspendedResiduals()) {
+            if (!record.state().id().equals(SUSPENDED.put(player, record.state().id())))
+                player.sendSystemMessage(net.minecraft.network.chat.Component.translatable("message.create_feed_me_packages.compat.fluid_residual_suspended", record.fluids().suspendedResiduals().size()));
+        } else SUSPENDED.remove(player);
 
     }
-    public static void forget(ServerPlayer player) { LAST.remove(player); TransferOrigin.forget(player); }
+    public static void forget(ServerPlayer player) { LAST.remove(player); SUSPENDED.remove(player); TransferOrigin.forget(player); }
 }

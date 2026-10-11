@@ -21,8 +21,7 @@ public final class ParcelIntake {
 
     public static Plan simulate(CacheState<ItemVariantKey> state, ItemStack box, ItemVariantKey requested,
                                 UUID requestId, boolean alreadyArrived, HolderLookup.Provider registries) {
-        if (box.getCount() != 1 || !PackageItem.isPackage(box)
-                || box.getOrDefault(AllDataComponents.PACKAGE_CONTENTS, ItemContainerContents.EMPTY).getSlots() > 9)
+        if (!ParcelEnvelope.items(box))
             throw new IllegalArgumentException("Invalid native package shape");
         var contents = PackageItem.getContents(box); var edit = state.edit();
         NonNullList<ItemStack> remainder = NonNullList.withSize(contents.getSlots(), ItemStack.EMPTY);

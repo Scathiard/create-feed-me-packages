@@ -70,7 +70,8 @@ public final class MaidCouriers {
         catch (ReflectiveOperationException broken) { throw MaidCompatibility.failure(broken); }
     }
     private static ParcelSeal seal(ItemStack box) {
-        return box.get(FmpRegistries.PARCEL_SEAL.get());
+        return box.has(FmpRegistries.FLUID_PARCEL_SEAL.get()) ? box.get(FmpRegistries.FLUID_PARCEL_SEAL.get())
+                : box.get(FmpRegistries.PARCEL_SEAL.get());
     }
     private static LivingEntity destination(MinecraftServer server, ItemStack box, UUID network, boolean authenticate) {
         var seal = seal(box); if (seal == null || box.isEmpty()) return null;
@@ -80,7 +81,9 @@ public final class MaidCouriers {
                 || network != null && !network.equals(access.handle().networkId())) return null;
         if (authenticate) {
             var ledger = CacheLedger.get(server);
-            boolean valid = ParcelAuthentication.valid(ledger, maid.registryAccess(), box, seal);
+            boolean valid = box.has(FmpRegistries.FLUID_PARCEL_SEAL.get())
+                    ? ParcelAuthentication.validFluid(ledger, maid.registryAccess(), box, seal)
+                    : ParcelAuthentication.valid(ledger, maid.registryAccess(), box, seal);
             if (!valid) return null;
         }
         return maid;

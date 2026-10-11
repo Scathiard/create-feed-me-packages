@@ -12,7 +12,12 @@ public final class CellControlArtwork {
     private CellControlArtwork() {}
     private static final ResourceLocation GAUGE = ResourceLocation.fromNamespaceAndPath("create", "textures/gui/factory_gauge.png");
     private static final ResourceLocation TRACK = ResourceLocation.fromNamespaceAndPath("create_feed_me_packages", "textures/gui/panel.png");
-    public static void render(GuiGraphics g, PanelLayout.Rect r, CellSettings s, int capacity, int pending, ItemStack parcel) {
+    public static void render(GuiGraphics g, PanelLayout.Rect r, CellSettings s, int capacity, int pending, ItemStack parcel) { render(g,r,s,capacity,pending,parcel,false); }
+    public static String fluidQuantity(int amount) {
+        return amount < 1000 ? amount + "mB" : amount % 1000 == 0 ? amount / 1000 + "B"
+                : String.format(java.util.Locale.ROOT,"%.2fB",amount / 1000.0);
+    }
+    public static void render(GuiGraphics g, PanelLayout.Rect r, CellSettings s, int capacity, int pending, ItemStack parcel, boolean fluid) {
         int x=r.x(), y=r.y();
         g.pose().pushPose(); g.pose().translate(0,0,250);
         g.fill(x,y,x+144,y+57,0xff000000); g.fill(x+1,y+1,x+143,y+56,0xffc6c6c6);
@@ -22,12 +27,12 @@ public final class CellControlArtwork {
         well(g,field(r,2),false,true); well(g,field(r,3),false,true);
         var box=field(r,4); g.blit(GAUGE,box.x(),box.y(),99,215,18,18,256,256);
         g.renderItem(parcel,box.x()+1,box.y()+1);
-        number(g,compactCount(pending),box.x()+1,box.y()+11,18);
+        number(g,fluid ? fluidQuantity(pending) : compactCount(pending),box.x()+1,box.y()+11,18);
         int color=s.pendingLimit()>=0 && s.pendingLimit()<s.batch()?0xffff7777:0xffeeeeee;
-        number(g,Integer.toString(s.batch()),x+16,y+14,38,color);
-        number(g,s.pendingLimit()<0 ? "/" : Integer.toString(s.pendingLimit()),x+96,y+14,38,color);
-        number(g,s.lower()<0 ? "/" : Integer.toString(s.lower()),x+11,y+37,19);
-        number(g,s.upper()<0 ? "/" : Integer.toString(s.upper()),x+115,y+37,19);
+        number(g,fluid ? "—" : Integer.toString(s.batch()),x+16,y+14,38,color);
+        number(g,fluid ? "—" : s.pendingLimit()<0 ? "/" : Integer.toString(s.pendingLimit()),x+96,y+14,38,color);
+        number(g,s.lower()<0 ? "/" : fluid ? fluidQuantity(s.lower()) : Integer.toString(s.lower()),x+11,y+37,19);
+        number(g,s.upper()<0 ? "/" : fluid ? fluidQuantity(s.upper()) : Integer.toString(s.upper()),x+115,y+37,19);
         int tx=x+TRACK_X,ty=y+TRACK_Y;
         g.blit(TRACK,tx,ty,0,1,4,5,256,256);
         for(int px=4;px<68;px+=3) g.blit(TRACK,tx+px,ty,17,1,Math.min(3,68-px),5,256,256);

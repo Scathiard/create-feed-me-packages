@@ -30,7 +30,7 @@ public final class SophisticatedMaterials {
         if (CURRENT.get() != null || recipe == null) return null;
         var context = SophisticatedAccess.resolve(player); var access = AccessGate.resolve(player);
         if (context == null || context.menu().containerId != menu || context.upgrade() != upgrade || !access.active()
-                || !access.handle().cacheId().equals(cache) || CraftingReservations.operating(cache)
+                || !access.handle().cacheId().equals(cache) || (CraftingReservations.operating(cache) || dev.scathiard.feedmepackages.interaction.FluidActions.operating(cache))
                 || !context.menu().getCarried().isEmpty()) return null;
         var tx = new Transfer(context, access.handle(), recipe, maximum);
         return tx.choice.error() == CraftingPlanner.Error.NONE ? tx : null;

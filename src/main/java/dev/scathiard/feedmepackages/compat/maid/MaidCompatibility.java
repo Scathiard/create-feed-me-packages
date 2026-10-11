@@ -86,7 +86,7 @@ public final class MaidCompatibility {
     }
     public static ItemStack supply(LivingEntity maid, Predicate<ItemStack> accepts, int limit) {
         var access = MaidAccess.resolve(maid);
-        if (!access.active() || limit == 0 || CraftingReservations.operating(access.handle().cacheId())
+        if (!access.active() || limit == 0 || (CraftingReservations.operating(access.handle().cacheId()) || dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId()))
                 || !TRANSFERRING.add(access.handle().cacheId())) return ItemStack.EMPTY;
         try {
             var inv = inventory(maid); var beforeInventory = new ArrayList<ItemStack>();
@@ -111,7 +111,7 @@ public final class MaidCompatibility {
                     var again = MaidAccess.resolve(maid);
                     if (!again.active() || !access.handle().equals(again.handle()) || ledger.find(access.handle().cacheId()) != before
                             || inventory(maid).getSlots() != beforeInventory.size()
-                            || CraftingReservations.operating(access.handle().cacheId())
+                            || (CraftingReservations.operating(access.handle().cacheId()) || dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId()))
                             || stock.amount() - CraftingReservations.reservedCache(access.handle().cacheId(), cell, null) < offered.getCount())
                         return ItemStack.EMPTY;
                     for (int i = 0; i < beforeInventory.size(); i++)

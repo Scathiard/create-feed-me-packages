@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.gametest;
 
+
 import com.simibubi.create.AllBlocks;
 import com.simibubi.create.content.logistics.box.PackageItem;
 import com.simibubi.create.content.logistics.packager.PackagerBlock;
@@ -241,5 +242,117 @@ public final class SupplyTests {
     static ItemStack takeOutput(GameTestHelper h, BlockPos pos) {
         var handler = h.getLevel().getCapability(net.neoforged.neoforge.capabilities.Capabilities.ItemHandler.BLOCK, h.absolutePos(pos), Direction.NORTH);
         return handler == null ? ItemStack.EMPTY : handler.extractItem(0, 1, false);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 200)
+    public static void nativeFluidRequestSplitsAtAuthorCapacityAndPreservesComponents(GameTestHelper h) {
+        if (!fluidReady(h)) return;
+        var sample = new net.neoforged.neoforge.fluids.FluidStack(net.minecraft.world.level.material.Fluids.WATER, 1);
+        sample.set(DataComponents.CUSTOM_NAME, Component.literal("Factory exact water"));
+        var f = fluidSupply(h, sample, false); var before = f.record();
+        var edit = before.fluids().state().edit(); edit.thresholds(0, 2, -1);
+        f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(edit.finish())));
+        var pos = new BlockPos(2, 1, 2); placeFluidFactory(h, pos, 2);
+        int[] phase = {0}, total = {0}, boxes = {0}; var ids = new HashSet<UUID>();
+        h.onEachTick(() -> {
+            if (h.getTick() < 5) return;
+            if (phase[0] == 0) {
+                h.assertTrue(dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.capacity() == 10000,
+                        "This split fixture requires the pinned author's default 10000 mB package capacity");
+                fillSource(h, f, pos, 16000); connect(h, pos, f.network()); SupplyService.tick(f.player()); phase[0] = 1;
+                h.assertTrue(f.record().fluids().state().pending(0) == 16000  &&  source(h, pos).getFluidInTank(0).isEmpty()
+                        ,
+                        "Native split dispatch did not reserve the extracted volume, or charged before intake");
+            }
+            var box = takeOutput(h, pos); if (box.isEmpty()) return;
+            var contents = dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(box);
+            var seal = box.get(FmpRegistries.FLUID_PARCEL_SEAL.get());
+            h.assertTrue(net.neoforged.neoforge.fluids.FluidStack.isSameFluidSameComponents(sample, contents)
+                    && contents.getAmount() > 0 && contents.getAmount() <= 10000 && seal != null && ids.add(seal.parcelId())
+                    && ParcelAuthentication.validFluid(f.ledger(), f.player().registryAccess(), box, seal),
+                    "Native split changed components, exceeded author capacity or reused a parcel identity");
+            total[0] += contents.getAmount(); boxes[0]++;
+            h.assertTrue(ReceiveService.receive(f.player(), box) && box.isEmpty(), "Authenticated native split refused");
+            if (total[0] != 16000) return;
+            h.assertTrue(boxes[0] == 2  &&  f.record().fluids().state().cells().get(0).amount() == 16000
+                     &&  f.record().fluids().state().orders().isEmpty()  &&  !f.record().anyResidual()
+                    ,
+                    "Split factory request duplicated stock or arrival accounting"); h.succeed();
+        });
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 160)
+    public static void nativeFluidRemainderBlocksOnlyItsOwnCellAfterManualReset(GameTestHelper h) {
+        if (!fluidReady(h)) return;
+        var f = fluidSupply(h, new net.neoforged.neoforge.fluids.FluidStack(net.minecraft.world.level.material.Fluids.WATER, 1), true);
+        var pos = new BlockPos(1, 1, 1); var itemPos = new BlockPos(4, 1, 1);
+        placeFluidFactory(h, pos, 1); placeItemFactory(h, itemPos); boolean[] requested = {false};
+        h.onEachTick(() -> {
+            if (h.getTick() < 5) return;
+            if (!requested[0]) {
+                fillSource(h, f, pos, 8000); connect(h, pos, f.network()); connect(h, itemPos, f.network());
+                SupplyService.tick(f.player()); requested[0] = true;
+            }
+            var box = takeOutput(h, pos); if (box.isEmpty()) return;
+            // Stock arriving by another route can fill the cache before the requested native parcel.
+            var before = f.record(); var full = before.fluids().state().edit();
+            h.assertTrue(full.insert(0, f.key(), 16000) == 16000, "Full-cache fixture rejected water");
+            f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(full.finish())));
+            h.assertTrue(ReceiveService.receive(f.player(), box) && f.record().anyResidual(), "Full cache lost the native fluid parcel");
+            before = f.record(); var reset = before.fluids().state().edit(); reset.reset(0);
+            f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(reset.finish())));
+            var chest = (ChestBlockEntity) h.getBlockEntity(itemPos.south()); chest.setItem(0, new ItemStack(Items.STONE, 64));
+            SupplyService.tick(f.player());
+            h.assertTrue(f.record().fluids().state().orders().isEmpty() && f.record().fluids().state().cells().get(0).amount() == 16000
+                    && dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(f.record().fluids().residual(f.key())).getAmount() == 8000
+                    && source(h, pos).getFluidInTank(0).getAmount() == 0 && f.record().state().pending(1) == 64
+                    && f.record().state().cells().get(1).amount() == 0 && chest.getItem(0).isEmpty(),
+                    "Manual reset evaded the residual pause, started a stocked item request or duplicated native extraction"); h.succeed();
+        });
+    }
+
+    private static boolean fluidReady(GameTestHelper h) {
+        if (!net.neoforged.fml.ModList.get().isLoaded("fluidlogistics")) {
+            FeedMePackages.LOGGER.info("FMP_FLUID_SUPPLY_SKIPPED: optional author artifact absent"); h.succeed(); return false;
+        }
+        h.assertTrue(dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.status()
+                == dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.Status.READY, "Fluid request interface unavailable"); return true;
+    }
+
+    record FluidSupply(net.minecraft.server.level.ServerPlayer player, dev.scathiard.feedmepackages.storage.CacheLedger ledger,
+            dev.scathiard.feedmepackages.storage.CacheHandle handle, dev.scathiard.feedmepackages.fluid.FluidVariantKey key, UUID network) {
+        dev.scathiard.feedmepackages.storage.CacheRecord record() { return ledger.find(handle.cacheId()); }
+    }
+
+    static FluidSupply fluidSupply(GameTestHelper h, net.neoforged.neoforge.fluids.FluidStack sample, boolean items) {
+        var player = TestPlayers.create(h, FmpRegistries.PENDANT.toStack());
+        var network = UUID.randomUUID(); TestPlayers.necklace(player).getStackInSlot(0).set(FmpRegistries.NETWORK.get(), network);
+        var handle = dev.scathiard.feedmepackages.service.AccessGate.resolve(player).handle();
+        var ledger = dev.scathiard.feedmepackages.storage.CacheLedger.get(player.getServer()); var before = ledger.find(handle.cacheId());
+        var key = dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(sample, player.registryAccess());
+        var fluidEdit = before.fluids().state().edit(); fluidEdit.filter(0, key); fluidEdit.thresholds(0, 1, -1);
+        var next = before.withFluids(before.fluids().withState(fluidEdit.finish()));
+        if (items) {
+            var edit = before.state().edit(); edit.filter(1, dev.scathiard.feedmepackages.item.ItemVariantKey.of(new ItemStack(Items.STONE), player.registryAccess()));
+            edit.thresholds(1, 1, -1); next = next.withState(edit.finish());
+        }
+        ledger.replace(handle, before.state().revision(), next); return new FluidSupply(player, ledger, handle, key, network);
+    }
+
+    static void placeFluidFactory(GameTestHelper h, BlockPos pos, int height) {
+        for (int i = 0; i < height; i++) h.setBlock(pos.south().above(i), AllBlocks.FLUID_TANK.get().defaultBlockState());
+        var block = net.minecraft.core.registries.BuiltInRegistries.BLOCK.get(net.minecraft.resources.ResourceLocation.parse("fluidlogistics:fluid_packager"));
+        h.setBlock(pos, block.defaultBlockState().setValue(PackagerBlock.FACING, Direction.NORTH));
+        h.setBlock(pos.above(), AllBlocks.STOCK_LINK.get().defaultBlockState().setValue(PackagerLinkBlock.FACE, AttachFace.FLOOR));
+    }
+
+    static net.neoforged.neoforge.fluids.capability.IFluidHandler source(GameTestHelper h, BlockPos pos) {
+        var source = h.getLevel().getCapability(net.neoforged.neoforge.capabilities.Capabilities.FluidHandler.BLOCK, h.absolutePos(pos.south()), Direction.NORTH);
+        h.assertTrue(source != null, "Native Create tank capability unavailable"); return source;
+    }
+
+    static void fillSource(GameTestHelper h, FluidSupply f, BlockPos pos, int amount) {
+        h.assertTrue(source(h, pos).fill(f.key().stack(f.player().registryAccess(), amount),
+                net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE) == amount, "Native fluid source capacity is insufficient");
     }
 }

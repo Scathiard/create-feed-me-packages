@@ -7,6 +7,10 @@ import dev.scathiard.feedmepackages.consumption.CraftingReservations;
 import dev.scathiard.feedmepackages.domain.CacheEdit;
 import dev.scathiard.feedmepackages.domain.CacheState;
 import dev.scathiard.feedmepackages.domain.Cell;
+import dev.scathiard.feedmepackages.domain.MaterialVariant;
+import dev.scathiard.feedmepackages.fluid.FluidVariantKey;
+import dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages;
+import dev.scathiard.feedmepackages.interaction.FluidActions;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.service.AccessGate;
 import dev.scathiard.feedmepackages.storage.CacheHandle;
@@ -61,7 +65,7 @@ public final class ReturnService {
         AccessGate.Result access = AccessGate.resolve(player);
         if (!access.active()) return;
         CacheHandle handle = access.handle();
-        if (handle.networkId() == null || CraftingReservations.operating(handle.cacheId())) {
+        if (handle.networkId() == null || CraftingReservations.operating(handle.cacheId()) || FluidActions.operating(handle.cacheId())) {
             ReturnDispatchState.reset(handle);
             return;
         }
@@ -82,8 +86,9 @@ public final class ReturnService {
                 ReturnDispatchState.reset(handle);
                 return;
             }
-            Cell<ItemVariantKey> cell = live.state().cells().get(slot);
-            String filter = cell.filter() == null ? "" : cell.filter().encoded();
+            Cell<? extends MaterialVariant> cell = live.fluids().state().cells().get(slot).filter() != null
+                    ? live.fluids().state().cells().get(slot) : live.state().cells().get(slot);
+            String filter = cell.filter() == null ? "" : encoded(cell.filter());
             if (cell.filter() == null || cell.settings().upper() < 0) {
                 ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), RETURN_UNKNOWN);
                 continue;
@@ -112,23 +117,25 @@ public final class ReturnService {
         if (carrierItem == Items.AIR) return RETURN_FAILED;
         CacheRecord record = ledger.find(handle.cacheId());
         if (record == null || slot >= record.state().cells().size()) return RETURN_FAILED;
-        CacheState<ItemVariantKey> state = record.state();
-        Cell<ItemVariantKey> cell = state.cells().get(slot);
+        boolean fluid = record.fluids().state().cells().get(slot).filter() != null;
+        CacheState<? extends MaterialVariant> state = fluid ? record.fluids().state() : record.state();
+        Cell<? extends MaterialVariant> cell = state.cells().get(slot);
         if (cell.filter() == null || cell.settings().upper() < 0) return RETURN_UNKNOWN;
         int overage = Math.max(0, cell.amount() - cell.settings().upper());
         if (overage == 0) return RETURN_UNKNOWN;
-        Carrier carrier = findCarrier(player, handle, state, carrierItem);
+        Carrier carrier = findCarrier(player, handle, record.state(), carrierItem);
         if (carrier == null) return RETURN_FAILED;
 
-        int available = cell.amount() - CraftingReservations.reservedCache(handle.cacheId(), slot, null);
-        if (carrier.cacheSlot() == slot) available--; // A carrier cannot also be its own cargo.
-        int amount = Math.min(Math.min(overage, available), PACKAGE_SLOTS * cell.filter().stackSize());
+        int available = (int)Math.max(0, cell.amount() - (fluid ? FluidActions.reserved(handle.cacheId(), slot)
+                : CraftingReservations.reservedCache(handle.cacheId(), slot, null)));
+        if (!fluid && carrier.cacheSlot() == slot) available--; // A carrier cannot also be its own cargo.
+        int amount = Math.min(Math.min(overage, available), fluid ? FluidPackages.capacity() : PACKAGE_SLOTS * cell.filter().stackSize());
         if (amount <= 0) return RETURN_FAILED;
         ItemStack box = buildBox(player, cell.filter(), amount, address);
         if (box == null) return RETURN_FAILED;
 
         ItemStack carrierStack = carrier.inventorySlot() >= 0 ? player.getInventory().getItem(carrier.inventorySlot())
-                : state.cells().get(carrier.cacheSlot()).filter().stack(player.registryAccess(), 1);
+                : record.state().cells().get(carrier.cacheSlot()).filter().stack(player.registryAccess(), 1);
         var access = AccessGate.resolve(player);
         if (!access.active() || !handle.equals(access.handle()) || ledger.find(handle.cacheId()) != record
                 || !address.equals(ledger.returnAddress(handle.cacheId())) || carrierStack.isEmpty() || !carrierStack.is(carrierItem))
@@ -204,7 +211,17 @@ public final class ReturnService {
     }
 
 
-    private static ItemStack buildBox(ServerPlayer player, ItemVariantKey variant, int amount, String address) {
+    private static String encoded(MaterialVariant variant) {
+        return variant instanceof FluidVariantKey fluid ? "fluid:" + fluid.encoded() : ((ItemVariantKey) variant).encoded();
+    }
+    private static ItemStack buildBox(ServerPlayer player, MaterialVariant material, int amount, String address) {
+        if (material instanceof FluidVariantKey fluid) {
+            try {
+                var box = FluidPackages.create(fluid.stack(player.registryAccess(), amount));
+                PackageItem.addAddress(box, address); return box;
+            } catch (IllegalArgumentException unavailable) { return null; }
+        }
+        var variant = (ItemVariantKey) material;
         try {
             List<ItemStack> contents = new ArrayList<>();
             for (int remaining = amount; remaining > 0;) {

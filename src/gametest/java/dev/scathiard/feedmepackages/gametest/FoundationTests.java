@@ -2,6 +2,9 @@ package dev.scathiard.feedmepackages.gametest;
 
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
+import dev.scathiard.feedmepackages.fluid.FluidVariantKey;
+import net.neoforged.neoforge.fluids.FluidStack;
+import net.minecraft.world.level.material.Fluids;
 import dev.scathiard.feedmepackages.registry.FmpRegistries;
 import dev.scathiard.feedmepackages.storage.*;
 import dev.scathiard.feedmepackages.service.AccessGate;
@@ -34,6 +37,155 @@ import java.util.Map;
 @GameTestHolder(FeedMePackages.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class FoundationTests {
+    /** Same physical world across four separate JVMs; not selected by the ordinary test namespace. */
+    @GameTest(template = "empty", templateNamespace = "fmp_lifecycle")
+    public static void optionalFluidRemovalAndRestoration(GameTestHelper h) {
+        String[] mode=System.getProperty("fmp.fluidLifecycle","").split(":");
+        h.assertTrue(mode.length==2,"Dedicated lifecycle invocation required");
+        boolean residual=mode[0].equals("residual");String phase=mode[1];
+        var server=h.getLevel().getServer();var registries=server.registryAccess();var storage=server.overworld().getDataStorage();
+        var probe=storage.computeIfAbsent(new SavedData.Factory<>(PersistenceProbe::new,PersistenceProbe::load),"fmp_fluid_lifecycle_probe");
+        var ledger=CacheLedger.get(server);var status=dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.status();
+        if(phase.equals("write")) {
+            h.assertTrue(probe.data.isEmpty(),"Lifecycle world already has evidence; do not overwrite it");
+            h.assertTrue(status==dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.Status.READY,"Writer must have the real fluid mod installed");
+            var player=TestPlayers.real(h,UUID.randomUUID());TestPlayers.necklace(player).setStackInSlot(0,FmpRegistries.PENDANT.toStack());
+            var handle=AccessGate.resolve(player).handle();var before=ledger.find(handle.cacheId());
+            var items=before.state().edit();var stone=ItemVariantKey.of(new ItemStack(Items.STONE),registries);items.filter(0,stone);items.insert(0,stone,37);
+            var water=FluidVariantKey.of(new FluidStack(Fluids.WATER,1),registries);var fluids=before.fluids().state().edit();fluids.filter(1,water);
+            var order=UUID.randomUUID();
+            if(residual){fluids.thresholds(1,2,-1);fluids.request(1,order,player.getUUID(),125,false);}
+            fluids.insert(1,water,residual?15950:2500);
+            ledger.replace(handle,before.state().revision(),before.withStates(items.finish(),before.fluids().withState(fluids.finish())));
+            if(residual) {
+                var box=dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.create(new FluidStack(Fluids.WATER,125));
+                PackageItem.addAddress(box,SupplyService.address(player));box.set(DataComponents.CUSTOM_NAME,Component.literal("survive optional mod removal"));
+                var seal=new ParcelSeal(UUID.randomUUID(),handle.cacheId(),player.getUUID(),order,water.encoded(),
+                        ledger.find(handle.cacheId()).fluids().state().cells().get(1).filterRevision(),SupplyService.address(player),false,"");
+                ParcelAuthentication.applyFluid(ledger,registries,box,seal);
+                h.assertTrue(ReceiveService.receive(player,box) && box.isEmpty()
+                        && dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(ledger.find(handle.cacheId()).fluids().residual(water)).getAmount()==75,
+                        "Native residual fixture did not retain exactly 75 mB");
+            }
+            player.getInventory().setItem(0,new ItemStack(Items.BUCKET));player.getInventory().setItem(13,new ItemStack(Items.DIAMOND,13));saveNativePlayer(player);
+            probe.data.putUUID("player",player.getUUID());probe.data.putUUID("cache",handle.cacheId());
+            probe.data.putString("case",mode[0]);probe.data.put("expected",row(ledger,handle.cacheId(),registries));
+        } else {
+            h.assertTrue(!probe.data.isEmpty() && !PROCESS.equals(probe.data.getUUID("writer")) && probe.data.getString("case").equals(mode[0]),"Same-world prior JVM evidence missing");
+            String previous = switch(phase) { case "absent" -> "write"; case "absent-again" -> "absent"; default -> "absent-again"; };
+            h.assertTrue(probe.data.getString("phase").equals(previous),"Lifecycle phases must run in order without overwriting evidence");
+            var player=TestPlayers.real(h,probe.data.getUUID("player"));server.getPlayerList().load(player);
+            h.assertTrue(player.getInventory().getItem(13).is(Items.DIAMOND) && player.getInventory().getItem(13).getCount()==13
+                    && TestPlayers.necklace(player).getStackInSlot(0).get(FmpRegistries.IDENTITY.get()).equals(probe.data.getUUID("cache")),"Native player file lost pendant identity or inventory");
+            h.assertTrue(lifecycleDigest(ledger.save(new CompoundTag(),registries)).equals(probe.data.getString("ledger_digest")),"Saved ledger changed while the process was stopped or during decode");
+            if(phase.startsWith("absent")) {
+                h.assertTrue(status==dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.Status.MISSING
+                        && ledger.problem().isEmpty() && AccessGate.resolve(player).active(),"Optional fluid residual locked ordinary cache access");
+                h.assertTrue(row(ledger,probe.data.getUUID("cache"),registries).equals(probe.data.getCompound("expected")),"Absent restart changed cache state");
+                if(residual) lifecycleSuspension(h,player);
+            }
+            if(phase.equals("absent")) {
+                h.assertTrue(status==dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.Status.MISSING,"Absence stage still has the mod installed");
+                {
+                    h.assertTrue(ledger.problem().isEmpty() && AccessGate.resolve(player).active(),"Optional fluid residual locked ordinary cache access");
+                    h.assertTrue(row(ledger,probe.data.getUUID("cache"),registries).equals(probe.data.getCompound("expected")),"Fluid cache changed during removal");
+                    ReceiveService.resume(player);
+                    h.assertTrue(lifecycleDigest(ledger.save(new CompoundTag(),registries)).equals(probe.data.getString("ledger_digest")),"Unavailable residual was changed by background resumption");
+                    lifecycleFill(h,player);
+                    var bucket=player.getInventory().getItem(0);player.getInventory().setItem(0,ItemStack.EMPTY);player.containerMenu.setCarried(bucket);
+                    var view=dev.scathiard.feedmepackages.interaction.CacheActions.snapshot(player);
+                    h.assertTrue(dev.scathiard.feedmepackages.interaction.CacheActions.execute(player,new dev.scathiard.feedmepackages.interaction.CacheActions.Intent(view.session(),view.record().state().revision(),
+                            dev.scathiard.feedmepackages.interaction.CacheActions.Action.DEPOSIT_FLUID,1,0,0,""),3)==dev.scathiard.feedmepackages.interaction.CacheActions.Result.OK,"Stored vanilla fluid cannot return without transport addon");
+                    player.getInventory().setItem(0,player.containerMenu.getCarried());player.containerMenu.setCarried(ItemStack.EMPTY);
+                    var plan=dev.scathiard.feedmepackages.consumption.MaterialTransaction.open(player).orElseThrow();
+                    h.assertTrue(plan.takeCache(new ItemStack(Items.STONE),1) && plan.commit(),"Ordinary material consumption broke after optional mod removal");
+                    player.getInventory().setItem(1,new ItemStack(Items.STONE));
+                    var actual=ledger.find(probe.data.getUUID("cache"));
+                    h.assertTrue(actual.fluids().state().cells().get(1).amount()==(residual?16000:2500) && actual.state().cells().get(0).amount()==36 && player.getInventory().getItem(0).is(Items.BUCKET),"Uninstalled fluid/container or item conservation failed");
+                    probe.data.put("expected",row(ledger,probe.data.getUUID("cache"),registries));
+                }
+            } else if(phase.equals("restore")) {
+                h.assertTrue(status==dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.Status.READY && ledger.problem().isEmpty(),"Reinstalled native addon did not unlock its original ledger");
+                h.assertTrue(row(ledger,probe.data.getUUID("cache"),registries).equals(probe.data.getCompound("expected")),"Reinstall changed original state or metadata");
+                var access=AccessGate.resolve(player);h.assertTrue(access.active() && access.handle().cacheId().equals(probe.data.getUUID("cache")),"Reinstalled pendant access points at another cache");
+                if(residual) {
+                    var water=FluidVariantKey.of(new FluidStack(Fluids.WATER,1),registries);var box=ledger.find(access.handle().cacheId()).fluids().residual(water);
+                    h.assertTrue(box.get(DataComponents.CUSTOM_NAME).getString().equals("survive optional mod removal")
+                            && ParcelAuthentication.validFluid(ledger,registries,box,box.get(FmpRegistries.FLUID_PARCEL_SEAL.get())),"Original residual identity or signature was lost");
+                    lifecycleFill(h,player);ReceiveService.resume(player);var after=ledger.find(access.handle().cacheId());
+                    h.assertTrue(after.fluids().residual(water).isEmpty()  &&  after.fluids().state().cells().get(1).amount()==15075
+                             &&  player.getInventory().getItem(0).is(Items.WATER_BUCKET)
+                             &&  after.state().cells().get(0).amount()==36,"Restored native remainder did not resume once with the correct stock");
+                    ReceiveService.resume(player);h.assertTrue(ledger.find(access.handle().cacheId())==after,"Restored remainder settled twice");
+                }
+            }
+            saveNativePlayer(player);
+        }
+        probe.data.putString("ledger_digest",lifecycleDigest(ledger.save(new CompoundTag(),registries)));
+        probe.data.putString("phase",phase);probe.data.putUUID("writer",PROCESS);probe.setDirty();ledger.setDirty();
+        FeedMePackages.LOGGER.info("FMP_FLUID_LIFECYCLE_PASSED case={} phase={} schema={} actualPlayerFiles=true locked={}",mode[0],phase,CacheLedger.SCHEMA,!ledger.problem().isEmpty());h.succeed();
+    }
+    private static void lifecycleSuspension(GameTestHelper h, ServerPlayer player) {
+        var ledger=CacheLedger.get(player.getServer());var access=AccessGate.resolve(player);var before=ledger.find(access.handle().cacheId());
+        var raw=before.fluids().suspendedResiduals();
+        h.assertTrue(raw.size()==1 && before.anyResidual() && !before.blocksReplenishment() && before.fluids().residuals().isEmpty(),
+                "Missing-addon parcel lost ownership or still blocked ordinary requests");
+        raw.values().iterator().next().putString("external_mutation","must not enter storage");
+        h.assertTrue(before.fluids().suspendedResiduals().values().stream().noneMatch(t->t.contains("external_mutation")),"Suspended NBT exposed mutable storage");
+        var original=ledger.save(new CompoundTag(),player.registryAccess());
+        for(String style:List.of("fluid_package","fluid_package_exposed","fluid_package_weathered","fluid_package_oxidized")) {
+            var copy=original.copy();var rows=lifecycleResidualRows(copy,before.state().id());
+            rows.getCompound(0).getCompound("package").putString("id","fluidlogistics:"+style);
+            var decoded=CacheLedger.load(copy,player.registryAccess());
+            h.assertTrue(decoded.problem().isEmpty() && decoded.find(before.state().id()).fluids().hasSuspendedResiduals()
+                    && decoded.save(new CompoundTag(),player.registryAccess()).equals(copy),"Known native style was lost or changed: "+style);
+        }
+        for(int malformed=0;malformed<4;malformed++) {
+            var copy=original.copy();var rows=lifecycleResidualRows(copy,before.state().id());var box=rows.getCompound(0).getCompound("package");
+            if(malformed==0) box.putString("id","missing_foreign_mod:unknown_package");
+            if(malformed==1) box.putInt("count",2);
+            if(malformed==2) box.putString("components","not a valid component map");
+            if(malformed==3) rows.add(rows.getCompound(0).copy());
+            var decoded=CacheLedger.load(copy,player.registryAccess());
+            h.assertTrue(!decoded.problem().isEmpty() && decoded.save(new CompoundTag(),player.registryAccess()).equals(copy),
+                    "Unknown or malformed data was silently accepted or erased: "+malformed);
+        }
+        var detached=CacheLedger.load(original.copy(),player.registryAccess());
+        var upgrading=detached.find(before.state().id());var upgrade=detached.prepareOrdinaryUpgrade(upgrading,2);upgrade.commit();
+        var upgraded=detached.find(before.state().id());
+        h.assertTrue(upgraded.state().level()==2 && upgraded.fluids().suspendedResiduals().equals(before.fluids().suspendedResiduals()),"Ordinary upgrade discarded suspended NBT");
+        var fluidEdit=upgraded.fluids().state().edit();fluidEdit.thresholds(1,1,-1);
+        h.assertTrue(upgraded.withFluids(upgraded.fluids().withState(fluidEdit.finish())).fluids().suspendedResiduals().equals(before.fluids().suspendedResiduals()),
+                "Fluid edit discarded suspended NBT");
+        var sent=TestPlayers.nativePackets(player);player.tickCount=0;
+        dev.scathiard.feedmepackages.network.CompatibilityStatus.tick(player);
+        dev.scathiard.feedmepackages.network.CompatibilityStatus.tick(player);
+        h.assertTrue(sent.stream().filter(p->p instanceof net.minecraft.network.protocol.game.ClientboundSystemChatPacket chat
+                && chat.content().getContents() instanceof net.minecraft.network.chat.contents.TranslatableContents t
+                && t.getKey().equals("message.create_feed_me_packages.compat.fluid_residual_suspended")).count()==1,
+                "Missing-addon warning was silent or spammed repeated ticks");
+        ReceiveService.resume(player);
+        h.assertTrue(original.equals(ledger.save(new CompoundTag(),player.registryAccess())),"Compatibility status or resumption mutated suspended data");
+    }
+    private static ListTag lifecycleResidualRows(CompoundTag ledger,UUID cache) {
+        var row=ledger.getList("caches",Tag.TAG_COMPOUND).stream().map(t->(CompoundTag)t)
+                .filter(t->t.getUUID("id").equals(cache)).findFirst().orElseThrow();
+        return row.getCompound("astra_fluids").getList("residuals",Tag.TAG_COMPOUND);
+    }
+    private static String lifecycleDigest(CompoundTag data) {
+        try{return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(data.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8)));}
+        catch(java.security.NoSuchAlgorithmException failure){throw new IllegalStateException(failure);}
+    }
+    private static void lifecycleFill(GameTestHelper h,ServerPlayer player) {
+        var view=dev.scathiard.feedmepackages.interaction.CacheActions.open(player);
+        h.assertTrue(dev.scathiard.feedmepackages.interaction.CacheActions.execute(player,new dev.scathiard.feedmepackages.interaction.CacheActions.Intent(view.session(),view.record().state().revision(),
+                dev.scathiard.feedmepackages.interaction.CacheActions.Action.TAKE_FLUID,1,1000,0,""),1)==dev.scathiard.feedmepackages.interaction.CacheActions.Result.OK,"Reopened native world could not preview stored fluid");
+        view=dev.scathiard.feedmepackages.interaction.CacheActions.snapshot(player);
+        h.assertTrue(dev.scathiard.feedmepackages.interaction.CacheActions.execute(player,new dev.scathiard.feedmepackages.interaction.CacheActions.Intent(view.session(),view.record().state().revision(),
+                dev.scathiard.feedmepackages.interaction.CacheActions.Action.PLACE_FLUID,1,0,1,ItemVariantKey.of(player.getInventory().getItem(0),player.registryAccess()).encoded()),2)
+                ==dev.scathiard.feedmepackages.interaction.CacheActions.Result.OK && player.getInventory().getItem(0).is(Items.WATER_BUCKET),"Reopened native world could not fill a real bucket");
+    }
+
     @GameTest(template = "empty")
     public static void convergedSchemaEightConvertsUnitsAndPreservesExactData(GameTestHelper h) {
         var registry = h.getLevel().registryAccess(); var old = new CacheLedger();

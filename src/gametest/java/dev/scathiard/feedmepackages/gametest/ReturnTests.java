@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.gametest;
 
+
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
@@ -143,5 +144,88 @@ public final class ReturnTests {
         var bad=CacheLedger.load(tag,f.player.registryAccess());h.assertTrue(!bad.problem().isEmpty()
                 && bad.save(new CompoundTag(),f.player.registryAccess()).equals(tag),"Corrupt return was silently dropped");
         f.ledger.cancelRejectedReturn(f.ledger.rejectReturn(f.hold));h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void fluidEscrowPreservesTypedCargoAndSettlesBothCarrierSources(GameTestHelper h) {
+        for (boolean cached : new boolean[]{false, true}) {
+            var f = fluidRecoveryFixture(h, cached); var hold = f.hold(); var before = f.record();
+            var saved = f.ledger().save(new CompoundTag(), f.player().registryAccess());
+            var row = escrowRow(saved, hold.handle().cacheId());
+            h.assertTrue(row.contains("fluid_variant") && !row.contains("variant"), "Fluid cargo was saved as an item template");
+            var loaded = CacheLedger.load(saved, f.player().registryAccess());
+            h.assertTrue(loaded.problem().isEmpty() && loaded.returnEscrow(hold.handle().cacheId()).variant().equals(hold.variant()),
+                    "Fluid handoff lost its exact components on reload");
+            loaded.finishReturn(loaded.returnEscrow(hold.handle().cacheId()), f.player().registryAccess());
+            var settled = loaded.find(hold.handle().cacheId());
+            h.assertTrue(settled.fluids().state().cells().get(0).amount() == 875
+                     &&  settled.state().cells().get(1).amount() == (cached ? 2 : 0)
+                     &&  settled.state().revision() == before.state().revision() + 1
+                     &&  settled.fluids().state().revision() == settled.state().revision(),
+                    "Fluid cargo, carrier and original cargo did not settle in one cache revision");
+            var source = f.player().createCommandSourceStack().withPermission(2).withSuppressedOutput();
+            h.assertTrue(dev.scathiard.feedmepackages.logistics.ReturnRecovery.confirm(source, hold.handle().cacheId(), hold.id(), true,
+                    "core fixture tests only the administrative settlement") == dev.scathiard.feedmepackages.logistics.ReturnRecovery.Result.SENT
+                    && f.record().equals(settled), "Administrative recovery disagreed with loaded fluid settlement");
+            h.assertTrue(dev.scathiard.feedmepackages.logistics.ReturnRecovery.confirm(source, hold.handle().cacheId(), hold.id(), true,
+                    "same decision repeated") == dev.scathiard.feedmepackages.logistics.ReturnRecovery.Result.MISSING
+                    && f.record().equals(settled), "Fluid recovery charged a second time");
+        }
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void rejectedFluidEscrowAndMalformedIdentityNeverBecomeEmptyStock(GameTestHelper h) {
+        var f = fluidRecoveryFixture(h, true); var before = f.record(); var hold = f.hold();
+        var saved = f.ledger().save(new CompoundTag(), f.player().registryAccess());
+        for (int corruption = 0; corruption < 4; corruption++) {
+            var bad = saved.copy(); var row = escrowRow(bad, hold.handle().cacheId());
+            switch (corruption) {
+                case 0 -> row.putString("variant", ItemVariantKey.of(new ItemStack(Items.STONE), f.player().registryAccess()).encoded());
+                case 1 -> row.remove("fluid_variant");
+                case 2 -> row.putInt("fluid_variant", 1);
+                case 3 -> row.putString("fluid_variant", "{id:\"missing:fluid\",amount:1}");
+            }
+            var loaded = CacheLedger.load(bad, f.player().registryAccess());
+            h.assertTrue(!loaded.problem().isEmpty() && loaded.save(new CompoundTag(), f.player().registryAccess()).equals(bad),
+                    "Malformed fluid handoff was cleared, reinterpreted as an item or lost its original data");
+        }
+        var source = f.player().getServer().createCommandSourceStack().withSuppressedOutput();
+        h.assertTrue(dev.scathiard.feedmepackages.logistics.ReturnRecovery.confirm(source, hold.handle().cacheId(), hold.id(), false,
+                "core fixture confirms no native dispatch occurred") == dev.scathiard.feedmepackages.logistics.ReturnRecovery.Result.REFUNDED
+                && f.record().equals(before) && f.ledger().returnEscrow(hold.handle().cacheId()) == null,
+                "Rejected fluid handoff spent stock or carrier");
+        h.succeed();
+    }
+
+    private static RecoveryFixture fluidRecoveryFixture(GameTestHelper h, boolean cached) {
+        var player = TestPlayers.create(h, FmpRegistries.PENDANT.toStack());
+        var handle = AccessGate.resolve(player).handle(); var ledger = CacheLedger.get(player.getServer()); var before = ledger.find(handle.cacheId());
+        var stack = new net.neoforged.neoforge.fluids.FluidStack(net.minecraft.world.level.material.Fluids.WATER, 1);
+        stack.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME, net.minecraft.network.chat.Component.literal("held fluid variant"));
+        var key = dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(stack, player.registryAccess());
+        var fluids = before.fluids().state().edit(); fluids.filter(0, key); fluids.insert(0, key, 1000);
+        var nextFluids = before.fluids().withState(fluids.finish());
+        var carrier = new ItemStack(Items.PAPER); carrier.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME,
+                net.minecraft.network.chat.Component.literal("held fluid carrier"));
+        if (cached) {
+            var item = before.state().edit(); var carrierKey = ItemVariantKey.of(carrier, player.registryAccess());
+            item.filter(1, carrierKey); item.insert(1, carrierKey, 3);
+            ledger.replace(handle, before.state().revision(), before.withStates(item.finish(), nextFluids));
+        } else ledger.replace(handle, before.state().revision(), before.withFluids(nextFluids));
+        before = ledger.find(handle.cacheId());
+        var hold = new ReturnEscrow(java.util.UUID.randomUUID(), handle, before.state().revision(), 0, key, 125, carrier, cached ? -1 : 0, cached ? 1 : -1, "paper", "fluid-recovery", false);
+        ledger.beginReturn(hold, before, player.registryAccess());
+        return new RecoveryFixture(player, ledger, hold);
+    }
+
+    record RecoveryFixture(net.minecraft.server.level.ServerPlayer player, CacheLedger ledger, ReturnEscrow hold) {
+        CacheRecord record() { return ledger.find(hold.handle().cacheId()); }
+    }
+    private static CompoundTag escrowRow(CompoundTag saved, java.util.UUID cache) {
+        for (var entry : saved.getList("return_handoffs", net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+            var row = (CompoundTag) entry; if (row.getUUID("cache").equals(cache)) return row;
+        }
+        throw new AssertionError("Missing original handoff");
     }
 }

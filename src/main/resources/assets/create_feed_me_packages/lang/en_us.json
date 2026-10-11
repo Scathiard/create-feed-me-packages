@@ -139,7 +139,7 @@
   "gui.create_feed_me_packages.compat.emi_server_mismatch": "[FMP] EMI's server material interface is incompatible; cache supplies are disabled. Native transfer is unchanged.",
   "gui.create_feed_me_packages.compat.emi_client_mismatch": "[FMP] EMI's client material interface is incompatible; cache supplies are disabled. Native transfer is unchanged.",
   "gui.create_feed_me_packages.compat.emi_server_missing": "[FMP] EMI is installed only on this client. Cache supplies require EMI on the server too; native inventory transfer remains available.",
-  "message.create_feed_me_packages.compat.fluid_residual_suspended": "FluidLogistics is not installed: %s fluid remainders in this cache are preserved unchanged. Reinstall it to resume unpacking. Ordinary items still work; personal conversion is unavailable until these remainders can be handled.",
+  "message.create_feed_me_packages.compat.fluid_residual_suspended": "%s fluid remainder parcel(s) retained; reinstall FluidLogistics to resume.",
   "gui.create_feed_me_packages.compat.tacz_server_missing": "TaCZ cache ammunition is unavailable: TaCZ is not installed on the server.",
   "gui.create_feed_me_packages.compat.tacz_config_disabled": "TaCZ cache ammunition is disabled by the server. Native inventory ammunition remains available.",
   "gui.create_feed_me_packages.compat.tacz_server_mismatch": "TaCZ cache ammunition is unavailable: the server gun API is incompatible. Native ammunition handling is unchanged.",
@@ -183,5 +183,12 @@
   "command.create_feed_me_packages.recovery.busy": "Native logistics is still running; recovery cannot modify its sources yet.",
   "gui.create_feed_me_packages.template_no_browser": "Install JEI or EMI to choose a filter template",
   "gui.create_feed_me_packages.template_choose": "Choose a JEI / EMI ingredient; right-click or Esc cancels",
-  "gui.create_feed_me_packages.template_hint": "%s: choose a recipe-browser template"
+  "gui.create_feed_me_packages.template_hint": "%s: choose a recipe-browser template",
+  "gui.create_feed_me_packages.fluid_preview": "Click an inventory container to fill; right-click to cancel",
+  "gui.create_feed_me_packages.fluid_stock": "Fluid: %s / %s mB (1 B = 1000 mB)",
+  "gui.create_feed_me_packages.fluid_take": "Click to preview 1 bucket; Shift-click for 8. Stock is spent only when filling a container.",
+  "gui.create_feed_me_packages.fluid_deposit": "Hold one container and Alt-click a cell to deposit its fluid.",
+  "gui.create_feed_me_packages.controls.fluid_pending": "Promised: %s mB",
+  "gui.create_feed_me_packages.controls.fluid_reserved": "Not used for fluids",
+  "gui.create_feed_me_packages.controls.fluid_step": "Scroll: ±8 buckets"
 }

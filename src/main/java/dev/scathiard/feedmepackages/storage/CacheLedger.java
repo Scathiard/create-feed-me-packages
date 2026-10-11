@@ -75,7 +75,7 @@ public final class CacheLedger extends SavedData {
         if (source == null || !owner.equals(source.owner()) || !transfer.cache().equals(personal.get(owner)))
             throw new IllegalStateException("Stale retirement");
         var records = new HashMap<>(caches);
-        records.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals()));
+        records.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals(), source.fluids()));
         var owners = new HashMap<>(personal); owners.remove(owner);
         var completed = new HashMap<>(retirements);
         completed.put(owner, new Retirement(owner, transfer.cache(), receipt, true));
@@ -246,6 +246,15 @@ public final class CacheLedger extends SavedData {
         writable(); var next = new HashMap<>(cacheFirst); next.put(player, first); cacheFirst = Map.copyOf(next); setDirty();
     }
 
+    /** Fluid was added after private retirement: no new cross-cache or ownership redirect is manufactured. */
+    public ParcelTarget fluidParcelTarget(UUID original, dev.scathiard.feedmepackages.fluid.FluidVariantKey variant, long revision) {
+        var record = caches.get(original);
+        if (record == null || record.owner() != null) return null;
+        int slot = record.fluids().state().find(variant);
+        return slot >= 0 && record.fluids().state().cells().get(slot).filterRevision() == revision
+                ? new ParcelTarget(original, revision) : null;
+    }
+
     public UUID createOrdinary() {
         writable(); UUID id = UUID.randomUUID();
         var next = new HashMap<>(caches); next.put(id, new CacheRecord(CacheState.empty(id), null, Map.of()));
@@ -307,6 +316,7 @@ public final class CacheLedger extends SavedData {
                 }
                 row.put("residuals", residualRows);
             }
+            if (record.fluids().hasData()) row.put("astra_fluids", FluidStorageCodec.write(record.fluids(), registries));
             records.add(row);
         }
         tag.put("caches", records);
@@ -349,7 +359,8 @@ public final class CacheLedger extends SavedData {
             ListTag rows = compounds(tag, "caches");
             for (Tag element : rows) {
                 CompoundTag row = (CompoundTag)element;
-                fields(row, Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals"));
+                fields(row, sourceSchema == SCHEMA ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids")
+                        : Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals"));
                 require(row, "id", Tag.TAG_INT_ARRAY); require(row, "level", Tag.TAG_INT); require(row, "revision", Tag.TAG_LONG);
                 if (row.contains("owner")) require(row, "owner", Tag.TAG_INT_ARRAY);
                 UUID id = row.getUUID("id"); int level = row.getInt("level"); UUID owner = row.contains("owner") ? row.getUUID("owner") : null;
@@ -418,7 +429,12 @@ public final class CacheLedger extends SavedData {
                     }
                 }
                 var state = new CacheState<>(id, level, row.getLong("revision"), cells, orders);
-                if (caches.put(id, new CacheRecord(state, owner, residuals)) != null) throw new IllegalArgumentException("Duplicate cache identity");
+                var fluids = CacheFluids.empty(state);
+                if (row.contains("astra_fluids")) {
+                    require(row, "astra_fluids", Tag.TAG_COMPOUND);
+                    fluids = FluidStorageCodec.read(row.getCompound("astra_fluids"), state, registries);
+                }
+                if (caches.put(id, new CacheRecord(state, owner, residuals, fluids)) != null) throw new IllegalArgumentException("Duplicate cache identity");
                 if (owner != null && personal.put(owner, id) != null) throw new IllegalArgumentException("Duplicate personal cache");
             }
             var preferences = new HashMap<UUID, Boolean>();
@@ -458,7 +474,7 @@ public final class CacheLedger extends SavedData {
                         throw new IllegalArgumentException("Invalid or duplicate retirement");
                     if (transfer.completed()) {
                         var source = caches.get(transfer.cache());
-                        caches.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals())); personal.remove(transfer.owner());
+                        caches.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals(), source.fluids())); personal.remove(transfer.owner());
                     }
                 }
             } else if (tag.contains("private_retirements")) throw new IllegalArgumentException("Retirement in legacy schema");
