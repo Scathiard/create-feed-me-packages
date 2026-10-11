@@ -2,7 +2,7 @@ package dev.scathiard.feedmepackages.domain;
 
 import java.util.*;
 
-/** Pure cell/order simulation. Ownership, physical residuals and manufacturing inputs must commit with it. */
+/** Historical merge fixture shared by unit and GameTests; never packaged with the mod. */
 public final class CacheMerge {
     private CacheMerge() {}
     public enum Reason { SAME_CACHE, CONFIGURATION_CONFLICT, NO_SPACE, INVALID_ORDER, TOO_MANY_ORDERS }
@@ -11,10 +11,7 @@ public final class CacheMerge {
         private Rejected(Reason reason) { super(reason.name()); this.reason = reason; }
         public Reason reason() { return reason; }
     }
-    public record Route<K extends MaterialVariant>(K variant, long revision) {
-        public Route { Objects.requireNonNull(variant); if (revision < 0) throw new IllegalArgumentException("Negative route revision"); }
-    }
-    public record Plan<K extends MaterialVariant>(CacheState<K> source, CacheState<K> target, CacheState<K> merged, Map<Route<K>, Long> sourceRoutes) {
+    public record Plan<K extends MaterialVariant>(CacheState<K> source, CacheState<K> target, CacheState<K> merged, Map<ParcelRoute<K>, Long> sourceRoutes) {
         public Plan { sourceRoutes = Map.copyOf(sourceRoutes); }
     }
 
@@ -27,7 +24,7 @@ public final class CacheMerge {
         var cells = new ArrayList<>(target.cells());
         while (cells.size() < limits.slots()) cells.add(Cell.empty());
         long revision = cells.stream().mapToLong(Cell::filterRevision).max().orElse(0);
-        Map<Route<K>, Long> routes = new LinkedHashMap<>();
+        Map<ParcelRoute<K>, Long> routes = new LinkedHashMap<>();
         for (var offered : source.cells()) {
             if (offered.filter() == null) continue;
             int slot = find(cells, offered.filter());
@@ -44,11 +41,11 @@ public final class CacheMerge {
                 revision = Math.incrementExact(revision);
                 cells.set(slot, new Cell<>(offered.filter(), offered.amount(), offered.minimum(), offered.maximum(), revision));
             }
-            routes.put(new Route<>(offered.filter(), offered.filterRevision()), cells.get(slot).filterRevision());
+            routes.put(new ParcelRoute<>(offered.filter(), offered.filterRevision()), cells.get(slot).filterRevision());
         }
         var orders = new LinkedHashMap<>(target.orders());
         for (var order : source.orders().values()) {
-            long mapped = routes.get(new Route<>(order.variant(), order.filterRevision()));
+            long mapped = routes.get(new ParcelRoute<>(order.variant(), order.filterRevision()));
             var transferred = new SupplyOrder<>(order.id(), order.player(), order.variant(), mapped, order.remaining(), order.uncertain());
             if (orders.putIfAbsent(order.id(), transferred) != null) throw new Rejected(Reason.INVALID_ORDER);
         }

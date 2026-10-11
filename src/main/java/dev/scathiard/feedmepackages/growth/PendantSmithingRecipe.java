@@ -19,8 +19,8 @@ public final class PendantSmithingRecipe extends SmithingTransformRecipe {
     private final int targetLevel;
     public PendantSmithingRecipe(Ingredient template, Ingredient base, Ingredient addition, ItemStack result, int targetLevel) {
         super(template, base, addition, result.copy());
-        if ((targetLevel != 0 && (targetLevel < 2 || targetLevel > 5)) || result.getCount() != 1
-                || !(result.getItem() instanceof PendantItem pendant) || (targetLevel == 0 && !pendant.personal()))
+        if ((targetLevel < 2 || targetLevel > 5) || result.getCount() != 1
+                || !(result.getItem() instanceof PendantItem pendant))
             throw new IllegalArgumentException("Invalid pendant smithing definition");
         this.template = template; this.base = base; this.addition = addition; this.result = result.copy(); this.targetLevel = targetLevel;
     }

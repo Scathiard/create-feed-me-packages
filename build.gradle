@@ -7,10 +7,13 @@ plugins {
 group = mod_group_id
 version = mod_version
 
-layout.buildDirectory = file('../.fmp-build-safe')
+def referenceRoot = file('../../../reference-build-safe')
+def referenceOutput = new File(referenceRoot, 'v0.3.0-converged')
+layout.buildDirectory = new File(referenceOutput, 'build-output')
 def runProfile = "neo${project.neo_version}" + (project.hasProperty('withCouriers') ? '-paper' : '') +
         (project.hasProperty('withMobile') ? '-mobile' : '') +
-        (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-model8'
+        (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-converged1'
+if (project.hasProperty('fmpLegacyWorldReview')) runProfile += '-legacy023'
 if (project.hasProperty('fmpPackaged')) {
     if (project.hasProperty('fmpGameTests') || project.hasProperty('fmpClientReview')) throw new GradleException('Packaged verification cannot load development test sources')
     runProfile += '-packaged'
@@ -31,8 +34,9 @@ java {
 }
 
 sourceSets {
+    test { java.srcDir('src/testFixtures/java') }
     gameTest {
-        java.setSrcDirs(['src/gametest/java'])
+        java.setSrcDirs(['src/gametest/java', 'src/testFixtures/java'])
         resources.setSrcDirs(['src/gametest/resources'])
         compileClasspath += sourceSets.main.output
         runtimeClasspath += sourceSets.main.output
@@ -81,10 +85,10 @@ dependencies {
         localRuntime "mezz.jei:jei-1.21.1-neoforge:${project.findProperty('jei_runtime_version') ?: jei_version}"
     }
     if (project.hasProperty('withMobile')) {
-        localRuntime files('../.fmp-reference-build-safe/research/transports/1.21.1-0.7.7/create_mobile_packages-1.21.1-0.7.7.jar')
+        localRuntime files('../../../reference-build-safe/research/transports/1.21.1-0.7.7/create_mobile_packages-1.21.1-0.7.7.jar')
     }
     if (project.hasProperty('withCouriers')) {
-        localRuntime files('../.fmp-reference-build-safe/research/transports/2.3.0/cmpackagecouriers-neoforge-2.3.0.jar')
+        localRuntime files('../../../reference-build-safe/research/transports/2.3.0/cmpackagecouriers-neoforge-2.3.0.jar')
     }
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
@@ -104,28 +108,33 @@ neoForge {
     runs {
         configureEach {
             systemProperty 'forge.logging.markers', 'REGISTRIES'
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.hasProperty('fmpLegacyWorldReview') ? 'fmp_legacy_migration' : project.mod_id
             logLevel = org.slf4j.event.Level.INFO
             jvmArgument '-Xmx2G'
         }
 
         client {
             client()
-            gameDirectory = file("../.fmp-build-safe/run/client/${runProfile}")
+            gameDirectory = file("${referenceOutput}/run/client/${runProfile}")
             if (project.hasProperty('fmpClientReview')) systemProperty 'fmp.clientReview', 'true'
+            if (project.hasProperty('fmpConvergedReview')) systemProperty 'fmp.convergedReview', 'true'
             if (project.hasProperty('fmpT14Review')) systemProperty 'fmp.t14Review', 'true'
         }
 
         server {
             server()
-            gameDirectory = file("../.fmp-build-safe/run/server/${runProfile}")
+            gameDirectory = file("${referenceOutput}/run/server/${runProfile}")
             programArgument '--nogui'
         }
 
         gameTestServer {
             type = 'gameTestServer'
-            gameDirectory = file("../.fmp-build-safe/run/gametest/${runProfile}")
+            gameDirectory = file("${referenceOutput}/run/gametest/${runProfile}")
             systemProperty 'fmp.requirePriorPersistence', project.findProperty('fmpRequirePriorPersistence') ?: 'false'
+            if (project.hasProperty('fmpLegacyWorldReview')) {
+                systemProperty 'fmp.legacyBackup', new File(referenceOutput, 'legacy023-before').absolutePath
+                systemProperty 'fmp.legacyJar', file('../../../release/stable/v0.2.3/create-feed-me-packages-0.2.3.jar').absolutePath
+            }
         }
     }
 

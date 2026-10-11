@@ -35,6 +35,150 @@ import java.util.Map;
 @PrefixGameTestTemplate(false)
 public final class FoundationTests {
     @GameTest(template = "empty")
+    public static void convergedSchemaEightConvertsUnitsAndPreservesExactData(GameTestHelper h) {
+        var registry = h.getLevel().registryAccess(); var old = new CacheLedger();
+        UUID owner = UUID.randomUUID(), id = LegacyOwnership.on(old).personalOrCreate(owner); var handle = new CacheHandle(id, owner, null);
+        var stone = ItemVariantKey.of(new ItemStack(Items.STONE), registry);
+        var pearl = ItemVariantKey.of(new ItemStack(Items.ENDER_PEARL), registry);
+        var source = old.find(id); var edit = source.state().edit();
+        edit.filter(0, stone); edit.filter(1, pearl); edit.thresholds(0, 2, 2); edit.thresholds(1, 2, 2);
+        edit.insert(0, stone, 37); edit.insert(1, pearl, 11);
+        edit.request(0, UUID.randomUUID(), owner, 27, true);
+        old.replace(handle, source.state().revision(), source.withState(edit.finish())); old.setReturnAddress(id, "keep-return");
+        var eight = old.save(new CompoundTag(), registry); eight.putInt("schema", 8); eight.remove("private_retirements");
+        for (Tag row : eight.getList("caches", Tag.TAG_COMPOUND))
+            for (Tag cell : ((CompoundTag) row).getList("cells", Tag.TAG_COMPOUND)) ((CompoundTag) cell).remove("item_controls");
+        var loaded = CacheLedger.load(eight, registry); var record = loaded.find(id);
+        h.assertTrue(loaded.problem().isEmpty() && record.state().cells().get(0).settings().lower() == 128
+                && record.state().cells().get(1).settings().lower() == 32 && record.state().cells().get(1).amount() == 11
+                && record.state().pending(0) == 27 && loaded.authentic("probe", old.authenticate("probe"))
+                && "keep-return".equals(loaded.returnAddress(id)), "0.2.3 unit conversion changed stock, promises, address or seal identity");
+        var saved = loaded.save(new CompoundTag(), registry);
+        h.assertTrue(saved.getList("caches", Tag.TAG_COMPOUND).getCompound(0).getList("cells", Tag.TAG_COMPOUND).getCompound(0).getInt("min") == 2,
+                "Legacy group column was reinterpreted or removed");
+        var transfer = loaded.beginRetirement(owner); loaded.completeRetirement(owner, transfer.receipt());
+        var completed = CacheLedger.load(loaded.save(new CompoundTag(), registry), registry);
+        h.assertTrue(completed.problem().isEmpty() && completed.personal(owner) == null && completed.find(id).owner() == null
+                && completed.find(id).state().equals(record.state()) && completed.retirement(owner).completed(), "Retirement failed durable exactly-once ownership conversion");
+        loaded.completeRetirement(owner, transfer.receipt());
+        h.assertTrue(loaded.find(id).state().equals(record.state()), "Repeated retirement duplicated or changed stock");
+        var bad = completed.save(new CompoundTag(), registry);
+        bad.getList("caches", Tag.TAG_COMPOUND).getCompound(0).getList("cells", Tag.TAG_COMPOUND).getCompound(0)
+                .getCompound("item_controls").putInt("batch", 577);
+        var locked = CacheLedger.load(bad, registry);
+        h.assertTrue(!locked.problem().isEmpty() && locked.save(new CompoundTag(), registry).equals(bad), "Invalid control record was rewritten instead of retained");
+        h.succeed();
+    }
+
+    static LegacyRetirement.Persistence simulatedCheckpoints() {
+        return new LegacyRetirement.Persistence() {
+            public void ledger(CacheLedger ledger) {}
+            public void player(ServerPlayer player, ItemStack replacement) {
+                if (!replacement.has(FmpRegistries.RETIREMENT_RECEIPT.get())) throw new AssertionError("Missing delivery receipt");
+            }
+        };
+    }
+
+    @GameTest(template = "empty")
+    public static void convergedRetirementWaitsForSpaceThenGrantsOnlyOnce(GameTestHelper h) {
+        var player = TestPlayers.create(h, ItemStack.EMPTY); var ledger = CacheLedger.get(player.getServer());
+        UUID id = LegacyOwnership.on(ledger).personalOrCreate(player.getUUID()); var source = ledger.find(id); var edit = source.state().edit();
+        var key = ItemVariantKey.of(new ItemStack(Items.STONE), player.registryAccess());
+        edit.filter(0, key); edit.insert(0, key, 57); edit.upgrade();
+        ledger.replace(new CacheHandle(id, player.getUUID(), null), source.state().revision(), source.withState(edit.finish()));
+        for (int i = 0; i < 36; i++) player.getInventory().setItem(i, new ItemStack(Items.DIRT, 64));
+        h.assertTrue(LegacyRetirement.transfer(player, simulatedCheckpoints()) == LegacyRetirement.Outcome.WAITING_FOR_SPACE
+                && ledger.retirement(player.getUUID()) == null && ledger.find(id).owner().equals(player.getUUID()), "Full backpack lost or prematurely claimed legacy stock");
+        player.getInventory().setItem(7, ItemStack.EMPTY);
+        h.assertTrue(LegacyRetirement.transfer(player, simulatedCheckpoints()) == LegacyRetirement.Outcome.TRANSFERRED, "No-key owner could not claim");
+        var delivered = player.getInventory().getItem(7);
+        h.assertTrue(id.equals(delivered.get(FmpRegistries.IDENTITY.get())) && ledger.find(id).state().level() == 2
+                && ledger.find(id).state().cells().get(0).amount() == 57, "Wrong delivery identity, level or stock");
+        var oldKey = FmpRegistries.PERSONAL_PENDANT.toStack(); oldKey.set(FmpRegistries.OWNER.get(), player.getUUID());
+        player.getInventory().setItem(8, oldKey); LegacyRetirement.transfer(player, simulatedCheckpoints());
+        h.assertTrue(player.getInventory().getItem(8).is(FmpRegistries.PENDANT.get())
+                && !player.getInventory().getItem(8).has(FmpRegistries.IDENTITY.get()) && player.getInventory().getItem(7) == delivered,
+                "Extra key duplicated personal stock");
+        player.getInventory().setItem(7, ItemStack.EMPTY); TestPlayers.necklace(player).setStackInSlot(0, delivered);
+        h.assertTrue(AccessGate.resolve(player).active() && AccessGate.resolve(player).handle().cacheId().equals(id), "Retired cache cannot be accessed as an ordinary pendant");
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void convergedInterruptedRetirementRecoversExistingReceiptAndRejectsOtherOwner(GameTestHelper h) {
+        var player = TestPlayers.create(h, ItemStack.EMPTY); var ledger = CacheLedger.get(player.getServer());
+        UUID id = LegacyOwnership.on(ledger).personalOrCreate(player.getUUID());
+        var key = FmpRegistries.PERSONAL_PENDANT.toStack(); key.set(FmpRegistries.OWNER.get(), player.getUUID());
+        var thief = TestPlayers.create(h, key.copy());
+        LegacyRetirement.transfer(thief, simulatedCheckpoints());
+        h.assertTrue(ledger.personal(player.getUUID()).equals(id) && !TestPlayers.necklace(thief).getStackInSlot(0).has(FmpRegistries.IDENTITY.get()),
+                "Non-owner claimed legacy stock");
+        TestPlayers.necklace(player).setStackInSlot(0, key);
+        try {
+            LegacyRetirement.transfer(player, new LegacyRetirement.Persistence() {
+                public void ledger(CacheLedger data) {}
+                public void player(ServerPlayer p, ItemStack replacement) { throw new IllegalStateException("Injected interrupted player checkpoint"); }
+            });
+            throw new AssertionError("Expected checkpoint failure");
+        } catch (IllegalStateException expected) {}
+        var replacement = TestPlayers.necklace(player).getStackInSlot(0);
+        h.assertTrue(!AccessGate.resolve(player).active() && replacement.has(FmpRegistries.RETIREMENT_RECEIPT.get())
+                && !ledger.retirement(player.getUUID()).completed(), "Pending delivery became accessible before save confirmation");
+        h.assertTrue(LegacyRetirement.transfer(player, simulatedCheckpoints()) == LegacyRetirement.Outcome.RECOVERED
+                && TestPlayers.necklace(player).getStackInSlot(0) == replacement && AccessGate.resolve(player).active(), "Retry issued a different cache or failed to recover");
+        // The completed credential remains on the ordinary pendant across subsequent ticks.
+        replacement.set(FmpRegistries.RETIREMENT_RECEIPT.get(), ledger.retirement(player.getUUID()).receipt());
+        LegacyRetirement.transfer(player, simulatedCheckpoints());
+        h.assertTrue(AccessGate.resolve(player).active(), "Completed receipt remained permanently locked");
+        var revoked = FmpRegistries.PENDANT.toStack(); revoked.set(FmpRegistries.IDENTITY.get(), id);
+        TestPlayers.necklace(thief).setStackInSlot(0, revoked);
+        h.assertTrue(!AccessGate.resolve(thief).active(), "Revoked historical ordinary copy regained access after retirement");
+        h.succeed();
+    }
+    @GameTest(template = "empty")
+    public static void missingInterruptedReceiptIsRevokedBeforeReplacement(GameTestHelper h) {
+        var player=TestPlayers.create(h,FmpRegistries.PERSONAL_PENDANT.toStack());
+        var ledger=CacheLedger.get(player.getServer()); var id=LegacyOwnership.on(ledger).personalOrCreate(player.getUUID());
+        try {
+            LegacyRetirement.transfer(player,new LegacyRetirement.Persistence() {
+                public void ledger(CacheLedger data) {}
+                public void player(ServerPlayer p,ItemStack stack) { throw new IllegalStateException("Interrupted receipt save"); }
+            });
+        } catch (IllegalStateException expected) {}
+        var stale=TestPlayers.necklace(player).getStackInSlot(0);
+        var staleReceipt=stale.get(FmpRegistries.RETIREMENT_RECEIPT.get());
+        h.assertTrue(staleReceipt!=null && !ledger.retirement(player.getUUID()).completed(),"Interruption fixture did not leave a pending receipt");
+        TestPlayers.necklace(player).setStackInSlot(0,ItemStack.EMPTY);
+        var other=TestPlayers.create(h,stale);
+        LegacyRetirement.transfer(player,simulatedCheckpoints());
+        var delivered=player.getInventory().removeItemNoUpdate(0); TestPlayers.necklace(player).setStackInSlot(0,delivered);
+        h.assertTrue(AccessGate.resolve(player).active() && AccessGate.resolve(player).handle().cacheId().equals(id)
+                && !AccessGate.resolve(other).active() && !staleReceipt.equals(delivered.get(FmpRegistries.RETIREMENT_RECEIPT.get())),
+                "An unknown former receipt regained authority after recovery");
+        h.succeed();
+    }
+    @GameTest(template = "empty", timeoutTicks = 200)
+    public static void retirementUsesRealWorldAndPlayerCheckpoints(GameTestHelper h) {
+        var server=h.getLevel().getServer(); var player=TestPlayers.real(h,UUID.randomUUID());
+        var ledger=CacheLedger.get(server); var id=LegacyOwnership.on(ledger).personalOrCreate(player.getUUID());
+        var old=FmpRegistries.PERSONAL_PENDANT.toStack(); old.set(FmpRegistries.OWNER.get(),player.getUUID());
+        TestPlayers.necklace(player).setStackInSlot(0,old);
+        var source=ledger.find(id); var edit=source.state().edit();
+        var key=ItemVariantKey.of(new ItemStack(Items.ENDER_PEARL),player.registryAccess()); edit.filter(0,key); edit.insert(0,key,19);
+        ledger.replace(new CacheHandle(id,player.getUUID(),null),source.state().revision(),source.withState(edit.finish()));
+        // Only this test server's player list is used; no user world or logged-in user is touched.
+        TestPlayers.nativeSavePlayers(server).add(player);
+        try { player.tickCount=20; LegacyRetirement.tick(player); }
+        finally { TestPlayers.nativeSavePlayers(server).remove(player); }
+        h.assertTrue(ledger.retirement(player.getUUID())!=null && ledger.retirement(player.getUUID()).completed()
+                && AccessGate.resolve(player).active(),"Native checkpoint verification did not complete retirement");
+        var restored=TestPlayers.create(h,player.getUUID(),ItemStack.EMPTY);
+        h.assertTrue(server.getPlayerList().load(restored).isPresent() && AccessGate.resolve(restored).active()
+                && AccessGate.resolve(restored).handle().cacheId().equals(id)
+                && ledger.find(id).state().cells().getFirst().amount()==19,"Saved player did not restore the actual retired stock credential");
+        h.succeed();
+    }
+    @GameTest(template = "empty")
     public static void exactVariantsPreserveComponents(GameTestHelper helper) {
         var registries = helper.getLevel().registryAccess();
         var plain = new ItemStack(Items.ARROW, 32);
@@ -69,7 +213,7 @@ public final class FoundationTests {
         var edit = record.state().edit(); edit.filter(0, key); edit.insert(0, key, 90); edit.thresholds(0, 2, -1);
         edit.request(0, UUID.randomUUID(), alice, 30, false);
         var state = edit.finish(); ledger.replace(new CacheHandle(id, alice, null), record.state().revision(), record.withState(state));
-        ledger.personalOrCreate(alice); ledger.personalOrCreate(bob); ledger.setCacheFirst(alice, true);
+        LegacyOwnership.on(ledger).personalOrCreate(alice); LegacyOwnership.on(ledger).personalOrCreate(bob); ledger.setCacheFirst(alice, true);
         var saved = ledger.save(new CompoundTag(), registries); var loaded = CacheLedger.load(saved, registries);
         helper.assertTrue(loaded.problem().isEmpty(), "Valid ledger locked");
         helper.assertTrue(state.equals(loaded.find(id).state()), "Cache changed across reload");
@@ -138,11 +282,11 @@ public final class FoundationTests {
     }
 
     @GameTest(template = "empty")
-    public static void privatizationCommitsWholeOwnershipAndRevokesOrdinaryCopies(GameTestHelper helper) {
+    public static void retirementPreservesHistoricalOwnershipAndRevokesOrdinaryCopies(GameTestHelper helper) {
         var f = ReceiveTests.setup(helper, ReceiveTests.FULL - 8); helper.assertTrue(ReceiveService.receive(f.player(), f.box(32)), "Private ownership fixture failed");
         var before = f.ledger().save(new CompoundTag(), f.player().registryAccess());
         var plan = PrivateCacheMerge.simulate(f.ledger(), f.player().registryAccess(), f.player().getUUID(), f.handle().cacheId());
-        var transaction = f.ledger().prepareOwnership(plan.source(), plan.target(), plan.replacement(), plan.sourceRoutes());
+        var transaction = LegacyOwnership.on(f.ledger()).prepareOwnership(plan.source(), plan.target(), plan.replacement(), plan.sourceRoutes());
         helper.assertTrue(f.ledger().personal(f.player().getUUID()) == null && before.equals(f.ledger().save(new CompoundTag(), f.player().registryAccess())),
                 "Ownership preparation changed the ledger");
         transaction.commit(); rejects(helper, transaction::commit);
@@ -150,25 +294,29 @@ public final class FoundationTests {
         helper.assertTrue(!AccessGate.resolve(f.player()).active(), "Old ordinary input still grants personal cache access");
         var personalPendant = FmpRegistries.PERSONAL_PENDANT.toStack(); personalPendant.set(FmpRegistries.OWNER.get(), f.player().getUUID());
         TestPlayers.necklace(f.player()).setStackInSlot(0, personalPendant);
+        LegacyRetirement.transfer(f.player(), simulatedCheckpoints());
         helper.assertTrue(AccessGate.resolve(f.player()).handle().cacheId().equals(f.handle().cacheId()) && !f.residual().isEmpty()
                 && f.record().state().cells().getFirst().amount() == ReceiveTests.FULL && f.record().state().pending(0) == 32, "Ownership commit lost a part of the cache");
         var copy = CacheLedger.load(f.ledger().save(new CompoundTag(), f.player().registryAccess()), f.player().registryAccess());
-        helper.assertTrue(copy.problem().isEmpty() && copy.personal(f.player().getUUID()).equals(f.handle().cacheId()), "Personal ownership did not save/load");
+        helper.assertTrue(copy.problem().isEmpty() && copy.personal(f.player().getUUID()) == null
+                && copy.ordinaryEntry(f.handle().cacheId(), TestPlayers.necklace(f.player()).getStackInSlot(0).get(FmpRegistries.RETIREMENT_RECEIPT.get()))
+                && !copy.ordinaryEntry(f.handle().cacheId(), null), "Retired authority did not save/load safely");
         helper.succeed();
     }
 
     @GameTest(template = "empty")
     public static void mergedCacheAcceptsAuthenticatedLateParcelsButNotOldAccessOrOldFilters(GameTestHelper helper) {
         var f = ReceiveTests.setup(helper, 0); ItemStack late = f.box(32), later = f.box(16);
-        UUID target = f.ledger().personalOrCreate(f.player().getUUID());
+        UUID target = LegacyOwnership.on(f.ledger()).personalOrCreate(f.player().getUUID());
         var plan = PrivateCacheMerge.simulate(f.ledger(), f.player().registryAccess(), f.player().getUUID(), f.handle().cacheId());
-        f.ledger().prepareOwnership(plan.source(), plan.target(), plan.replacement(), plan.sourceRoutes()).commit();
+        LegacyOwnership.on(f.ledger()).prepareOwnership(plan.source(), plan.target(), plan.replacement(), plan.sourceRoutes()).commit();
         helper.assertTrue(f.ledger().find(f.handle().cacheId()) == null && !AccessGate.resolve(f.player()).active(), "Retired ordinary cache remained accessible");
         var copy = CacheLedger.load(f.ledger().save(new CompoundTag(), f.player().registryAccess()), f.player().registryAccess());
         long epoch = late.get(FmpRegistries.PARCEL_SEAL.get()).filterRevision();
         helper.assertTrue(copy.problem().isEmpty() && copy.parcelTarget(f.handle().cacheId(), f.key(), epoch).cacheId().equals(target), "Manufacturing route did not save/load");
         var mergedPersonal = FmpRegistries.PERSONAL_PENDANT.toStack(); mergedPersonal.set(FmpRegistries.OWNER.get(), f.player().getUUID());
         TestPlayers.necklace(f.player()).setStackInSlot(0, mergedPersonal);
+        LegacyRetirement.transfer(f.player(), simulatedCheckpoints());
         helper.assertTrue(ReceiveService.receive(f.player(), late) && late.isEmpty(), "Valid late parcel could not find the merged cache");
         var current = f.ledger().find(target); var handle = AccessGate.resolve(f.player()).handle();
         helper.assertTrue(current.state().cells().getFirst().amount() == 32 && current.state().pending(0) == 32, "Redirected delivery lost stock or order state");
@@ -180,19 +328,20 @@ public final class FoundationTests {
     }
 
     @GameTest(template = "empty")
-    public static void personalUpgradeBelongsToOwnerAndAdvancesItsCache(GameTestHelper helper) {
-        var ledger = CacheLedger.get(helper.getLevel().getServer()); var registries = helper.getLevel().registryAccess();
-        UUID owner = UUID.randomUUID(), other = UUID.randomUUID();
-        UUID id = ledger.personalOrCreate(owner); var handle = new CacheHandle(id, owner, null);
-        var correct = ledger.preparePersonalUpgrade(handle, 2);
-        helper.assertTrue(ledger.find(id).state().level() == 1, "Personal upgrade preview advanced the cache"); correct.commit();
-        helper.assertTrue(ledger.find(id).state().level() == 2, "Owner personal upgrade did not advance exactly once");
-        rejects(helper, correct::commit);
-        // Only the cache owner may upgrade; a different player cannot touch it, and no level may be skipped.
-        rejects(helper, () -> ledger.preparePersonalUpgrade(new CacheHandle(id, other, null), 3));
-        rejects(helper, () -> ledger.preparePersonalUpgrade(handle, 4));
-        var saved = CacheLedger.load(ledger.save(new CompoundTag(), registries), registries);
-        helper.assertTrue(saved.problem().isEmpty() && saved.find(id).state().level() == 2, "Personal upgrade did not survive save/load");
+    public static void retiredCacheUpgradesOnlyAfterOrdinaryHandover(GameTestHelper helper) {
+        var ledger=CacheLedger.get(helper.getLevel().getServer());var registries=helper.getLevel().registryAccess();
+        var player=TestPlayers.create(helper,FmpRegistries.PERSONAL_PENDANT.toStack());
+        UUID id=LegacyOwnership.on(ledger).personalOrCreate(player.getUUID());
+        rejects(helper,()->ledger.prepareOrdinaryUpgrade(ledger.find(id),2));
+        LegacyRetirement.transfer(player,simulatedCheckpoints());
+        var correct=ledger.prepareOrdinaryUpgrade(ledger.find(id),2);
+        helper.assertTrue(ledger.find(id).state().level()==1,"Upgrade preview advanced the retired cache");
+        correct.commit();rejects(helper,correct::commit);
+        helper.assertTrue(ledger.find(id).owner()==null && ledger.find(id).state().level()==2,"Retired cache did not upgrade as ordinary");
+        rejects(helper,()->ledger.prepareOrdinaryUpgrade(ledger.find(id),4));
+        var saved=CacheLedger.load(ledger.save(new CompoundTag(),registries),registries);
+        helper.assertTrue(saved.problem().isEmpty() && saved.find(id).state().level()==2 && saved.find(id).owner()==null,
+            "Ordinary upgrade did not preserve retired state on reload");
         helper.succeed();
     }
     private static final UUID ORDINARY_PLAYER = UUID.fromString("36fa75ac-ce67-44c5-8c66-a54f10150001");
@@ -202,7 +351,7 @@ public final class FoundationTests {
     public static void ordinaryCacheSurvivesNativeDeathAndClone(GameTestHelper helper) { deathAndClone(helper, false); }
 
     @GameTest(template = "empty")
-    public static void personalCacheSurvivesNativeDeathAndClone(GameTestHelper helper) { deathAndClone(helper, true); }
+    public static void retiredOrdinaryCacheSurvivesNativeDeathAndClone(GameTestHelper helper) { deathAndClone(helper, true); }
 
     private static void deathAndClone(GameTestHelper helper, boolean personal) {
         var rules = helper.getLevel().getGameRules(); var server = helper.getLevel().getServer();
@@ -214,6 +363,10 @@ public final class FoundationTests {
                 var player = TestPlayers.real(helper, playerId);
                 var pendant = (personal ? FmpRegistries.PERSONAL_PENDANT : FmpRegistries.PENDANT).toStack();
                 pendant.set(FmpRegistries.NETWORK.get(), marker); TestPlayers.necklace(player).setStackInSlot(0, pendant);
+                if (personal) {
+                    LegacyOwnership.on(CacheLedger.get(server)).personalOrCreate(playerId);
+                    LegacyRetirement.transfer(player, simulatedCheckpoints());
+                }
                 var handle = AccessGate.resolve(player).handle(); var ledger = CacheLedger.get(server); var initial = ledger.find(handle.cacheId());
                 var edit = initial.state().edit(); var key = ItemVariantKey.of(new ItemStack(Items.STONE), player.registryAccess());
                 edit.filter(0, key); edit.thresholds(0, 2, -1);
@@ -272,6 +425,10 @@ public final class FoundationTests {
         var ordinary = TestPlayers.create(helper, ORDINARY_PLAYER, FmpRegistries.PENDANT.toStack());
         var personalStack = FmpRegistries.PERSONAL_PENDANT.toStack(); personalStack.set(FmpRegistries.OWNER.get(), PERSONAL_PLAYER);
         var personal = TestPlayers.create(helper, PERSONAL_PLAYER, personalStack);
+        if (!prior) {
+            LegacyOwnership.on(ledger).personalOrCreate(PERSONAL_PLAYER);
+            LegacyRetirement.transfer(personal, simulatedCheckpoints());
+        }
         var players = List.of(ordinary, personal);
         if (prior) for (int index = 0; index < players.size(); index++) {
             var player = players.get(index);
@@ -310,7 +467,7 @@ public final class FoundationTests {
             next.putUUID("cache_" + index, handle.cacheId()); next.put("record_" + index, row(ledger, handle.cacheId(), registries));
         }
         probe.data = next; probe.setDirty();
-        FeedMePackages.LOGGER.info("FMP_CURRENT_PERSISTENCE {} schema={} ordinary+personal exact-state/player-files", prior ? "PRIOR_JVM_PASSED" : "FIRST_WRITE", CacheLedger.SCHEMA);
+        FeedMePackages.LOGGER.info("FMP_CURRENT_PERSISTENCE {} schema={} ordinary+retired exact-state/player-files", prior ? "PRIOR_JVM_PASSED" : "FIRST_WRITE", CacheLedger.SCHEMA);
         helper.succeed();
     }
 

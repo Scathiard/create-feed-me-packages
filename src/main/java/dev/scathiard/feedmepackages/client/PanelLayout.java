@@ -10,9 +10,7 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
         int firstRow, int visibleRows, int totalRows, int footerY, boolean compact, boolean hidden) {
     // panel.png: two 22-pixel end caps surround the 18-pixel inventory cells.
     public static final int ROW = 18, SIDE = 22, WIDTH = 2 * ROW + 2 * SIDE;
-    public static final int HEADER = 18, BAR = 18, FOOTER = 24, SLIDER = 19;
-    // Geometry of the visible artwork, not only the surrounding popup rectangle.
-    public static final int TRACK_INSET = 5, TRACK_Y = 4, MIN_THUMB_Y = 8, MAX_THUMB_Y = 0, LABEL_Y = 11;
+    public static final int HEADER = 18, BAR = 18, FOOTER = 24;
     public static final int MARGIN = 4, GAP = 4, BOOK_WIDTH = 177, MAX_ROWS = 6;
     /**
      * The buttons are <b>13x13</b> (user: "换个思路，把按钮都放到底部边框，然后做大一点…依旧贴边框"). The user drew them
@@ -43,6 +41,12 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
         public Rect dot() { return new Rect(bounds.x() + 13, bounds.y() + 1, 4, 5); }
     }
     public PanelLayout { cells = List.copyOf(cells); }
+    public PanelLayout clampControls(int screenWidth, int screenHeight) {
+        if (slider == null) return this;
+        Rect clamped = new Rect(clamp(slider.x(), MARGIN, screenWidth-MARGIN-slider.width()),
+                clamp(slider.y(), MARGIN, screenHeight-MARGIN-slider.height()), slider.width(), slider.height());
+        return new PanelLayout(bounds,cells,clamped,returnBar,firstRow,visibleRows,totalRows,footerY,compact,hidden);
+    }
     public Rect address() {
         return new Rect(bounds.x() + 11, bounds.y() + 1, bounds.width() - 22, 13);
     }
@@ -94,34 +98,6 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
 
     /** Width of the panel for a level's own arrangement (used before a layout exists). */
     public static int preferredWidth(CacheGrid grid) { return grid.columns() * ROW + 2 * SIDE; }
-    /** Offset of the LAST painted track pixel from the track's first pixel. The track is
-     *  {@code width - 2*TRACK_INSET} pixels wide, so this is that width minus one. */
-    public static int sliderTrackSpan(int width) { return Math.max(1, width - 2 * TRACK_INSET - 1); }
-
-    /** Endpoint pixel for a group value. Zero sits on the track's first pixel, the maximum is clamped
-     *  to the LAST painted pixel (never one past it), and -1 (no return) renders at the maximum
-     *  position. Rendering and hit-testing share this function. */
-    public static int sliderThumbPx(int sliderX, int width, int value, int groupCap) {
-        int cap = Math.max(1, groupCap);
-        int trackW = Math.max(1, width - 2 * TRACK_INSET);
-        int first = sliderX + TRACK_INSET;
-        int last = first + trackW - 1;
-        int clamped = Math.clamp((long)(value < 0 ? cap : value), 0, cap);
-        int raw = first + clamped * trackW / cap;
-        return Math.max(first, Math.min(last, raw));
-    }
-
-    /** Group value under the mouse: rounds to the NEAREST step so the endpoint follows the cursor.
-     *  The last painted pixel always reads as the maximum, so dragging fully right cannot come back
-     *  one group short. Flooring here made the endpoint lag behind the cursor and then jump a whole
-     *  step (worst at low levels), which is the "not following the mouse" regression from test.57. */
-    public static int sliderValue(int sliderX, int width, double x, int groupCap) {
-        int cap = Math.max(1, groupCap);
-        int trackW = Math.max(1, width - 2 * TRACK_INSET);
-        double relative = x - (double)sliderX - TRACK_INSET;
-        if (relative >= trackW - 1) return cap;
-        return Math.clamp((long)Math.round(relative * (double)cap / trackW), 0, cap);
-    }
     private static int clamp(int value, int min, int max) { return Math.max(min, Math.min(value, max)); }
 
     /** Layout for a cell count, using that count's own arrangement. */
@@ -180,7 +156,10 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
             if (hasSelection && row == selectedRow) {
                 // Keep the popup attached to its cell, including the last row/column.
                 // The footer has room for its bottom-row overhang; input goes to the popup first.
-                slider = new Rect(x + SIDE + selectedColumn * ROW - ROW / 2, cy + ROW + 2, 2 * ROW, SLIDER);
+                int popupY = cy + ROW + 8;
+                if (popupY + 57 > screenHeight - MARGIN) popupY = cy - 57 - 8;
+                slider = new Rect(Math.max(MARGIN, x + SIDE + selectedColumn * ROW - 63),
+                        clamp(popupY, MARGIN, screenHeight - MARGIN - 57), 144, 57);
             }
         }
         // The label is already part of the bottom end caps (source rows 99..116).

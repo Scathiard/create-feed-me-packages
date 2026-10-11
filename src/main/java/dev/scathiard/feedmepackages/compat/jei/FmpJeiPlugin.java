@@ -33,6 +33,10 @@ public final class FmpJeiPlugin implements IModPlugin {
         runtime = value; LogisticsPanel.recipeOverlay(candidate -> candidate == runtime.getRecipesGui());
         // JEI's bookmark/history buttons are outside Screen.children and ignore ingredient exclusion areas.
         LogisticsPanel.overlayBottomInset(28);
+        value.getIngredientManager().removeIngredientsAtRuntime(mezz.jei.api.constants.VanillaTypes.ITEM_STACK,
+                List.of(dev.scathiard.feedmepackages.registry.FmpRegistries.PERSONAL_PENDANT.toStack(),
+                        dev.scathiard.feedmepackages.registry.FmpRegistries.PRIVATE_LINK.toStack(),
+                        dev.scathiard.feedmepackages.registry.FmpRegistries.INCOMPLETE_PRIVATE_LINK.toStack()));
     }
     @Override public void onRuntimeUnavailable() {
         runtime = null; LogisticsPanel.recipeOverlay(candidate -> false); LogisticsPanel.overlayBottomInset(0);

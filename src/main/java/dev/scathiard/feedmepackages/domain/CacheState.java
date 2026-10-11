@@ -23,6 +23,7 @@ public record CacheState<K extends MaterialVariant>(UUID id, int level, long rev
                 throw new IllegalArgumentException("Cell exceeds capacity");
             if (cell.filter() != null && !variants.add(cell.filter()))
                 throw new IllegalArgumentException("Duplicate exact filter");
+            cell.settings().validate(cell.filter(), itemCapacity);
         }
         for (var entry : orders.entrySet()) {
             if (!entry.getKey().equals(entry.getValue().id()))
@@ -49,7 +50,7 @@ public record CacheState<K extends MaterialVariant>(UUID id, int level, long rev
         return (int) Math.min(result, Integer.MAX_VALUE);
     }
 
-    public int requestable(int slot) { return Math.max(0, cells.get(slot).shortage() - pending(slot)); }
+    public int requestable(int slot) { return cells.get(slot).settings().requestable(cells.get(slot).amount(), pending(slot)); }
 
     public Arrow arrow(int slot) {
         return cells.get(slot).shortage() == 0 ? Arrow.NONE : pending(slot) > 0 ? Arrow.REQUESTED : Arrow.UNSUPPLIED;

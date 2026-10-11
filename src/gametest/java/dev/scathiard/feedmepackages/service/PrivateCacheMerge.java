@@ -1,6 +1,7 @@
 package dev.scathiard.feedmepackages.service;
 
 import dev.scathiard.feedmepackages.domain.CacheMerge;
+import dev.scathiard.feedmepackages.domain.ParcelRoute;
 import dev.scathiard.feedmepackages.domain.CacheState;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.logistics.*;
@@ -10,7 +11,7 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.world.item.ItemStack;
 import java.util.*;
 
-/** Pure world-state proposal, NOT a manufacturing/ownership commit or an access grant. */
+/** Test-only legacy snapshot construction. No private-cache gameplay is shipped. */
 public final class PrivateCacheMerge {
     private PrivateCacheMerge() {}
     public enum Reason { INVALID_OWNER, INVALID_RESIDUAL, TWO_RESIDUALS }
@@ -20,7 +21,7 @@ public final class PrivateCacheMerge {
         public Reason reason() { return reason; }
     }
     public record Plan(CacheRecord source, CacheRecord target, CacheRecord replacement,
-                       Map<CacheMerge.Route<ItemVariantKey>, Long> sourceRoutes) {
+                       Map<ParcelRoute<ItemVariantKey>, Long> sourceRoutes) {
         public Plan { sourceRoutes = Map.copyOf(sourceRoutes); }
     }
     private record Intake(CacheState<ItemVariantKey> state, Map<ItemVariantKey, ItemStack> residuals) {
@@ -39,7 +40,7 @@ public final class PrivateCacheMerge {
                 || (targetId != null && (target == null || !player.equals(target.owner()))))
             throw new Rejected(Reason.INVALID_OWNER);
         CacheState<ItemVariantKey> state;
-        Map<CacheMerge.Route<ItemVariantKey>, Long> routes;
+        Map<ParcelRoute<ItemVariantKey>, Long> routes;
         if (target == null) {
             state = source.state(); routes = Map.of();
         } else {
@@ -64,7 +65,7 @@ public final class PrivateCacheMerge {
 
     /** Merge every residual owned by {@code from} into {@code destination}, one per cell by exact variant. */
     private static Intake resume(CacheLedger ledger, HolderLookup.Provider registries, CacheRecord from,
-                                 CacheState<ItemVariantKey> destination, Map<CacheMerge.Route<ItemVariantKey>, Long> routes) {
+                                 CacheState<ItemVariantKey> destination, Map<ParcelRoute<ItemVariantKey>, Long> routes) {
         if (from.residuals().isEmpty()) return new Intake(destination);
         Map<ItemVariantKey, ItemStack> acc = new HashMap<>();
         for (var entry : List.copyOf(from.residuals().entrySet())) {
@@ -77,7 +78,7 @@ public final class PrivateCacheMerge {
             int oldSlot = from.state().find(variant), slot = destination.find(variant);
             if (oldSlot < 0 || slot < 0 || from.state().cells().get(oldSlot).filterRevision() != seal.filterRevision())
                 throw new Rejected(Reason.INVALID_RESIDUAL);
-            Long revision = routes == null ? seal.filterRevision() : routes.get(new CacheMerge.Route<>(variant, seal.filterRevision()));
+            Long revision = routes == null ? seal.filterRevision() : routes.get(new ParcelRoute<>(variant, seal.filterRevision()));
             if (revision == null || destination.cells().get(slot).filterRevision() != revision)
                 throw new Rejected(Reason.INVALID_RESIDUAL);
             var plan = ParcelIntake.simulate(destination, box, variant, seal.requestId(), true, registries);

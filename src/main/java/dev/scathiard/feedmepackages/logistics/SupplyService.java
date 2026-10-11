@@ -37,12 +37,13 @@ public final class SupplyService {
             int wanted = state.requestable(slot);
             if (wanted == 0 || state.orders().size() >= CacheState.MAX_ORDERS) continue;
             var cell = state.cells().get(slot);
+            if (!before.residual(cell.filter()).isEmpty()) continue;
             var template = cell.filter().stack(player.registryAccess(), 1);
             var order = PackageOrderWithCrafts.simple(List.of(new BigItemStack(template, wanted)));
             var requests = LogisticsManager.findPackagersForRequest(access.handle().networkId(), order, null, address(player));
             if (requests.isEmpty() || requests.keySet().stream().anyMatch(packager -> packager.isTooBusyFor(RequestType.RESTOCK))) continue;
             int planned = requests.values().stream().mapToInt(request -> request.getCount()).sum();
-            if (planned <= 0 || planned > wanted) continue;
+            if (planned < cell.settings().batch() || planned > wanted) continue;
             UUID requestId = UUID.randomUUID(); var edit = state.edit();
             edit.request(slot, requestId, player.getUUID(), planned, true);
             ledger.replace(access.handle(), state.revision(), before.withState(edit.finish()));

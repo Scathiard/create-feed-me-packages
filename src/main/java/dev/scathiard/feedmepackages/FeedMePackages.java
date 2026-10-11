@@ -59,12 +59,12 @@ public final class FeedMePackages {
                 }
             };
             CuriosApi.registerCurio(FmpRegistries.PENDANT.get(), behavior);
-            CuriosApi.registerCurio(FmpRegistries.PERSONAL_PENDANT.get(), behavior);
         });
     }
 
     private void playerTick(PlayerTickEvent.Post event) {
         if (event.getEntity() instanceof ServerPlayer player) {
+            dev.scathiard.feedmepackages.storage.LegacyRetirement.tick(player);
             CraftingReservations.validate(player);
             CacheActions.validateOpenContext(player);
             SupplyService.tick(player);

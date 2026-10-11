@@ -54,7 +54,7 @@ public final class GrowthMachineTests {
 
     private static final class AssemblyRun {
         final GameTestHelper helper; BlockPos sawOutput;
-        final int[] targets = {2, 3, 4, 5, 0};
+        final int[] targets = {2, 3, 4, 5};
         int targetIndex, stepIndex, attempts, waiting; boolean inserted, missingChecked;
         ItemStack current = ItemStack.EMPTY; ProcessingRecipe<?, ?> step; IItemHandler input, output, hand; IFluidHandler tank;
         AssemblyRun(GameTestHelper helper) { this.helper = helper; }

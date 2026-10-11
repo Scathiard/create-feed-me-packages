@@ -3,9 +3,14 @@ package dev.scathiard.feedmepackages.domain;
 import java.util.Objects;
 
 /** A filter is a template, never stock. -1 disables a threshold.
- *  Thresholds and capacity are in groups; amount is in items. */
-public record Cell<K extends MaterialVariant>(K filter, int amount, int minimum, int maximum, long filterRevision) {
+ * minimum/maximum retain the old saved group fields; settings is the current, item-count authority. */
+public record Cell<K extends MaterialVariant>(K filter, int amount, int minimum, int maximum, long filterRevision,
+                                             CellSettings settings) {
+    public Cell(K filter, int amount, int minimum, int maximum, long filterRevision) {
+        this(filter, amount, minimum, maximum, filterRevision, CellSettings.fromGroups(filter, minimum, maximum));
+    }
     public Cell {
+        Objects.requireNonNull(settings);
         if (amount < 0 || minimum < -1 || maximum < -1 || filterRevision < 0)
             throw new IllegalArgumentException("Negative cell state");
         if (filter == null && (amount != 0 || minimum != -1 || maximum != -1))
@@ -17,7 +22,7 @@ public record Cell<K extends MaterialVariant>(K filter, int amount, int minimum,
     public static <K extends MaterialVariant> Cell<K> empty() { return new Cell<>(null, 0, -1, -1, 0); }
 
     public Cell<K> withAmount(int next) {
-        return new Cell<>(filter, next, minimum, maximum, filterRevision);
+        return new Cell<>(filter, next, minimum, maximum, filterRevision, settings);
     }
 
     public Cell<K> configure(K next) {
@@ -30,6 +35,11 @@ public record Cell<K extends MaterialVariant>(K filter, int amount, int minimum,
         return new Cell<>(filter, amount, min, max, filterRevision);
     }
 
+    public Cell<K> settings(CellSettings next) {
+        return new Cell<>(filter, amount, minimum, maximum, filterRevision, next);
+    }
+
     /** Shortage in items: minimum groups × stack size − current amount. */
-    public int shortage() { return minimum < 0 ? 0 : Math.max(0, minimum * filter.stackSize() - amount); }
+    public int shortage() { return settings.lower() < 0 ? 0 : Math.max(0, settings.lower() - amount); }
+    public int surplus() { return settings.upper() < 0 ? 0 : Math.max(0, amount - settings.upper()); }
 }

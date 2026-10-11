@@ -228,7 +228,7 @@ public final class ReceiveTests {
         TestPlayers.necklace(f.player).setStackInSlot(0, ItemStack.EMPTY);
         helper.assertTrue(!AccessGate.resolve(f.player).active(), "Inventory-only pendant grants access"); reject(helper, f, box);
         TestPlayers.necklace(f.player).setStackInSlot(0, pendant);
-        TestPlayers.necklace(f.player).grow(1); TestPlayers.necklace(f.player).setStackInSlot(1, FmpRegistries.PERSONAL_PENDANT.toStack());
+        TestPlayers.necklace(f.player).grow(1); TestPlayers.necklace(f.player).setStackInSlot(1, FmpRegistries.PENDANT.toStack());
         reject(helper, f, box); TestPlayers.necklace(f.player).setStackInSlot(1, ItemStack.EMPTY);
         pendant.set(FmpRegistries.DISABLED.get(), true); // The retired flag cannot hide or disable an equipped pendant.
         helper.assertTrue(ReceiveService.receive(f.player, box) && f.record().state().cells().getFirst().amount() == 32, "Reequip failed to resume same cache");
@@ -265,7 +265,7 @@ public final class ReceiveTests {
     @GameTest(template = "empty")
     public static void privateMergeRemapsAndResealsItsOnePhysicalResidualWithoutCommitting(GameTestHelper helper) {
         var f = setup(helper, FULL - 8); helper.assertTrue(ReceiveService.receive(f.player, f.box(32)), "Merge fixture failed"); f.extract(100);
-        UUID personal = f.ledger.personalOrCreate(f.player.getUUID()); var original = f.ledger.find(personal); var edit = original.state().edit();
+        UUID personal = LegacyOwnership.on(f.ledger).personalOrCreate(f.player.getUUID()); var original = f.ledger.find(personal); var edit = original.state().edit();
         edit.filter(0, f.key); edit.filter(0, null); edit.filter(1, f.key); edit.thresholds(1, 2, -1); edit.insert(1, f.key, 90);
         var handle = new CacheHandle(personal, f.player.getUUID(), null);
         f.ledger.replace(handle, original.state().revision(), original.withState(edit.finish()));
@@ -288,7 +288,7 @@ public final class ReceiveTests {
     @GameTest(template = "empty")
     public static void privateMergeRefusesTwoLeftoverBoxesButCanResumeBothWhenEverythingFits(GameTestHelper helper) {
         var f = setup(helper, FULL - 8); helper.assertTrue(ReceiveService.receive(f.player, f.box(32)), "Merge fixture failed"); f.extract(100);
-        UUID personal = f.ledger.personalOrCreate(f.player.getUUID()); var original = f.ledger.find(personal); var edit = original.state().edit();
+        UUID personal = LegacyOwnership.on(f.ledger).personalOrCreate(f.player.getUUID()); var original = f.ledger.find(personal); var edit = original.state().edit();
         edit.filter(0, f.key); edit.thresholds(0, 2, -1); edit.insert(0, f.key, 100); var targetState = edit.finish();
         ItemStack targetBox = PackageItem.containing(List.of(new ItemStack(Items.STONE, 16))); String address = SupplyService.address(f.player);
         PackageItem.addAddress(targetBox, address);

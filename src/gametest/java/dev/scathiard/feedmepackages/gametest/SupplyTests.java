@@ -31,6 +31,45 @@ import java.util.UUID;
 @GameTestHolder(FeedMePackages.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class SupplyTests {
+    @GameTest(template = "empty", timeoutTicks = 320)
+    public static void minimumBatchWaitsForBothNetworkStockAndPendingAllowance(GameTestHelper h) {
+        var f=ReceiveTests.setup(h,63); var network=UUID.randomUUID();
+        TestPlayers.necklace(f.player()).getStackInSlot(0).set(FmpRegistries.NETWORK.get(),network);
+        var before=f.record(); var edit=before.state().edit(); edit.reset(0);
+        edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(64,-1,64,63));
+        f.ledger().replace(f.handle(),before.state().revision(),before.withState(edit.finish()));
+        var pos=new BlockPos(2,1,2);var linkPos=pos.above();
+        h.setBlock(pos.south(),Blocks.CHEST.defaultBlockState());
+        h.setBlock(pos,AllBlocks.PACKAGER.get().defaultBlockState().setValue(PackagerBlock.FACING,Direction.NORTH));
+        h.setBlock(linkPos,AllBlocks.STOCK_LINK.get().defaultBlockState().setValue(PackagerLinkBlock.FACE,AttachFace.FLOOR));
+        var chest=(ChestBlockEntity)h.getBlockEntity(pos.south());chest.setItem(0,new ItemStack(Items.STONE,63));chest.setChanged();
+        int[] stage={0};
+        h.onEachTick(()->{
+            if(h.getTick()<3)return;
+            var packager=(PackagerBlockEntity)h.getBlockEntity(pos);
+            if(stage[0]==0) {
+                var link=(PackagerLinkBlockEntity)h.getBlockEntity(linkPos);
+                LogisticallyLinkedBehaviour.remove(link.behaviour);link.behaviour.freqId=network;LogisticallyLinkedBehaviour.keepAlive(link.behaviour);
+                SupplyService.tick(f.player());
+                h.assertTrue(f.record().state().orders().isEmpty() && chest.getItem(0).getCount()==63,"Below-batch pending allowance sent stock");
+                var current=f.record();var next=current.state().edit();next.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(64,-1,64,64));
+                f.ledger().replace(f.handle(),current.state().revision(),current.withState(next.finish()));
+                SupplyService.tick(f.player());
+                h.assertTrue(f.record().state().orders().isEmpty() && chest.getItem(0).getCount()==63 && packager.heldBox.isEmpty(),"Network shipped fewer than the minimum 64");
+                chest.setItem(0,new ItemStack(Items.STONE,64));chest.setChanged();stage[0]=1;
+            }
+            SupplyService.tick(f.player());
+            var handler=h.getLevel().getCapability(net.neoforged.neoforge.capabilities.Capabilities.ItemHandler.BLOCK,h.absolutePos(pos),Direction.NORTH);
+            if(handler==null || !PackageItem.isPackage(handler.extractItem(0,1,true)))return;
+            var parcel=handler.extractItem(0,1,false);var content=PackageItem.getContents(parcel);int count=0;
+            for(int i=0;i<content.getSlots();i++)count+=content.getStackInSlot(i).getCount();
+            h.assertTrue(count==64 && f.record().state().pending(0)==64 && chest.getItem(0).isEmpty(),"One missing item did not request exactly the 64-item minimum");
+            h.assertTrue(ReceiveService.receive(f.player(),parcel) && parcel.isEmpty() && f.record().state().cells().getFirst().amount()==127,"Minimum-batch delivery did not conserve stock");
+            SupplyService.tick(f.player());
+            h.assertTrue(f.record().state().orders().isEmpty() && packager.queuedExitingPackages.isEmpty(),"Satisfied stock ordered again");
+            h.succeed();
+        });
+    }
     @GameTest(template = "empty", timeoutTicks = 240)
     public static void nativeRestockBillsOnlyTheCraftedRecipeNotItsPreparation(GameTestHelper helper) {
         var f = ReceiveTests.setup(helper, 0); var player = f.player(); var network = UUID.randomUUID();

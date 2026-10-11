@@ -37,7 +37,7 @@ public final class PanelNetwork {
         }
     }
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("4");
+        var registrar = event.registrar("5-converged1");
         registrar.playToServer(PanelPackets.Query.TYPE, PanelPackets.Query.CODEC, (packet, context) -> {
             var reply = query((ServerPlayer) context.player(), packet); if (reply != null) context.reply(reply);
         });
@@ -45,9 +45,21 @@ public final class PanelNetwork {
             var reply = command((ServerPlayer) context.player(), packet); if (reply != null) context.reply(reply);
         });
         registrar.playToClient(PanelPackets.Snapshot.TYPE, PanelPackets.Snapshot.CODEC, (packet, context) -> clientReceiver.accept(packet));
+        registrar.playToServer(PanelPackets.SettingsBatch.TYPE,PanelPackets.SettingsBatch.CODEC,(packet,context)->{
+            var reply=settings((ServerPlayer)context.player(),packet);if(reply!=null)context.reply(reply);
+        });
         registrar.playToClient(PanelPackets.CursorUpdate.TYPE, PanelPackets.CursorUpdate.CODEC, (packet, context) -> cursorReceiver.accept(packet));
     }
     public static void forget(ServerPlayer player) { WINDOWS.remove(player); BUDGETS.remove(player); CacheActions.close(player); }
+    public static PanelPackets.Snapshot settings(ServerPlayer player,PanelPackets.SettingsBatch packet) {
+        var window=WINDOWS.get(player);
+        if(window==null || !window.id.equals(packet.window()) || window.menu!=player.containerMenu.containerId)return null;
+        boolean allowed=BUDGETS.computeIfAbsent(player,p->new Budget()).action(player.tickCount);
+        if(packet.sequence()<=window.lastSequence)return allowed?snapshot(player,window,packet.sequence(),CacheActions.Result.STALE):null;
+        window.lastSequence=packet.sequence();
+        var result=allowed?CacheActions.settings(player,packet.session(),packet.changes()):CacheActions.Result.TOO_COMPLEX;
+        window.lastResult=result;return allowed?snapshot(player,window,packet.sequence(),result):null;
+    }
     public static PanelPackets.Snapshot query(ServerPlayer player, PanelPackets.Query packet) {
         var window = WINDOWS.get(player);
         if (!packet.open()) {
@@ -124,7 +136,7 @@ public final class PanelNetwork {
                     AccessGate.Status.INVALID_IDENTITY, -1, 0, 0, false, false, false, "", "", "", List.of(), List.of());
         }
         var terminals = access.terminals().stream().map(t -> new PanelPackets.TerminalView(t.slot(),
-                ((PendantItem)t.stack().getItem()).personal(), t.disabled(), t.network() == null ? "" : t.network().toString())).toList();
+                false, t.disabled(), t.network() == null ? "" : t.network().toString())).toList();
         List<PanelPackets.CellView> cells = new ArrayList<>();
         String residualItem = "";
         String returnAddress = access.active() && access.handle() != null
@@ -135,8 +147,8 @@ public final class PanelNetwork {
                 boolean slotResidual = cell.filter() != null && !record.residual(cell.filter()).isEmpty();
                 int reserved = cell.filter() == null ? 0 : dev.scathiard.feedmepackages.interaction.CursorReservations.reserved(access.handle().cacheId(), i);
                 String template = cell.filter() == null ? "" : cell.filter().encoded();
-                cells.add(new PanelPackets.CellView(template, cell.amount(), cell.minimum(), cell.maximum(), record.state().pending(i), reserved, cell.filter() == null ? 1 : cell.filter().stackSize(), slotResidual,
-                        dev.scathiard.feedmepackages.logistics.ReturnService.dispatchState(access.handle(), returnAddress, i, template, cell.maximum())));
+                cells.add(new PanelPackets.CellView(template, cell.amount(), cell.settings().lower(), cell.settings().upper(), record.state().pending(i), reserved, cell.filter() == null ? 1 : cell.filter().stackSize(), slotResidual,
+                        dev.scathiard.feedmepackages.logistics.ReturnService.dispatchState(access.handle(), returnAddress, i, template, cell.settings().upper()), cell.settings().batch(), cell.settings().pendingLimit(), cell.filterRevision()));
             }
             for (var box : record.residuals().values())
                 if (!box.isEmpty()) { residualItem = BuiltInRegistries.ITEM.getKey(box.getItem()).toString(); break; }

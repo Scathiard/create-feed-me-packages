@@ -45,7 +45,28 @@ public final class PanelPackets {
         });
         @Override public Type<Command> type() { return TYPE; }
     }
-    public record CellView(String template, int amount, int minimum, int maximum, int pending, int reserved, int stackSize, boolean residual, int returnState) {}
+    public record SettingsBatch(UUID window, UUID session, int sequence, List<CacheActions.SettingsChange> changes) implements CustomPacketPayload {
+        public SettingsBatch { changes=List.copyOf(changes); if(changes.isEmpty() || changes.size()>36) throw new IllegalArgumentException("Invalid settings batch size"); }
+        public static final Type<SettingsBatch> TYPE=PanelPackets.type("cell_settings");
+        public static final StreamCodec<RegistryFriendlyByteBuf,SettingsBatch> CODEC=StreamCodec.of((b,v)->{
+            int start=b.writerIndex(); b.writeUUID(v.window);b.writeUUID(v.session);b.writeVarInt(v.sequence);b.writeVarInt(v.changes.size());
+            for(var c:v.changes) {b.writeVarInt(c.slot());b.writeLong(c.filterRevision());var s=c.value();b.writeVarInt(s.lower());b.writeVarInt(s.upper());b.writeVarInt(s.batch());b.writeVarInt(s.pendingLimit());}
+            written(b,start,C2S_LIMIT);
+        },b->{
+            bound(b,C2S_LIMIT);var window=b.readUUID();var session=b.readUUID();int sequence=b.readVarInt(),count=size(b,36);
+            var changes=new ArrayList<CacheActions.SettingsChange>();
+            for(int i=0;i<count;i++)changes.add(new CacheActions.SettingsChange(b.readVarInt(),b.readLong(),
+                new dev.scathiard.feedmepackages.domain.CellSettings(b.readVarInt(),b.readVarInt(),b.readVarInt(),b.readVarInt())));
+            end(b);return new SettingsBatch(window,session,sequence,changes);
+        });
+        @Override public Type<SettingsBatch> type(){return TYPE;}
+    }
+    public record CellView(String template, int amount, int minimum, int maximum, int pending, int reserved, int stackSize,
+                           boolean residual, int returnState, int batch, int pendingLimit, long filterRevision) {
+        public CellView(String template, int amount, int minimum, int maximum, int pending, int reserved, int stackSize, boolean residual, int returnState) {
+            this(template, amount, minimum, maximum, pending, reserved, stackSize, residual, returnState, 1, -1, 0);
+        }
+    }
     /** FMP-owned cursor update, never a full vanilla inventory replacement. */
     public record CursorUpdate(UUID window, UUID session, int takeSequence, int operationSequence,
                                long updateSequence, String template, int count, int remaining) implements CustomPacketPayload {
@@ -84,6 +105,7 @@ public final class PanelPackets {
         text(b, s.address, 128); text(b, s.returnAddress, 128); text(b, s.residualItem, 256); b.writeVarInt(s.cells.size());
         for (var c : s.cells) {
             text(b, c.template, 1024); b.writeVarInt(c.amount); b.writeVarInt(c.minimum); b.writeVarInt(c.maximum); b.writeVarInt(c.pending); b.writeVarInt(c.reserved); b.writeVarInt(c.stackSize); b.writeBoolean(c.residual); b.writeVarInt(c.returnState);
+            b.writeVarInt(c.batch); b.writeVarInt(c.pendingLimit); b.writeLong(c.filterRevision);
         }
         b.writeVarInt(s.terminals.size());
         for (var t : s.terminals) { b.writeVarInt(t.slot); b.writeBoolean(t.personal); b.writeBoolean(t.disabled); text(b, t.network, 36); }
@@ -95,7 +117,7 @@ public final class PanelPackets {
         var status = b.readEnum(AccessGate.Status.class); long revision = b.readLong();
         int level = b.readVarInt(), capacity = b.readVarInt(); boolean personal = b.readBoolean(), cacheFirst = b.readBoolean(), bound = b.readBoolean();
         String address = text(b, 128), returnAddress = text(b, 128), residual = text(b, 256); int size = size(b, 36); List<CellView> cells = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) cells.add(new CellView(text(b, 1024), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readBoolean(), b.readVarInt()));
+        for (int i = 0; i < size; i++) cells.add(new CellView(text(b, 1024), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readBoolean(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readLong()));
         size = size(b, MAX_TERMINALS); List<TerminalView> terminals = new ArrayList<>(size);
         for (int i = 0; i < size; i++) terminals.add(new TerminalView(b.readVarInt(), b.readBoolean(), b.readBoolean(), text(b, 36)));
         end(b); return new Snapshot(window, session, serial, ack, result, status, revision, level, capacity, personal, cacheFirst, bound, address, returnAddress, residual, cells, terminals);

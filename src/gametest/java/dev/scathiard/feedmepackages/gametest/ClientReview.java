@@ -54,13 +54,14 @@ public final class ClientReview {
     private static final String RUN = Long.toString(System.currentTimeMillis());
     private static boolean failed;
     @SubscribeEvent public static void setup(FMLClientSetupEvent event) {
-        if (Boolean.getBoolean("fmp.clientReview") || Boolean.getBoolean("fmp.t14Review"))
+        if (Boolean.getBoolean("fmp.clientReview") || Boolean.getBoolean("fmp.t14Review") || Boolean.getBoolean("fmp.convergedReview"))
             event.enqueueWork(() -> NeoForge.EVENT_BUS.addListener(ClientReview::tick));
     }
     private static void tick(ClientTickEvent.Post event) {
         var mc = Minecraft.getInstance(); ticks++;
         try {
             if (work != null) { if (!work.isDone()) return; work.join(); work = null; }
+            if (Boolean.getBoolean("fmp.convergedReview")) { reviewConverged(); return; }
             if (Boolean.getBoolean("fmp.t14Review")) {
                 reviewT14();
                 return;
@@ -232,6 +233,176 @@ public final class ClientReview {
     }
     private static int uiCase;
     /** Narrow, opt-in visual check; never exercises or changes the production inventory transaction. */
+    /** Opt-in converged review: real screens, event routing, packets, integrated save and renderer. No OS mouse input. */
+    private static boolean convergedTransition;
+    private static void reviewConverged() throws ReflectiveOperationException {
+        if(convergedTransition)return;
+        var mc=Minecraft.getInstance();
+        if(ticks-changed>2400) throw new IllegalStateException("Converged review timeout at "+phase);
+        switch(phase) {
+            case 0 -> {
+                if(mc.getOverlay()!=null || mc.screen==null) return;
+                mc.getWindow().setTitle("FMP converged isolated review");
+                mc.options.pauseOnLostFocus=false; mc.options.guiScale().set(2); mc.resizeDisplay();
+                mc.options.languageCode="zh_cn"; mc.getLanguageManager().setSelected("zh_cn"); work=mc.reloadResourcePacks(); advance();
+            }
+            case 1 -> {
+                mc.createWorldOpenFlows().createFreshLevel("fmp-converged-"+RUN,
+                    new LevelSettings("FMP converged "+RUN,GameType.SURVIVAL,false,Difficulty.PEACEFUL,true,new GameRules(),WorldDataConfiguration.DEFAULT),
+                    new WorldOptions(7319L,false,false),r->r.registryOrThrow(Registries.WORLD_PRESET).getHolderOrThrow(WorldPresets.FLAT).value().createWorldDimensions(),mc.screen);
+                advance();
+            }
+            case 2 -> {
+                if(mc.player==null || mc.screen!=null || mc.getSingleplayerServer()==null || mc.player.tickCount<20) return;
+                server(player->{
+                    var ledger=CacheLedger.get(player.getServer()); var id=LegacyOwnership.on(ledger).personalOrCreate(player.getUUID());
+                    var old=FmpRegistries.PERSONAL_PENDANT.toStack(); old.set(FmpRegistries.OWNER.get(),player.getUUID());
+                    TestPlayers.necklace(player).setStackInSlot(0,old);
+                    var before=ledger.find(id); var edit=before.state().edit(); for(int l=1;l<5;l++)edit.upgrade();
+                    Item[] types={Items.STONE,Items.ENDER_PEARL,Items.IRON_SWORD};
+                    for(int i=0;i<types.length;i++)edit.filter(i,ItemVariantKey.of(new ItemStack(types[i]),player.registryAccess()));
+                    edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(64,512,64,128));
+                    edit.insert(0,ItemVariantKey.of(new ItemStack(Items.STONE),player.registryAccess()),63);
+                    edit.request(0,UUID.randomUUID(),player.getUUID(),64,false);
+                    edit.settings(1,new dev.scathiard.feedmepackages.domain.CellSettings(32,-1,1,-1));
+                    edit.request(1,UUID.randomUUID(),player.getUUID(),16,false);
+                    ledger.replace(new dev.scathiard.feedmepackages.storage.CacheHandle(id,player.getUUID(),null),before.state().revision(),before.withState(edit.finish()));
+                }); advance();
+            }
+            case 3 -> {
+                if(ticks-changed<50) return;
+                server(player->{var l=CacheLedger.get(player.getServer());require(l.retirement(player.getUUID()).completed() && AccessGate.resolve(player).active(),"Integrated player retirement did not complete native checkpoints");});
+                mc.setScreen(new InventoryScreen(mc.player));advance();
+            }
+            case 4 -> {
+                if(ticks-changed<25 || LogisticsPanel.visibleCells(mc.screen).size()!=36) return;
+                clickCellDot(0);advance();
+            }
+            case 5 -> {
+                if(ticks-changed<15) return;
+                var r=panelLayout().slider();require(r!=null && r.width()==144 && r.height()==57,"Incorrect control geometry");
+                capture("converged-survival-before");
+                controlWheel(0,1);controlWheel(1,-1);controlWheel(2,1);controlWheel(3,-1);advance();
+            }
+            case 6 -> {
+                if(ticks-changed<35 || panelInt("waiting")!=0) return;
+                var c=panelSnapshot().cells().getFirst();
+                require(c.batch()==65 && c.pendingLimit()==127 && c.minimum()==65 && c.maximum()==511,"Four numeric wells did not commit item-wise values");
+                require(mc.player.containerMenu.getCarried().isEmpty(),"Popup scroll touched an inventory slot");
+                capture("converged-survival-after-wheel");
+                var b=dev.scathiard.feedmepackages.client.CellControlGeometry.field(panelLayout().slider(),4);click(b.x()+8,b.y()+8);advance();
+            }
+            case 7 -> {
+                if(ticks-changed<20 || panelInt("waiting")!=0)return;
+                require(panelSnapshot().cells().get(0).pending()==0 && panelSnapshot().cells().get(1).pending()==16,"Reset changed another cell or failed to clear its own records");
+                var r=panelLayout().slider();int cap=panelSnapshot().groupCapacity()*64;
+                int x=dev.scathiard.feedmepackages.client.CellControlGeometry.thumb(r,65,cap);
+                panelPress(x,r.y()+43);require(panelBoolean("draggingSlider"),"Slider press did not capture");
+                panelDrag(x+8,r.y()+43);panelRelease(x+8,r.y()+43);advance();
+            }
+            case 8 -> {
+                if(ticks-changed<25 || panelInt("waiting")!=0)return;
+                int expected=dev.scathiard.feedmepackages.client.CellControlGeometry.draggedValue(65,8,panelSnapshot().groupCapacity()*64);
+                require(panelSnapshot().cells().getFirst().minimum()==expected,"Slider was rolled back after release");
+                capture("converged-drag-acknowledged");
+                controlWheel(0,1); // Close before the debounce: this still must persist atomically.
+                mc.setScreen(null);advance();
+            }
+            case 9 -> { if(ticks-changed<10)return;mc.setScreen(new InventoryScreen(mc.player));advance(); }
+            case 10 -> {
+                if(ticks-changed<20 || LogisticsPanel.visibleCells(mc.screen).size()!=36)return;
+                require(panelSnapshot().cells().getFirst().batch()==66,"Closing during debounce lost supply controls");
+                server(p->p.setGameMode(GameType.CREATIVE));advance();
+            }
+            case 11 -> { if(ticks-changed<10)return;mc.setScreen(new CreativeModeInventoryScreen(mc.player,mc.player.connection.enabledFeatures(),false));advance(); }
+            case 12 -> {
+                if(ticks-changed<25 || LogisticsPanel.visibleCells(mc.screen).size()!=36)return;
+                clickCellDot(0);advance();
+            }
+            case 13 -> {
+                if(ticks-changed<15)return;
+                require(panelLayout().slider()!=null,"Creative controls did not open");capture("converged-creative");
+                mc.getWindow().setWindowed(1280,900);
+                mc.options.guiScale().set(3);mc.resizeDisplay();advance();
+            }
+            case 14 -> {
+                if(ticks-changed<25 || LogisticsPanel.visibleCells(mc.screen).isEmpty())return;
+                if(panelLayout().slider()==null)clickCellDot(0);advance();
+            }
+            case 15 -> {
+                if(ticks-changed<15)return;
+                require(mc.getWindow().getGuiScale()==3,"Window did not actually reach GUI scale 3");
+                var r=panelLayout().slider();require(r!=null && r.x()>=4 && r.x()+r.width()<=mc.screen.width-4
+                    && r.y()>=4 && r.y()+r.height()<=mc.screen.height-4,"Controls escaped scaled screen");
+                capture("converged-scaled");
+                server(p->{
+                    p.setGameMode(GameType.SURVIVAL);
+                    var pos=p.blockPosition().east();p.serverLevel().setBlockAndUpdate(pos,Blocks.CRAFTING_TABLE.defaultBlockState());
+                    p.openMenu(Blocks.CRAFTING_TABLE.defaultBlockState().getMenuProvider(p.serverLevel(),pos));
+                });
+                advance();
+            }
+            case 16 -> {
+                if(ticks-changed<25 || !(mc.screen instanceof net.minecraft.client.gui.screens.inventory.CraftingScreen)
+                        || LogisticsPanel.visibleCells(mc.screen).isEmpty())return;
+                clickCellDot(0);advance();
+            }
+            case 17 -> {
+                if(ticks-changed<15)return;
+                require(panelLayout().slider()!=null,"Crafting-table controls did not open");
+                controlWheel(0,1);mc.screen.onClose();advance();
+            }
+            case 18 -> {
+                if(ticks-changed<20)return;
+                require(mc.screen==null,"Native crafting close failed");
+                server(p->{var a=AccessGate.resolve(p);require(p.containerMenu==p.inventoryMenu &&
+                    CacheLedger.get(p.getServer()).find(a.handle().cacheId()).state().cells().getFirst().settings().batch()==67,
+                    "Crafting close packet overtook its unsent cell settings");});
+                advance();
+            }
+            case 19 -> {
+                convergedTransition=true;
+                try {mc.level.disconnect();mc.disconnect(new TitleScreen());}
+                finally {convergedTransition=false;}
+                advance();
+            }
+            case 20 -> {
+                if(ticks-changed<20 || mc.level!=null || mc.getSingleplayerServer()!=null)return;
+                convergedTransition=true;
+                try {mc.createWorldOpenFlows().openWorld("fmp-converged-"+RUN,()->{throw new IllegalStateException("Migrated world could not reopen");});}
+                finally {convergedTransition=false;}
+                advance();
+            }
+            case 21 -> {
+                if(mc.player==null || mc.screen!=null || mc.getSingleplayerServer()==null || mc.player.tickCount<30)return;
+                server(p->{
+                    var ledger=CacheLedger.get(p.getServer());var delivery=ledger.retirement(p.getUUID());var access=AccessGate.resolve(p);
+                    require(delivery!=null && delivery.completed() && access.active() && access.handle().cacheId().equals(delivery.cache()),
+                        "Reopening migrated world lost its ordinary pendant authority");
+                    var state=ledger.find(delivery.cache()).state();
+                    require(state.level()==5 && state.cells().getFirst().amount()==63 && state.cells().getFirst().settings().batch()==67
+                        && state.pending(0)==0 && state.pending(1)==16,"Reopening changed migrated stock, settings or pending requests");
+                });advance();
+            }
+            case 22 -> {
+                FeedMePackages.LOGGER.info("FMP_CONVERGED_CLIENT_PASSED integrated-retirement/event-input/packets/four-wells/reset-isolation/drag/reopen/survival/creative/actual-scale-3/crafting-close/world-reopen/no-os-mouse");
+                advance();
+            }
+            case 23 -> {
+                if(ticks-changed<15)return;
+                convergedTransition=true;
+                try {mc.level.disconnect();mc.disconnect(new TitleScreen());}
+                finally {convergedTransition=false;}
+                advance();
+            }
+            case 24 -> { if(mc.level==null && mc.getSingleplayerServer()==null){mc.stop();advance();} }
+        }
+    }
+    private static void controlWheel(int field,double amount) {
+        var b=dev.scathiard.feedmepackages.client.CellControlGeometry.field(panelLayout().slider(),field);
+        var event=new ScreenEvent.MouseScrolled.Pre(Minecraft.getInstance().screen,b.x()+b.width()/2.,b.y()+8,0,amount);
+        NeoForge.EVENT_BUS.post(event);require(event.isCanceled(),"Popup wheel escaped into backing inventory");
+    }
     private static void reviewUiPlacement() throws ReflectiveOperationException {
         var mc = Minecraft.getInstance();
         switch (phase) {
@@ -1017,8 +1188,8 @@ public final class ClientReview {
                 int beforeMin = cell.minimum();
                 int beforeMax = cell.maximum();
                 int cap = panelSnapshot().groupCapacity();
-                int minAt = PanelLayout.sliderThumbPx(slider.x(), slider.width(), Math.max(0, beforeMin), cap);
-                int bandY = slider.y() + PanelLayout.MIN_THUMB_Y + 2;
+                int minAt = dev.scathiard.feedmepackages.client.CellControlGeometry.thumb(slider, Math.max(0, beforeMin), cap);
+                int bandY = slider.y() + 41 + 2;
                 nativeMouse(minAt, bandY, 0, 1);
                 require(panelBoolean("draggingSlider"), "Endpoint press did not start a drag");
                 nativeMouse(minAt, bandY, 0, 0);
@@ -1054,10 +1225,10 @@ public final class ClientReview {
                 require(panelInt("selected") == 0, "Address submit swallowed the queued slider open");
                 var slider = panelLayout().slider();
                 int cap = panelSnapshot().groupCapacity();
-                int minAt = PanelLayout.sliderThumbPx(slider.x(), slider.width(), Math.max(0, panelSnapshot().cells().get(0).minimum()), cap);
-                int bandY = slider.y() + PanelLayout.MIN_THUMB_Y + 2;
+                int minAt = dev.scathiard.feedmepackages.client.CellControlGeometry.thumb(slider, Math.max(0, panelSnapshot().cells().get(0).minimum()), cap);
+                int bandY = slider.y() + 41 + 2;
                 // Drag to the far left so the target differs from the current value (16 groups here).
-                int targetX = PanelLayout.sliderThumbPx(slider.x(), slider.width(), 0, cap);
+                int targetX = dev.scathiard.feedmepackages.client.CellControlGeometry.thumb(slider, 0, cap);
                 nativeMouse(minAt, bandY, 0, 1);
                 require(panelBoolean("draggingSlider"), "Address-then-drag did not start the drag");
                 nativeMouse(targetX, bandY, 0, 0);
@@ -1342,9 +1513,9 @@ public final class ClientReview {
         var slider = panelLayout().slider(); if (slider == null) throw new IllegalStateException("Slider did not open for cell " + slot);
         int groupCap = panelSnapshot().groupCapacity();
         int minimum = Math.max(0, panelSnapshot().cells().get(slot).minimum());
-        int minAt = PanelLayout.sliderThumbPx(slider.x(), slider.width(), minimum, groupCap);
-        int bandY = slider.y() + PanelLayout.MIN_THUMB_Y + 2;
-        int targetX = PanelLayout.sliderThumbPx(slider.x(), slider.width(), groupCap / 2, groupCap);
+        int minAt = dev.scathiard.feedmepackages.client.CellControlGeometry.thumb(slider, minimum, groupCap);
+        int bandY = slider.y() + 41 + 2;
+        int targetX = dev.scathiard.feedmepackages.client.CellControlGeometry.thumb(slider, groupCap / 2, groupCap);
         nativeMouse(minAt, bandY, 0, 1); require(panelBoolean("draggingSlider"), "Slider minimum native press did not capture dragging"); nativeMove(targetX, bandY); nativeMouse(targetX, bandY, 0, 0); require(!panelBoolean("draggingSlider") && panelInt("waiting") != 0, "Slider release did not send threshold draft=" + panelInt("draftMinimum") + " waiting=" + panelInt("waiting"));
     }
     static void capture(String name) {

@@ -5,6 +5,44 @@ import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class CacheStateTest {
+    @Test void batchAndPendingLimitUseItemCountsAndNeverManufactureDemand() {
+        var settings = new CellSettings(64, -1, 64, -1);
+        assertEquals(64, settings.requestable(63, 0));
+        assertEquals(0, settings.requestable(63, 1));
+        assertEquals(0, settings.requestable(64, 0));
+        assertEquals(0, new CellSettings(64, -1, 64, 63).requestable(63, 0));
+        assertEquals(0, new CellSettings(128, -1, 64, 64).requestable(0, 1));
+        assertEquals(80, new CellSettings(100, -1, 64, 80).requestable(0, 0));
+    }
+
+    @Test void nineNativeStacksAreIndependentOfCacheCapacity() {
+        for (int stack : List.of(64, 16, 1)) {
+            var key = new TestVariant("stack-" + stack, stack);
+            new CellSettings(1, -1, 9 * stack, 9 * stack).validate(key, 2 * stack);
+            assertThrows(IllegalArgumentException.class, () -> new CellSettings(1, -1, 9 * stack + 1, -1).validate(key, 2 * stack));
+            assertThrows(IllegalArgumentException.class, () -> new CellSettings(1, -1, 1, 9 * stack + 1).validate(key, 2 * stack));
+        }
+    }
+
+    @Test void settingsKeepLegacyFieldsAndRejectShortDispatchWithoutClearingPromises() {
+        var state = filtered(); var edit = state.edit();
+        edit.settings(0, new CellSettings(1, 1, 64, 128)); state = edit.finish();
+        assertEquals(1, state.cells().getFirst().minimum()); // Still the saved legacy group field.
+        assertEquals(1, state.cells().getFirst().settings().lower());
+        var request = state.edit();
+        assertThrows(IllegalArgumentException.class, () -> request.request(0, UUID.randomUUID(), UUID.randomUUID(), 63, false));
+        request.request(0, UUID.randomUUID(), UUID.randomUUID(), 64, false); state = request.finish();
+        edit = state.edit(); edit.settings(0, new CellSettings(1, 1, 64, 1)); state = edit.finish();
+        assertEquals(64, state.pending(0)); assertEquals(0, state.requestable(0));
+        edit = state.edit(); edit.insert(0, state.cells().getFirst().filter(), 1); state = edit.finish();
+        assertEquals(CacheState.Arrow.NONE, state.arrow(0)); assertEquals(64, state.pending(0));
+    }
+
+    @Test void receivingAndUpgradingDoNotDropNewCellControls() {
+        var state = filtered(); var edit = state.edit(); var settings = new CellSettings(33, 97, 35, 270);
+        edit.settings(0, settings); edit.insert(0, state.cells().getFirst().filter(), 17); edit.upgrade();
+        assertEquals(settings, edit.finish().cells().getFirst().settings());
+    }
     /** Test key with configurable stack size; group semantics are exercised by the dedicated test below. */
     private record TestVariant(String id, int stack) implements MaterialVariant {
         @Override public int stackSize() { return stack; }
@@ -130,7 +168,7 @@ class CacheStateTest {
         assertEquals(target.cells().getFirst().filterRevision(), merged.cells().getFirst().filterRevision());
         assertTrue(merged.cells().get(1).filterRevision() > oldEpoch);
         assertEquals(new SupplyOrder<>(orderId, player, tv("arrow{potion:healing}"), merged.cells().getFirst().filterRevision(), 30, true), merged.orders().get(orderId));
-        assertEquals(merged.cells().get(1).filterRevision(), plan.sourceRoutes().get(new CacheMerge.Route<>(source.cells().get(1).filter(), source.cells().get(1).filterRevision())));
+        assertEquals(merged.cells().get(1).filterRevision(), plan.sourceRoutes().get(new ParcelRoute<>(source.cells().get(1).filter(), source.cells().get(1).filterRevision())));
         assertEquals(10, target.cells().getFirst().amount()); assertEquals(40, source.cells().getFirst().amount());
         assertEquals(plan, CacheMerge.simulate(source, target));
         assertThrows(UnsupportedOperationException.class, () -> plan.sourceRoutes().clear());

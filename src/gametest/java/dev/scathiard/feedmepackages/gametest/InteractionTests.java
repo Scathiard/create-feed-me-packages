@@ -51,7 +51,7 @@ public final class InteractionTests {
     public static void curioEquipRejectsSecondPendantBeforeCreatingAnyCache(GameTestHelper helper) {
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
         TestPlayers.necklace(player).grow(2);
-        for (var candidate : java.util.List.of(FmpRegistries.PENDANT.toStack(), FmpRegistries.PERSONAL_PENDANT.toStack())) {
+        for (var candidate : java.util.List.of(FmpRegistries.PENDANT.toStack())) {
             var curio = top.theillusivec4.curios.api.CuriosApi.getCurio(candidate).orElseThrow();
             var replacement = new top.theillusivec4.curios.api.SlotContext("necklace", player, 0, false, true);
             var extra = new top.theillusivec4.curios.api.SlotContext("necklace", player, 2, false, true);
@@ -576,6 +576,39 @@ public final class InteractionTests {
             boolean refused = false; try { PanelPackets.Query.CODEC.decode(trailing); } catch (DecoderException expected) { refused = true; }
             helper.assertTrue(refused, "Trailing packet data accepted");
         } finally { trailing.release(); }
+        var change=new CacheActions.SettingsChange(0,view.cells().getFirst().filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(65,1000,64,63));
+        var packet=new PanelPackets.SettingsBatch(view.window(),view.session(),1,java.util.List.of(change));
+        var controls=new RegistryFriendlyByteBuf(Unpooled.buffer(),player.registryAccess());
+        try {
+            PanelPackets.SettingsBatch.CODEC.encode(controls,packet);
+            helper.assertTrue(controls.readableBytes()<256 && packet.equals(PanelPackets.SettingsBatch.CODEC.decode(controls)),"Settings batch did not round-trip within its bounded wire shape");
+        } finally { controls.release(); }
+        helper.succeed();
+    }
+
+    @GameTest(template="empty")
+    public static void cellSettingsAreAtomicAndBoundToTheFilterLifetime(GameTestHelper helper) {
+        var player=TestPlayers.create(helper,FmpRegistries.PENDANT.toStack());
+        ConsumptionTests.seed(player,0,new ItemStack(Items.STONE),63);
+        ConsumptionTests.seed(player,1,new ItemStack(Items.ENDER_PEARL),16);
+        var view=PanelNetwork.query(player,new PanelPackets.Query(UUID.randomUUID(),0,true));
+        var access=AccessGate.resolve(player);var ledger=CacheLedger.get(player.getServer());var before=ledger.find(access.handle().cacheId());
+        var edit=before.state().edit();edit.extract(0,1);ledger.replace(access.handle(),before.state().revision(),before.withState(edit.finish()));
+        var a=new CacheActions.SettingsChange(0,view.cells().get(0).filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(65,128,64,63));
+        var b=new CacheActions.SettingsChange(1,view.cells().get(1).filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(17,32,16,144));
+        var reply=PanelNetwork.settings(player,new PanelPackets.SettingsBatch(view.window(),view.session(),1,java.util.List.of(a,b)));
+        helper.assertTrue(reply.result()==Result.OK && reply.cells().get(0).amount()==62 && reply.cells().get(0).minimum()==65
+                && reply.cells().get(0).pendingLimit()==63 && reply.cells().get(1).batch()==16,"Concurrent stock change lost a legitimate settings batch");
+        var saved=ledger.find(access.handle().cacheId());
+        helper.assertTrue(CacheActions.settings(player,view.session(),java.util.List.of(a,a))==Result.INVALID_REQUEST
+                && ledger.find(access.handle().cacheId()).equals(saved),"Duplicate settings slot committed a partial batch");
+        var next=saved.state().edit();next.extract(1,16);next.filter(1,null);next.filter(1,ItemVariantKey.of(new ItemStack(Items.DIAMOND),player.registryAccess()));
+        ledger.replace(access.handle(),saved.state().revision(),saved.withState(next.finish()));saved=ledger.find(access.handle().cacheId());
+        helper.assertTrue(CacheActions.settings(player,view.session(),java.util.List.of(a,b))==Result.STALE
+                && ledger.find(access.handle().cacheId()).equals(saved),"Old filter settings committed after replacement");
+        TestPlayers.necklace(player).setStackInSlot(0,ItemStack.EMPTY);
+        helper.assertTrue(CacheActions.settings(player,view.session(),java.util.List.of(a))!=Result.OK
+                && ledger.find(access.handle().cacheId()).equals(saved),"Unworn pendant retained a settings capability");
         helper.succeed();
     }
 

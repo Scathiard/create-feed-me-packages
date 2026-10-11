@@ -12,6 +12,13 @@ import java.util.UUID;
 /** Real server Inventory and Curios capability, without a network client or automatic world ticks. */
 final class TestPlayers {
     private TestPlayers() {}
+    @SuppressWarnings("unchecked")
+    static java.util.List<ServerPlayer> nativeSavePlayers(net.minecraft.server.MinecraftServer server) {
+        try {
+            var field=net.minecraft.server.players.PlayerList.class.getDeclaredField("players"); field.setAccessible(true);
+            return (java.util.List<ServerPlayer>)field.get(server.getPlayerList());
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("Cannot register native save fixture",failure); }
+    }
     static ServerPlayer create(GameTestHelper helper, ItemStack pendant) {
         return create(helper, UUID.randomUUID(), pendant);
     }

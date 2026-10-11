@@ -31,7 +31,7 @@ public final class CacheEdit<K extends MaterialVariant> {
             // Routes do not contain the visual slot number. A moved/recreated variant must
             // never inherit another slot's local counter and accept an old sealed parcel.
             long revision = Math.incrementExact(cells.stream().mapToLong(Cell::filterRevision).max().orElse(0));
-            next = new Cell<>(next.filter(), next.amount(), next.minimum(), next.maximum(), revision);
+            next = new Cell<>(next.filter(), next.amount(), next.minimum(), next.maximum(), revision, next.settings());
             reset(slot);
         }
         cells.set(slot, next);
@@ -56,6 +56,14 @@ public final class CacheEdit<K extends MaterialVariant> {
         return accepted;
     }
 
+    public void settings(int slot, CellSettings settings) {
+        open();
+        Cell<K> cell = cells.get(slot);
+        if (cell.filter() == null) throw new IllegalArgumentException("No filter");
+        settings.validate(cell.filter(), Math.multiplyExact(CacheLevel.of(level).groupCapacity(), cell.filter().stackSize()));
+        cells.set(slot, cell.settings(settings));
+    }
+
     public int extract(int slot, int wanted) {
         open();
         if (wanted < 0) throw new IllegalArgumentException("Negative extraction");
@@ -70,7 +78,7 @@ public final class CacheEdit<K extends MaterialVariant> {
         Cell<K> cell = cells.get(slot);
         long pending = orders.values().stream().filter(o -> Objects.equals(o.variant(), cell.filter())
                 && o.filterRevision() == cell.filterRevision()).mapToLong(SupplyOrder::remaining).sum();
-        if (amount <= 0 || amount > (long) cell.shortage() - pending || orders.size() >= CacheState.MAX_ORDERS)
+        if (amount < cell.settings().batch() || amount > cell.settings().requestable(cell.amount(), pending) || orders.size() >= CacheState.MAX_ORDERS)
             throw new IllegalArgumentException("Request has no unreserved shortage or order table is full");
         if (orders.containsKey(orderId)) throw new IllegalArgumentException("Duplicate order identity");
         orders.put(orderId, new SupplyOrder<>(orderId, player, cell.filter(), cell.filterRevision(), amount, uncertain));

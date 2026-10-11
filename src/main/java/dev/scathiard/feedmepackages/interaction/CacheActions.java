@@ -20,7 +20,7 @@ import java.util.*;
 /** Server-side panel intent interpreter. A session is context, never a substitute for current access. */
 public final class CacheActions {
     private CacheActions() {}
-    public enum Action { DEPOSIT, TAKE_CURSOR, TAKE_INVENTORY, SET_GHOST, CLEAR_FILTER, THRESHOLDS, RESET_REQUEST, PREFERENCE, TERMINAL_ENABLED, CLEAR_NETWORK, TAKE_RESIDUAL, FILL_RECIPE, SET_RETURN_ADDRESS, RELEASE_PREVIEW, CREATIVE_BEGIN, CREATIVE_END, COLLECT_MATCHING }
+    public enum Action { DEPOSIT, TAKE_CURSOR, TAKE_INVENTORY, SET_GHOST, CLEAR_FILTER, THRESHOLDS, RESET_REQUEST, PREFERENCE, TERMINAL_ENABLED, CLEAR_NETWORK, TAKE_RESIDUAL, FILL_RECIPE, SET_RETURN_ADDRESS, RELEASE_PREVIEW, CREATIVE_BEGIN, CREATIVE_END, COLLECT_MATCHING, SUPPLY_SETTINGS }
     public enum Result { OK, STALE, NOT_ACTIVE, INVALID_ITEM, DUPLICATE_FILTER, FILTER_OCCUPIED, NO_SPACE, INVALID_REQUEST, MISSING_MATERIAL, UNSUPPORTED_RECIPE, TOO_COMPLEX }
     public record Intent(UUID session, long revision, Action action, int slot, int first, int second, String template) {
         public Intent {
@@ -75,6 +75,28 @@ public final class CacheActions {
 
     public static Result execute(ServerPlayer player, Intent intent) {
         return execute(player, intent, -1);
+    }
+    public record SettingsChange(int slot, long filterRevision, dev.scathiard.feedmepackages.domain.CellSettings value) {}
+    /** Settings use the filter lifetime, not the changing stock revision; the complete batch commits once. */
+    public static Result settings(ServerPlayer player, UUID sessionId, List<SettingsChange> changes) {
+        validateOpenContext(player); var session=SESSIONS.get(player); var access=AccessGate.resolve(player);
+        if(session==null || !session.id().equals(sessionId) || session.menu().get()!=player.containerMenu) return Result.STALE;
+        if(!access.active()) return Result.NOT_ACTIVE;
+        if(!access.handle().equals(session.handle()) || CraftingReservations.operating(access.handle().cacheId())) return Result.STALE;
+        if(changes.isEmpty() || changes.size()>36) return Result.INVALID_REQUEST;
+        var ledger=CacheLedger.get(player.getServer()); var before=ledger.find(access.handle().cacheId()); var edit=before.state().edit();
+        var seen=new HashSet<Integer>();
+        try {
+            for(var change:changes) {
+                int slot=change.slot();
+                if(slot<0 || slot>=before.state().cells().size() || !seen.add(slot)) return Result.INVALID_REQUEST;
+                var cell=before.state().cells().get(slot);
+                if(cell.filter()==null || cell.filterRevision()!=change.filterRevision()) return Result.STALE;
+                edit.settings(slot,change.value());
+            }
+            ledger.replace(access.handle(),before.state().revision(),before.withState(edit.finish()));
+            return Result.OK;
+        } catch(IllegalArgumentException invalid) { return Result.INVALID_REQUEST; }
     }
 
     public static Result execute(ServerPlayer player, Intent intent, int requestSeq) {
@@ -184,7 +206,11 @@ public final class CacheActions {
                 edit.filter(slot, null);
             }
             case THRESHOLDS -> {
-                try { edit.thresholds(slot, intent.first(), intent.second()); }
+                try { edit.settings(slot, new dev.scathiard.feedmepackages.domain.CellSettings(intent.first(), intent.second(), cell.settings().batch(), cell.settings().pendingLimit())); }
+                catch (IllegalArgumentException invalid) { return Result.INVALID_REQUEST; }
+            }
+            case SUPPLY_SETTINGS -> {
+                try { edit.settings(slot, new dev.scathiard.feedmepackages.domain.CellSettings(cell.settings().lower(), cell.settings().upper(), intent.first(), intent.second())); }
                 catch (IllegalArgumentException invalid) { return Result.INVALID_REQUEST; }
             }
             case RESET_REQUEST -> edit.reset(slot);
@@ -227,7 +253,7 @@ public final class CacheActions {
         List<CollectPlan.Target> targets = new ArrayList<>(state.cells().size());
         for (int cell = 0; cell < state.cells().size(); cell++) {
             var held = state.cells().get(cell);
-            if (held.filter() != null) targets.add(new CollectPlan.Target(cell, held.filter(), held.amount(), held.maximum()));
+            if (held.filter() != null) targets.add(new CollectPlan.Target(cell, held.filter(), held.amount(), held.settings().upper(), true));
         }
         CollectPlan.Plan plan = CollectPlan.simulate(targets, sources, CacheLevel.of(state.level()).groupCapacity());
         if (plan.isEmpty()) return Result.OK;   // nothing moved, nothing to say (silence rule)

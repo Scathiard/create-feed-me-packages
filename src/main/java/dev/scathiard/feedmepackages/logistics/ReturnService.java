@@ -76,24 +76,24 @@ public final class ReturnService {
             }
             Cell<ItemVariantKey> cell = live.state().cells().get(slot);
             String filter = cell.filter() == null ? "" : cell.filter().encoded();
-            if (cell.filter() == null || cell.maximum() < 0) {
-                ReturnDispatchState.rememberCell(handle, slot, filter, cell.maximum(), RETURN_UNKNOWN);
+            if (cell.filter() == null || cell.settings().upper() < 0) {
+                ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), RETURN_UNKNOWN);
                 continue;
             }
-            int overage = Math.max(0, cell.amount() - cell.maximum() * cell.filter().stackSize());
+            int overage = Math.max(0, cell.amount() - cell.settings().upper());
             if (overage == 0) {
-                ReturnDispatchState.rememberCell(handle, slot, filter, cell.maximum(), RETURN_UNKNOWN);
+                ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), RETURN_UNKNOWN);
                 continue;
             }
             if (address == null || address.isEmpty()) {
-                ReturnDispatchState.rememberCell(handle, slot, filter, cell.maximum(), RETURN_FAILED);
+                ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), RETURN_FAILED);
                 continue;
             }
             // Preserve plane-first preference. A rejected attempt changes no FMP stock
             // and the bee receives its own newly built package, never the plane's object.
             int result = dispatch(player, handle, ledger, slot, CARD, address);
             if (result == RETURN_FAILED) result = dispatch(player, handle, ledger, slot, BEE, address);
-            ReturnDispatchState.rememberCell(handle, slot, filter, cell.maximum(), result);
+            ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), result);
         }
     }
 
@@ -104,8 +104,8 @@ public final class ReturnService {
         if (record == null || slot >= record.state().cells().size()) return RETURN_FAILED;
         CacheState<ItemVariantKey> state = record.state();
         Cell<ItemVariantKey> cell = state.cells().get(slot);
-        if (cell.filter() == null || cell.maximum() < 0) return RETURN_UNKNOWN;
-        int overage = Math.max(0, cell.amount() - cell.maximum() * cell.filter().stackSize());
+        if (cell.filter() == null || cell.settings().upper() < 0) return RETURN_UNKNOWN;
+        int overage = Math.max(0, cell.amount() - cell.settings().upper());
         if (overage == 0) return RETURN_UNKNOWN;
         Carrier carrier = findCarrier(player, handle, state, carrierItem);
         if (carrier == null) return RETURN_FAILED;

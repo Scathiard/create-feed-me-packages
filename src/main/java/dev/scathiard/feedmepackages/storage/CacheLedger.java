@@ -21,7 +21,7 @@ import java.util.*;
 /** One world authority. Corrupt data produces a locked ledger, never an empty replacement. */
 public final class CacheLedger extends SavedData {
     public static final String NAME = "create_feed_me_packages_ledger";
-    public static final int SCHEMA = 8; // Adds a per-cache default return address for automatic real returns (v0.2.0).
+    public static final int SCHEMA = 31001; // Converged reference line: item controls and one-time private retirement.
     public static final int MAX_REDIRECT_VARIANTS = 4096;
     private static final Factory<CacheLedger> FACTORY = new Factory<>(CacheLedger::new, CacheLedger::load);
     private Map<UUID, CacheRecord> caches = Map.of();
@@ -29,6 +29,57 @@ public final class CacheLedger extends SavedData {
     private Map<UUID, Boolean> cacheFirst = Map.of();
     private Map<UUID, ParcelRedirect> redirects = Map.of();
     private Map<UUID, String> returnAddresses = Map.of();
+    private Map<UUID, Retirement> retirements = Map.of();
+    private final Set<UUID> interruptedRetirements = new HashSet<>();
+    /** The owner is historical provenance only after completion; the cache itself is never copied. */
+    public record Retirement(UUID owner, UUID cache, UUID receipt, boolean completed) {
+        public Retirement { Objects.requireNonNull(owner); Objects.requireNonNull(cache); Objects.requireNonNull(receipt); }
+    }
+    public Retirement retirement(UUID owner) { return retirements.get(owner); }
+    public boolean ordinaryEntry(UUID cache, UUID receipt) {
+        if (interruptedRetirements.contains(cache)) return false;
+        var record = caches.get(cache); if (record == null || record.owner() != null) return false;
+        var transfer = retirements.values().stream().filter(r -> r.cache().equals(cache)).findFirst();
+        return transfer.isPresent() ? transfer.get().completed() && transfer.get().receipt().equals(receipt) : receipt == null;
+    }
+    public Retirement beginRetirement(UUID owner) {
+        writable();
+        var existing = retirements.get(owner); if (existing != null) return existing;
+        UUID cache = personal.get(owner); if (cache == null) return null;
+        var record = caches.get(cache);
+        if (record == null || !owner.equals(record.owner())) throw new IllegalStateException("Invalid legacy owner");
+        var result = new Retirement(owner, cache, UUID.randomUUID(), false);
+        var next = new HashMap<>(retirements); next.put(owner, result); retirements = Map.copyOf(next); setDirty();
+        return result;
+    }
+    /** A missing item is not proof of non-delivery. Reissue authority only after revoking the old credential. */
+    public Retirement renewPendingReceipt(UUID owner) {
+        writable(); var old = retirements.get(owner);
+        if (old == null || old.completed()) throw new IllegalStateException("No pending retirement");
+        var next = new HashMap<>(retirements); var renewed = new Retirement(owner, old.cache(), UUID.randomUUID(), false);
+        next.put(owner, renewed); retirements = Map.copyOf(next); setDirty(); return renewed;
+    }
+    public void interruptRetirement(UUID owner) {
+        var r = retirements.get(owner); if (r != null) interruptedRetirements.add(r.cache());
+    }
+    public void resumeRetirement(UUID owner) {
+        var r = retirements.get(owner); if (r != null) interruptedRetirements.remove(r.cache());
+    }
+    /** Called only after the replacement pendant and its receipt have been durably saved with the player. */
+    public void completeRetirement(UUID owner, UUID receipt) {
+        writable(); var transfer = retirements.get(owner);
+        if (transfer == null || !transfer.receipt().equals(receipt)) throw new IllegalStateException("Invalid retirement receipt");
+        if (transfer.completed()) return;
+        var source = caches.get(transfer.cache());
+        if (source == null || !owner.equals(source.owner()) || !transfer.cache().equals(personal.get(owner)))
+            throw new IllegalStateException("Stale retirement");
+        var records = new HashMap<>(caches);
+        records.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals()));
+        var owners = new HashMap<>(personal); owners.remove(owner);
+        var completed = new HashMap<>(retirements);
+        completed.put(owner, new Retirement(owner, transfer.cache(), receipt, true));
+        caches = Map.copyOf(records); personal = Map.copyOf(owners); retirements = Map.copyOf(completed); setDirty();
+    }
     private String problem = "";
     private CompoundTag preserved;
     private byte[] integrityKey = createIntegrityKey();
@@ -88,7 +139,7 @@ public final class CacheLedger extends SavedData {
         UUID id = original; long currentRevision = revision;
         if (!caches.containsKey(id)) {
             var route = redirects.get(id); if (route == null) return null;
-            Long mapped = route.variants().get(new CacheMerge.Route<>(variant, revision));
+            Long mapped = route.variants().get(new ParcelRoute<>(variant, revision));
             if (mapped == null) return null;
             id = route.target(); currentRevision = mapped;
         }
@@ -148,50 +199,6 @@ public final class CacheLedger extends SavedData {
         return new Mutation(records, personal, redirects, result);
     }
 
-    public Mutation prepareOwnership(CacheRecord source, CacheRecord target, CacheRecord result, Map<CacheMerge.Route<ItemVariantKey>, Long> routes) {
-        writable(); sourceCurrent(source);
-        if (source.owner() != null || result.owner() == null || !Objects.equals(personal.get(result.owner()), target == null ? null : target.state().id())
-                || (target != null && (caches.get(target.state().id()) != target || !result.owner().equals(target.owner())))
-                || !result.state().id().equals(target == null ? source.state().id() : target.state().id())
-                || result.state().revision() != Math.incrementExact(target == null ? source.state().revision() : target.state().revision())
-                || result.state().level() != Math.max(source.state().level(), target == null ? 1 : target.state().level()))
-            throw new IllegalStateException("Invalid ownership proposal");
-        var records = new HashMap<>(caches); records.remove(source.state().id()); records.put(result.state().id(), result);
-        var owners = new HashMap<>(personal); owners.put(result.owner(), result.state().id());
-        var nextRoutes = new HashMap<>(redirects);
-        // A revoked filter can never accept its old parcel again, so its routing metadata is no longer needed.
-        for (var entry : redirects.entrySet()) if (entry.getValue().target().equals(result.state().id())) {
-            var live = new HashMap<CacheMerge.Route<ItemVariantKey>, Long>();
-            entry.getValue().variants().forEach((old, revision) -> {
-                int slot = result.state().find(old.variant());
-                if (slot >= 0 && result.state().cells().get(slot).filterRevision() == revision) live.put(old, revision);
-            });
-            if (live.isEmpty()) nextRoutes.remove(entry.getKey());
-            else nextRoutes.put(entry.getKey(), new ParcelRedirect(result.state().id(), live));
-        }
-        if (!source.state().id().equals(result.state().id()) && !routes.isEmpty()) {
-            for (var entry : routes.entrySet()) {
-                int sourceSlot = source.state().find(entry.getKey().variant()), targetSlot = result.state().find(entry.getKey().variant());
-                if (sourceSlot < 0 || targetSlot < 0 || source.state().cells().get(sourceSlot).filterRevision() != entry.getKey().revision()
-                        || result.state().cells().get(targetSlot).filterRevision() != entry.getValue()) throw new IllegalStateException("Invalid manufacturing parcel route");
-            }
-            nextRoutes.put(source.state().id(), new ParcelRedirect(result.state().id(), routes));
-        }
-        long count = nextRoutes.values().stream().filter(route -> route.target().equals(result.state().id())).mapToLong(route -> route.variants().size()).sum();
-        if (count > MAX_REDIRECT_VARIANTS) throw new IllegalStateException("Personal parcel route table is full");
-        return new Mutation(records, owners, nextRoutes, result);
-    }
-
-    /** Owner-locked personal cache upgrade; no capacity grant is issued. */
-    public Mutation preparePersonalUpgrade(CacheHandle handle, int targetLevel) {
-        writable(); var source = caches.get(handle.cacheId());
-        if (source == null || source.owner() == null || !source.owner().equals(handle.playerId())
-                || source.state().level() + 1 != targetLevel) throw new IllegalArgumentException("Personal upgrade must advance one level for its owner");
-        var edit = source.state().edit(); edit.upgrade(); var result = source.withState(edit.finish());
-        var records = new HashMap<>(caches); records.put(handle.cacheId(), result);
-        return new Mutation(records, personal, redirects, result);
-    }
-
     public void setCacheFirst(UUID player, boolean first) {
         writable(); var next = new HashMap<>(cacheFirst); next.put(player, first); cacheFirst = Map.copyOf(next); setDirty();
     }
@@ -200,14 +207,6 @@ public final class CacheLedger extends SavedData {
         writable(); UUID id = UUID.randomUUID();
         var next = new HashMap<>(caches); next.put(id, new CacheRecord(CacheState.empty(id), null, Map.of()));
         caches = Map.copyOf(next); setDirty(); return id;
-    }
-
-    public UUID personalOrCreate(UUID player) {
-        writable(); UUID current = personal.get(player); if (current != null) return current;
-        UUID id = UUID.randomUUID();
-        var nextCaches = new HashMap<>(caches); nextCaches.put(id, new CacheRecord(CacheState.empty(id), player, Map.of()));
-        var nextPersonal = new HashMap<>(personal); nextPersonal.put(player, id);
-        caches = Map.copyOf(nextCaches); personal = Map.copyOf(nextPersonal); setDirty(); return id;
     }
 
     /** No callbacks inside commit. The operation's effective access must be re-resolved first. */
@@ -237,11 +236,17 @@ public final class CacheLedger extends SavedData {
             CacheRecord record = entry.getValue(); var state = record.state(); CompoundTag row = new CompoundTag();
             row.putUUID("id", state.id()); row.putInt("level", state.level()); row.putLong("revision", state.revision());
             if (record.owner() != null) row.putUUID("owner", record.owner());
+            else retirements.values().stream().filter(r -> r.completed() && r.cache().equals(state.id())).findFirst()
+                    .ifPresent(r -> row.putUUID("owner", r.owner())); // Keep the old column's original provenance.
             ListTag cells = new ListTag();
             for (Cell<ItemVariantKey> cell : state.cells()) {
                 CompoundTag data = new CompoundTag();
                 if (cell.filter() != null) data.putString("filter", cell.filter().encoded());
                 data.putInt("amount", cell.amount()); data.putInt("min", cell.minimum()); data.putInt("max", cell.maximum()); data.putLong("revision", cell.filterRevision());
+                var controls = new CompoundTag(); var settings = cell.settings();
+                controls.putInt("lower", settings.lower()); controls.putInt("upper", settings.upper());
+                controls.putInt("batch", settings.batch()); controls.putInt("pending_limit", settings.pendingLimit());
+                data.put("item_controls", controls);
                 cells.add(data);
             }
             row.put("cells", cells); ListTag orders = new ListTag();
@@ -275,16 +280,22 @@ public final class CacheLedger extends SavedData {
         ListTag returnRows = new ListTag();
         returnAddresses.forEach((cacheId, address) -> { var data = new CompoundTag(); data.putUUID("cache", cacheId); data.putString("address", address); returnRows.add(data); });
         tag.put("returnAddresses", returnRows);
+        var transfers = new ListTag();
+        retirements.values().forEach(r -> {
+            var data = new CompoundTag(); data.putUUID("owner", r.owner()); data.putUUID("cache", r.cache());
+            data.putUUID("receipt", r.receipt()); data.putBoolean("completed", r.completed()); transfers.add(data);
+        });
+        tag.put("private_retirements", transfers);
         return tag;
     }
 
     public static CacheLedger load(CompoundTag tag, HolderLookup.Provider registries) {
         var ledger = new CacheLedger();
         try {
-            fields(tag, Set.of("schema", "integrity_key", "caches", "preferences", "redirects", "grants", "returnAddresses"));
+            fields(tag, Set.of("schema", "integrity_key", "caches", "preferences", "redirects", "grants", "returnAddresses", "private_retirements"));
             require(tag, "schema", Tag.TAG_INT);
             int sourceSchema = tag.getInt("schema");
-            if (sourceSchema != SCHEMA && sourceSchema != 2 && sourceSchema != 4 && sourceSchema != 5 && sourceSchema != 6 && sourceSchema != 7)
+            if (sourceSchema != SCHEMA && sourceSchema != 8 && sourceSchema != 2 && sourceSchema != 4 && sourceSchema != 5 && sourceSchema != 6 && sourceSchema != 7)
                 throw new IllegalArgumentException("Unsupported cache schema");
             require(tag, "integrity_key", Tag.TAG_BYTE_ARRAY);
             if (tag.getByteArray("integrity_key").length != 32) throw new IllegalArgumentException("Invalid world integrity state");
@@ -301,21 +312,32 @@ public final class CacheLedger extends SavedData {
                 if (cellRows.size() != CacheLevel.of(level).slots()) throw new IllegalArgumentException("Invalid cell count");
                 for (Tag cellTag : cellRows) {
                     var cell = (CompoundTag)cellTag;
-                    fields(cell, Set.of("filter", "amount", "min", "max", "revision"));
+                    fields(cell, sourceSchema == SCHEMA ? Set.of("filter", "amount", "min", "max", "revision", "item_controls")
+                            : Set.of("filter", "amount", "min", "max", "revision"));
                     require(cell, "amount", Tag.TAG_INT); require(cell, "min", Tag.TAG_INT); require(cell, "max", Tag.TAG_INT); require(cell, "revision", Tag.TAG_LONG);
                     if (cell.contains("filter")) require(cell, "filter", Tag.TAG_STRING);
                     ItemVariantKey filter = cell.contains("filter") ? ItemVariantKey.decode(cell.getString("filter"), registries) : null;
                     int min = cell.getInt("min"), max = cell.getInt("max");
-                    if (sourceSchema == 2 && filter != null) { min = min < 0 ? -1 : min / filter.stackSize(); max = max < 0 ? -1 : max / filter.stackSize(); }
+                    if (sourceSchema == 2 && filter != null) {
+                        if (min >= 0 && min % filter.stackSize() != 0 || max >= 0 && max % filter.stackSize() != 0)
+                            throw new IllegalArgumentException("Legacy item threshold cannot be converted without rounding");
+                        min = min < 0 ? -1 : min / filter.stackSize(); max = max < 0 ? -1 : max / filter.stackSize();
+                    }
                     int amount = cell.getInt("amount");
-                    // Schema < 5 used fixed item capacity; clamp amounts that exceed the new per-item capacity.
+                    // Never truncate historical stock or settings to make a legacy record fit.
                     if (sourceSchema < 5 && filter != null) {
                         int itemCap = CacheLevel.of(level).groupCapacity() * filter.stackSize();
-                        if (amount > itemCap) amount = itemCap;
-                        if (min > CacheLevel.of(level).groupCapacity()) min = CacheLevel.of(level).groupCapacity();
-                        if (max > CacheLevel.of(level).groupCapacity()) max = CacheLevel.of(level).groupCapacity();
+                        if (amount > itemCap || min > CacheLevel.of(level).groupCapacity() || max > CacheLevel.of(level).groupCapacity())
+                            throw new IllegalArgumentException("Legacy cache exceeds current capacity; original data preserved");
                     }
-                    cells.add(new Cell<>(filter, amount, min, max, cell.getLong("revision")));
+                    CellSettings settings = CellSettings.fromGroups(filter, min, max);
+                    if (sourceSchema == SCHEMA) {
+                        require(cell, "item_controls", Tag.TAG_COMPOUND); var controls = cell.getCompound("item_controls");
+                        fields(controls, Set.of("lower", "upper", "batch", "pending_limit"));
+                        for (String name : List.of("lower", "upper", "batch", "pending_limit")) require(controls, name, Tag.TAG_INT);
+                        settings = new CellSettings(controls.getInt("lower"), controls.getInt("upper"), controls.getInt("batch"), controls.getInt("pending_limit"));
+                    }
+                    cells.add(new Cell<>(filter, amount, min, max, cell.getLong("revision"), settings));
                 }
                 var orders = new HashMap<UUID, SupplyOrder<ItemVariantKey>>(); var orderRows = compounds(row, "orders");
                 if (orderRows.size() > CacheState.MAX_ORDERS) throw new IllegalArgumentException("Too many orders");
@@ -367,11 +389,11 @@ public final class CacheLedger extends SavedData {
                 UUID source = row.getUUID("source"), target = row.getUUID("target");
                 if (caches.containsKey(source) || !caches.containsKey(target) || caches.get(target).owner() == null)
                     throw new IllegalArgumentException("Invalid redirect ownership");
-                var mappings = new HashMap<CacheMerge.Route<ItemVariantKey>, Long>();
+                var mappings = new HashMap<ParcelRoute<ItemVariantKey>, Long>();
                 for (Tag mappingTag : compounds(row, "variants")) {
                     var mapping = (CompoundTag)mappingTag; fields(mapping, Set.of("variant", "before", "after"));
                     require(mapping, "variant", Tag.TAG_STRING); require(mapping, "before", Tag.TAG_LONG); require(mapping, "after", Tag.TAG_LONG);
-                    var key = new CacheMerge.Route<>(ItemVariantKey.decode(mapping.getString("variant"), registries), mapping.getLong("before"));
+                    var key = new ParcelRoute<>(ItemVariantKey.decode(mapping.getString("variant"), registries), mapping.getLong("before"));
                     if (mappings.put(key, mapping.getLong("after")) != null) throw new IllegalArgumentException("Duplicate redirect variant");
                 }
                 if (redirects.put(source, new ParcelRedirect(target, mappings)) != null) throw new IllegalArgumentException("Duplicate redirect identity");
@@ -379,6 +401,23 @@ public final class CacheLedger extends SavedData {
             }
             // Schema <=6 persisted a vestigial capacity-grant table; the redesign removed that entitlement flow.
             // Tolerate the field so old worlds still migrate their caches, but treat the grants as obsolete.
+            var retirements = new HashMap<UUID, Retirement>(); var receipts = new HashSet<UUID>(); var retiredCaches = new HashSet<UUID>();
+            if (sourceSchema == SCHEMA) {
+                for (Tag element : compounds(tag, "private_retirements")) {
+                    var row = (CompoundTag) element; fields(row, Set.of("owner", "cache", "receipt", "completed"));
+                    for (String name : List.of("owner", "cache", "receipt")) require(row, name, Tag.TAG_INT_ARRAY);
+                    bool(row, "completed");
+                    var transfer = new Retirement(row.getUUID("owner"), row.getUUID("cache"), row.getUUID("receipt"), row.getBoolean("completed"));
+                    if (!transfer.cache().equals(personal.get(transfer.owner())) || !receipts.add(transfer.receipt())
+                            || !retiredCaches.add(transfer.cache()) || retirements.put(transfer.owner(), transfer) != null)
+                        throw new IllegalArgumentException("Invalid or duplicate retirement");
+                    if (transfer.completed()) {
+                        var source = caches.get(transfer.cache());
+                        caches.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals())); personal.remove(transfer.owner());
+                    }
+                }
+            } else if (tag.contains("private_retirements")) throw new IllegalArgumentException("Retirement in legacy schema");
+            ledger.retirements = Map.copyOf(retirements);
             ledger.caches = Map.copyOf(caches); ledger.personal = Map.copyOf(personal); ledger.cacheFirst = Map.copyOf(preferences);
             ledger.redirects = Map.copyOf(redirects);
             var returnAddresses = new HashMap<UUID, String>();

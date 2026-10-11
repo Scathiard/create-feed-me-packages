@@ -2,6 +2,8 @@ English | [简体中文](README.md)
 
 # Create: Feed Me Packages!
 
+> This is an unreleased 0.3 reference increment with cell controls and legacy personal-cache handover. Additional compatibility work has not been ported; this is not the complete 0.3 release.
+
 [![CurseForge](https://img.shields.io/badge/CurseForge-Download-F16436?logo=curseforge&logoColor=white)](https://www.curseforge.com/minecraft/mc-mods/create-feed-me-packages) [![Modrinth](https://img.shields.io/badge/Modrinth-Download-00AF5C?logo=modrinth&logoColor=white)](https://modrinth.com/mod/create-feed-me-packages)
 
 Downloads: [GitHub Releases](https://github.com/Scathiard/create-feed-me-packages/releases)
@@ -19,20 +21,13 @@ The idea comes from personal logistics in *Dyson Sphere Program*. Here, we want 
 - Keep common blocks and machines on your restocking list when building away from base, with fewer trips back to storage.
 - Use cached ingredients while expanding your factory, without sending a manual request through a portable terminal.
 - Keep arrows and other consumables in the cache and let your factory replenish them, leaving inventory space for things you find along the way.
-- Hand a pendant and its supplies to a friend, or make a personal pendant to keep your own stock.
+- Hand a pendant, its supplies, and its restocking settings to a friend.
 
 ## Features
 
-### Two Supply Chain Pendants
+### The Supply Chain Pendant
 
-Who keeps the supplies depends on which pendant you wear.
-
-| Item | Cache ownership |
-| --- | --- |
-| **Supply Chain Pendant** | Supplies and settings travel with the pendant. Give it to a friend and they can pick up where you left off. Destroying it removes access to that cache. |
-| **Supply Chain Pendant: Made to Order** | Personalize an ordinary pendant to move its contents into the crafter's personal cache. All personal pendants belonging to that player share stock, settings, and level. |
-
-A Made to Order pendant belongs to a specific player. If someone else wears yours, it becomes a fresh ordinary pendant; your personal stock stays yours. An ownerless personal pendant belongs to the first player who equips it.
+Supplies and settings travel with the pendant. Give it to a friend and they can pick up where you left off. Destroying it removes access to that cache.
 
 You can wear one pendant at a time. Taking it off stops cache access, restocking, receiving, and automatic material use. Your stock and settings stay there for when you put it back on.
 
@@ -41,6 +36,8 @@ You can wear one pendant at a time. Taking it off stops cache access, restocking
 Equip a pendant and cache cells appear to the left of your inventory, in both Survival and Creative. Put an item into an empty cell to choose what goes there, then click the small dot in the corner to set how much to keep stocked.
 
 For example, set a minimum of two stacks of logs. Whenever the cache falls below that amount, the pendant requests the difference from your network. Only cached stock counts toward this minimum, not items in your normal inventory.
+
+Open **cell controls** using the corner dot. Scroll to adjust by one item, or Shift-scroll by one native stack; the bottom thresholds also have slider handles. The top fields set the minimum restock batch and pending limit. A minimum batch of 64 requests at least 64 even when only one item is missing, and waits if stock or allowance is insufficient. The center package shows outstanding items; clicking resets only this cell. Requests never expire automatically.
 
 Delivered packages are unpacked straight into the cache. You don't have to empty them into your inventory first, and a dedicated receiving entry still works when that inventory is full. Anything that won't fit in the cache stays in a residual package until there's room. There's a limit to those leftovers, too, so they aren't an infinite warehouse.
 

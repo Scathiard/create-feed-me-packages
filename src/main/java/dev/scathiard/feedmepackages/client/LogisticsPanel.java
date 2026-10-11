@@ -109,7 +109,9 @@ public final class LogisticsPanel {
     private static int waitingSince;
     private static int firstRow;
     private static int selected;
-    private static int draftMinimum;
+    private static final Map<Integer, CellControlDraft> controlDrafts = new HashMap<>();
+    private static int dragStartValue;
+    private static CellControlDraft.Context dragContext;
     private static long serial;
     private static boolean draggingSlider;
     private static boolean draggingMaximum;
@@ -119,9 +121,6 @@ public final class LogisticsPanel {
     private static boolean dragMoved;
     /** A threshold change that could not be sent yet (an address submit was in flight). It is flushed
      *  as soon as that command settles, so "edit the address, then drag the slider" still works. */
-    private static int pendingThresholdSlot = -1;
-    private static int pendingThresholdMinimum = -2;
-    private static int pendingThresholdMaximum = -2;
     private static int capturedButton;
     private static int passthroughReleaseButton = -1;
     /**
@@ -182,7 +181,6 @@ public final class LogisticsPanel {
         COPY_ADDRESS, SCROLL, TOGGLE_SLOT, CLEAR_FILTER, DEPOSIT, TAKE_INVENTORY, TAKE_CURSOR
     }
     private record QueuedPanelClick(UUID window, UUID session, QueuedClickKind kind, int slot, int button, int row, String template) {}
-    private static int draftMaximum;
     private static Component feedback;
     private static int feedbackUntil;
     private static List<Component> tooltip;
@@ -428,10 +426,12 @@ public final class LogisticsPanel {
             LogisticsPanel.mount((AbstractContainerScreen)LogisticsPanel.MC.screen);
         }
         if (waiting != 0 && tick - waitingSince > 60) {
+            for(var draft:controlDrafts.values()) draft.timedOut(waiting);
             waiting = 0;
             predict = null;   // Timeout is an unknown result: drop the display prediction only, and refresh.
             LogisticsPanel.notice("timeout");
         }
+        flushPendingThresholds();
         if (tick - lastQuery >= 10) {
             lastQuery = tick;
             PacketDistributor.sendToServer((CustomPacketPayload)new PanelPackets.Query(window, LogisticsPanel.MC.player.containerMenu.containerId, true), (CustomPacketPayload[])new CustomPacketPayload[0]);
@@ -468,6 +468,8 @@ public final class LogisticsPanel {
     }
 
     private static void close() {
+        if(MC.getConnection()!=null && MC.player!=null && active() && window!=null) submitControls(true);
+        controlDrafts.clear();
         dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP_CLOSE_PREVIEW confirmed={} variant={} remaining={} carry={}",
                 previewConfirmed, previewVariant, previewRemaining, LogisticsPanel.MC.player == null ? null : LogisticsPanel.MC.player.containerMenu.getCarried());
         // 只撤销本次 本地 FMP 预览（客户端维护的 previewRemaining），绝不按 snapshot.reserved(全局合计)撤。
@@ -509,7 +511,6 @@ public final class LogisticsPanel {
         draggingSlider = false;
         draggingMaximum = false;
         dragMoved = false;
-        pendingThresholdSlot = -1;
         capturedButton = -1;
         passthroughReleaseButton = -1;
         returnEditing = false;
@@ -519,10 +520,12 @@ public final class LogisticsPanel {
         pendingReturnSession = null;
         pendingReturnBuffer = null;
         queuedReturnClick = null;
-        draftMaximum = -1;
         tooltip = List.of();
         ICONS.clear();
         feedback = null;
+    }
+    public static void beforeContainerClose(AbstractContainerScreen<?> closing) {
+        if(screen==closing && MC.getConnection()!=null && active() && window!=null) submitControls(true);
     }
 
     private static void receive(PanelPackets.Snapshot incoming) {
@@ -562,10 +565,23 @@ public final class LogisticsPanel {
                 runQueuedReturn = true;
             }
         }
-        if (incoming.serial() <= serial) return;
+        if (incoming.serial() <= serial) {
+            if (incoming.acknowledged()!=0) for(var draft:controlDrafts.values()) if(currentDraft(draft))
+                draft.snapshot(settings(snapshot.cells().get(draft.context().slot())),incoming.acknowledged(),incoming.result()==CacheActions.Result.OK);
+            return;
+        }
         boolean wasVisible = snapshot != null && snapshot.status() != AccessGate.Status.NOT_WORN;
         serial = incoming.serial();
         snapshot = incoming;
+        controlDrafts.entrySet().removeIf(entry -> !currentDraft(entry.getValue()));
+        if (dragContext != null && (snapshot.session() == null || !snapshot.session().equals(dragContext.session())
+                || !controlDrafts.containsKey(dragContext.slot()) || !controlDrafts.get(dragContext.slot()).context().equals(dragContext))) {
+            draggingSlider=false; draggingMaximum=false; dragContext=null;
+        }
+        for (var draft : controlDrafts.values()) {
+            var cell = snapshot.cells().get(draft.context().slot());
+            draft.snapshot(settings(cell), incoming.acknowledged(), incoming.result() == CacheActions.Result.OK);
+        }
         if (wasVisible && incoming.status() == AccessGate.Status.NOT_WORN) {
             screen.init(MC, LogisticsPanel.screen.width, LogisticsPanel.screen.height);
         }
@@ -638,6 +654,7 @@ public final class LogisticsPanel {
         if (availableHeight != LogisticsPanel.screen.height) {
             layout = PanelLayout.compute(availableHeight, screen.getGuiLeft(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
         }
+        layout = layout.clampControls(LogisticsPanel.screen.width, LogisticsPanel.screen.height);
         firstRow = layout.firstRow();
     }
 
@@ -883,13 +900,13 @@ public final class LogisticsPanel {
                 tooltip = List.of(LogisticsPanel.tr("residual", new Object[0]));
             }
         }
-        if (!cell.template().isEmpty() && cell.minimum() >= 0 && cell.amount() < cell.minimum() * cell.stackSize()) {
+        if (!cell.template().isEmpty() && cell.minimum() >= 0 && cell.amount() < cell.minimum()) {
             int color = cell.pending() > 0 ? -8206747 : -7105653;
             LogisticsPanel.overlay(g, x + 3, y + 1, 1, 3, color);
             LogisticsPanel.overlay(g, x + 1, y + 3, 5, 1, color);
             LogisticsPanel.overlay(g, x + 2, y + 4, 3, 1, color);
         }
-        if (!cell.template().isEmpty() && cell.maximum() >= 0 && cell.amount() > cell.maximum() * cell.stackSize()) {
+        if (!cell.template().isEmpty() && cell.maximum() >= 0 && cell.amount() > cell.maximum()) {
             int color = cell.returnState() == dev.scathiard.feedmepackages.logistics.ReturnService.RETURN_SENT ? -2058918 : -6909823;
             LogisticsPanel.overlay(g, x + 1, y + 1, 5, 1, color);
             LogisticsPanel.overlay(g, x + 2, y + 2, 3, 1, color);
@@ -911,7 +928,7 @@ public final class LogisticsPanel {
                 }
                 if (display == 0 && cell.reserved() > 0) tooltip.add(LogisticsPanel.tr("held_preview", new Object[0]));
             }
-            if (cell.minimum() >= 0 && cell.amount() < cell.minimum() * cell.stackSize() && mouseX < x + 7 && mouseY < y + 7) {
+            if (cell.minimum() >= 0 && cell.amount() < cell.minimum() && mouseX < x + 7 && mouseY < y + 7) {
                 tooltip = List.of(LogisticsPanel.tr(cell.pending() > 0 ? "requested" : "shortage", new Object[0]));
             }
             if (box.dot().contains(mouseX, mouseY) && !cell.template().isEmpty()) {
@@ -936,10 +953,6 @@ public final class LogisticsPanel {
         com.mojang.blaze3d.systems.RenderSystem.disableBlend();
     }
 
-    private static int thumbPx(int sliderX, int width, int value, int groupCap) {
-        return PanelLayout.sliderThumbPx(sliderX, width, value, groupCap);
-    }
-
     private static void panelBlit(GuiGraphics g, int sx, int sy, int sw, int sh, int u, int v, int w, int h) {
         // All pieces are pixel-sized. A partial repeat is cropped, never scaled.
         if (sw > 0 && sh > 0) {
@@ -953,63 +966,44 @@ public final class LogisticsPanel {
         }
     }
 
+    private static dev.scathiard.feedmepackages.domain.CellSettings settings(PanelPackets.CellView cell) {
+        return new dev.scathiard.feedmepackages.domain.CellSettings(cell.minimum(), cell.maximum(), cell.batch(), cell.pendingLimit());
+    }
+    private static boolean currentDraft(CellControlDraft draft) {
+        var c = draft.context();
+        if (snapshot == null || !Objects.equals(snapshot.session(), c.session()) || c.slot() < 0 || c.slot() >= snapshot.cells().size()) return false;
+        var cell = snapshot.cells().get(c.slot());
+        return c.filter().equals(cell.template()) && c.filterRevision() == cell.filterRevision();
+    }
+    private static CellControlDraft controls() {
+        if (snapshot == null || selected < 0 || selected >= snapshot.cells().size()) return null;
+        var cell = snapshot.cells().get(selected);
+        var ctx = new CellControlDraft.Context(snapshot.session(), selected, cell.template(), cell.filterRevision());
+        var draft = controlDrafts.get(selected);
+        if (draft == null || !ctx.equals(draft.context())) {
+            draft = new CellControlDraft(ctx, settings(cell)); controlDrafts.put(selected, draft);
+        }
+        return draft;
+    }
+    private static int cellCapacity() { return Math.multiplyExact(snapshot.groupCapacity(), snapshot.cells().get(selected).stackSize()); }
     private static void renderSlider(GuiGraphics g) {
-        int maxN;
-        int minN;
-        PanelLayout.Rect r = layout.slider();
-        PanelPackets.CellView cell = snapshot.cells().get(selected);
-        int groupCap = snapshot.groupCapacity();
-        int x = r.x();
-        int y = r.y();
-        int w = r.width();
-        int n = minN = draggingSlider ? draftMinimum : cell.minimum();
-        if (minN < 0) {
-            minN = 0;
+        var draft = controls(); if (draft == null) return;
+        var cell = snapshot.cells().get(selected); var r = layout.slider();
+        var parcel = new ItemStack(net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
+                ResourceLocation.fromNamespaceAndPath("create", "cardboard_package_10x8")));
+        CellControlArtwork.render(g, r, draft.value(), cellCapacity(), cell.pending(), parcel);
+        if (!r.contains(mouseX, mouseY)) return;
+        tooltip = List.of();
+        for (int field=0;field<5;field++) if (CellControlGeometry.field(r,field).contains(mouseX,mouseY)) {
+            tooltip = field == 4 ? List.of(tr("controls.pending",cell.pending()),tr("controls.reset"),tr("controls.late"))
+                    : List.of(tr("controls."+new String[]{"batch","limit","lower","upper"}[field]),tr("controls.wheel"));
+            if (field == 0 && draft.value().lower()>0 && draft.value().upper() >= 0
+                    && (long)draft.value().lower()-1+draft.value().batch() > draft.value().upper())
+                tooltip = List.of(tr("controls.batch"),tr("controls.wheel"),tr("controls.overshoot"));
+            if ((field==0 || field==1) && draft.value().pendingLimit()>=0 && draft.value().pendingLimit()<draft.value().batch())
+                tooltip=List.of(tr(field==0?"controls.batch":"controls.limit"),tr("controls.wheel"),tr("controls.conflict"));
+            break;
         }
-        int n2 = maxN = draggingMaximum ? draftMaximum : cell.maximum();
-        if (maxN < 0) {
-            maxN = groupCap;
-        }
-        int minAt = LogisticsPanel.thumbPx(x, w, minN, groupCap);
-        int maxAt = LogisticsPanel.thumbPx(x, w, maxN, groupCap);
-        g.pose().pushPose();
-        g.pose().translate(0.0f, 0.0f, 250.0f);
-        int tx = x + PanelLayout.TRACK_INSET;
-        int ty = y + PanelLayout.TRACK_Y;
-        int trackW = w - 2 * PanelLayout.TRACK_INSET;
-        LogisticsPanel.panelBlit(g, tx, ty, 4, 5, 0, 1, 4, 5);
-        int midX = tx + 4;
-        int midEnd = tx + trackW - 4;
-        while (midX + 3 <= midEnd) {
-            LogisticsPanel.panelBlit(g, midX, ty, 3, 5, 17, 1, 3, 5);
-            midX += 3;
-        }
-        if (midX < midEnd) {
-            LogisticsPanel.panelBlit(g, midX, ty, midEnd - midX, 5, 17, 1, 3, 5);
-        }
-        LogisticsPanel.panelBlit(g, midEnd, ty, 4, 5, 36, 1, 4, 5);
-        // Left endpoint = small triangle below the track; right endpoint = triangle above the track,
-        // so both stay draggable even when they are at the same position.
-        LogisticsPanel.panelBlit(g, minAt - 2, y + PanelLayout.MIN_THUMB_Y, 5, 5, 0, 15, 5, 5);
-        LogisticsPanel.panelBlit(g, maxAt - 2, y + PanelLayout.MAX_THUMB_Y, 5, 5, 7, 11, 5, 5);
-        String minLabel = String.valueOf(minN * cell.stackSize());
-        float s1 = Math.min(8.0f / 9.0f, (w - 8) / 2.0f / (float)LogisticsPanel.MC.font.width(minLabel));
-        g.pose().pushPose();
-        g.pose().translate((float)(x + 3), (float)(y + PanelLayout.LABEL_Y), 190.0f);
-        g.pose().scale(s1, s1, 1.0f);
-        g.drawString(LogisticsPanel.MC.font, minLabel, 0, 0, -1713994, false);
-        g.pose().popPose();
-        String maxLabel = String.valueOf(maxN * cell.stackSize());
-        float s2 = Math.min(8.0f / 9.0f, (w - 8) / 2.0f / (float)LogisticsPanel.MC.font.width(maxLabel));
-        g.pose().pushPose();
-        g.pose().translate((float)(x + w - 3) - (float)LogisticsPanel.MC.font.width(maxLabel) * s2, (float)(y + PanelLayout.LABEL_Y), 190.0f);
-        g.pose().scale(s2, s2, 1.0f);
-        g.drawString(LogisticsPanel.MC.font, maxLabel, 0, 0, -2058918, false);
-        g.pose().popPose();
-        if (r.contains(mouseX, mouseY) && mouseY < y + PanelLayout.TRACK_Y + 3) {
-            tooltip = List.of(LogisticsPanel.tr(mouseX <= minAt ? "minimum_help" : "maximum_help", new Object[0]));
-        }
-        g.pose().popPose();
     }
 
     private static void renderReturnBar(GuiGraphics g) {
@@ -1218,6 +1212,16 @@ public final class LogisticsPanel {
             LogisticsPanel.toggleHidden();
             return true;
         }
+        if (active() && layout.slider() != null && layout.slider().contains(x,y)) {
+            closeReturnEditorForClick(x,y,layout);
+            capturedButton = button;
+            if (button == 0) {
+                if (CellControlGeometry.field(layout.slider(),4).contains(x,y))
+                    send(CacheActions.Action.RESET_REQUEST,selected,0,0,"");
+                else tryStartSliderDrag(layout,x,y);
+            }
+            return true;
+        }
         if (waiting != 0) {
             capturedButton = button;
             return true;
@@ -1383,40 +1387,15 @@ public final class LogisticsPanel {
             passthroughReleaseButton = -1;
             return false;
         }
-        if (waiting != 0) {
-            if (capturedButton == button) {
-                capturedButton = -1;
-            }
-            return true;
+        if (draggingSlider || draggingMaximum) {
+            boolean maximum = draggingMaximum;
+            if (dragMoved || Math.abs(x - dragOriginX) >= 2.0) updateSliderDrag(x,maximum);
+            draggingSlider = false; draggingMaximum = false;
+            var draft = controls(); if (draft != null && dragMoved) { draft.immediate(); flushPendingThresholds(); }
+            dragMoved = false; capturedButton = -1; return true;
         }
-        if (draggingSlider) {
-            // "Moved" is decided by the release position too: a real drag may deliver no intermediate
-            // MouseDragged event, while press-and-release in place must keep the stored value.
-            boolean moved = dragMoved || Math.abs(x - dragOriginX) >= 2.0;
-            if (moved) {
-                LogisticsPanel.setDraft(x);
-            }
-            draggingSlider = false;
-            dragMoved = false;
-            if (moved) {
-                LogisticsPanel.sendMinimum(draftMinimum);
-            }
-            capturedButton = -1;
-            return true;
-        }
-        if (draggingMaximum) {
-            boolean moved = dragMoved || Math.abs(x - dragOriginX) >= 2.0;
-            if (moved) {
-                LogisticsPanel.setDraftMaximum(x);
-            }
-            draggingMaximum = false;
-            dragMoved = false;
-            if (moved) {
-                LogisticsPanel.sendMaximum(draftMaximum);
-            }
-            capturedButton = -1;
-            return true;
-        }
+        if (layout.slider() != null && layout.slider().contains(x,y)) { capturedButton = -1; return true; }
+        if (waiting != 0) { capturedButton = -1; return true; }
         if (capturedButton == button) {
             capturedButton = -1;
             return true;
@@ -1437,18 +1416,23 @@ public final class LogisticsPanel {
     }
 
     private static boolean scroll(double x, double y, double amount) {
-        if (!LogisticsPanel.visible() || !layout.bounds().contains(x, y)) {
-            return false;
+        if (!visible()) return false;
+        if (!layout.hidden() && layout.slider() != null && layout.slider().contains(x,y)) {
+            var draft=controls(); if (draft==null || amount==0 || draggingSlider || draggingMaximum) return true;
+            var value=draft.value(); int step=Screen.hasShiftDown()?snapshot.cells().get(selected).stackSize():1;
+            int direction=amount>0?1:-1, cap=cellCapacity(), nine=9*snapshot.cells().get(selected).stackSize();
+            int lower=value.lower(),upper=value.upper(),batch=value.batch(),limit=value.pendingLimit();
+            if(CellControlGeometry.field(layout.slider(),0).contains(x,y)) batch=CellControlDraft.wheel(batch,direction,step,1,nine,false);
+            else if(CellControlGeometry.field(layout.slider(),1).contains(x,y)) limit=CellControlDraft.wheel(limit,direction,step,1,nine,true);
+            else if(CellControlGeometry.field(layout.slider(),2).contains(x,y)) {
+                lower=CellControlDraft.wheel(Math.max(0,lower),direction,step,0,upper<0?cap:upper,false); if(lower==0) lower=-1;
+            } else if(CellControlGeometry.field(layout.slider(),3).contains(x,y)) upper=CellControlDraft.wheel(upper,direction,step,Math.max(0,lower),cap,true);
+            draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(lower,upper,batch,limit),tick);
+            return true; // Includes wheel-at-boundary and the blank area: never scroll the backing grid.
         }
-        if (waiting != 0 || layout.compact()) {
-            return true;
-        }
-        if (layout.slider() == null || !layout.slider().contains(x, y)) {
-            firstRow += amount > 0.0 ? -1 : 1;
-            selected = -1;
-            LogisticsPanel.updateLayout();
-        }
-        return true;
+        if(!layout.bounds().contains(x,y)) return false;
+        if(waiting!=0 || layout.compact() || layout.hidden()) return true;
+        firstRow += amount>0?-1:1; selected=-1; updateLayout(); return true;
     }
 
     private static boolean key(int key, int scan, int modifiers) {
@@ -1489,126 +1473,39 @@ public final class LogisticsPanel {
         return true;
     }
 
-    /** Start dragging an endpoint when the press hit one. Records the origin and the current value;
-     *  the value only changes once the pointer really moves, so press-and-release in place keeps it. */
     private static boolean tryStartSliderDrag(PanelLayout inputLayout, double x, double y) {
-        PanelLayout.Rect slider = inputLayout.slider();
-        if (slider == null || !slider.contains(x, y) || selected < 0 || snapshot == null
-                || selected >= snapshot.cells().size()) {
-            return false;
-        }
-        int groupCap = snapshot.groupCapacity();
-        PanelPackets.CellView cell = snapshot.cells().get(selected);
-        int minAt = LogisticsPanel.thumbPx(slider.x(), slider.width(), cell.minimum() < 0 ? 0 : cell.minimum(), groupCap);
-        int maxAt = LogisticsPanel.thumbPx(slider.x(), slider.width(), cell.maximum() < 0 ? groupCap : cell.maximum(), groupCap);
-        // Hitboxes hug the triangles: upper band = right endpoint, lower band = left endpoint.
-        if (y >= slider.y() + PanelLayout.MIN_THUMB_Y && y < slider.y() + PanelLayout.MIN_THUMB_Y + 5 && Math.abs(x - minAt) <= 3) {
-            draggingSlider = true;
-            dragOriginX = x;
-            dragMoved = false;
-            draftMinimum = Math.max(0, cell.minimum());
-            return true;
-        }
-        if (y >= slider.y() + PanelLayout.MAX_THUMB_Y && y < slider.y() + PanelLayout.MAX_THUMB_Y + 5 && Math.abs(x - maxAt) <= 3) {
-            draggingMaximum = true;
-            dragOriginX = x;
-            dragMoved = false;
-            draftMaximum = cell.maximum();
-            return true;
-        }
-        return false;
+        var r=inputLayout.slider(); var draft=controls(); if(r==null || draft==null) return false;
+        int low=CellControlGeometry.thumb(r,Math.max(0,draft.value().lower()),cellCapacity());
+        int high=CellControlGeometry.thumb(r,draft.value().upper(),cellCapacity());
+        if (y>=r.y()+40 && y<r.y()+47 && Math.abs(x-low)<=4) draggingSlider=true;
+        else if(y>=r.y()+32 && y<r.y()+39 && Math.abs(x-high)<=4) draggingMaximum=true;
+        else return false;
+        dragOriginX=x; dragMoved=false;
+        dragContext=draft.context();
+        dragStartValue=draggingMaximum?(draft.value().upper()<0?cellCapacity():draft.value().upper()):Math.max(0,draft.value().lower());
+        return true;
     }
-
-    /** Apply a drag position only after the pointer actually moved; a press that never moves must not
-     *  rewrite the value just because the hit test rounded to a neighbouring pixel. */
     private static void updateSliderDrag(double x, boolean maximum) {
-        if (!dragMoved && Math.abs(x - dragOriginX) < 2.0) {
-            return;
-        }
-        dragMoved = true;
-        if (maximum) {
-            LogisticsPanel.setDraftMaximum(x);
-        } else {
-            LogisticsPanel.setDraft(x);
-        }
+        var draft=controls(); if(draft==null || layout.slider()==null || !dragMoved && Math.abs(x-dragOriginX)<2) return;
+        dragMoved=true; var value=draft.value(); int cap=cellCapacity();
+        int next=CellControlGeometry.draggedValue(dragStartValue,x-dragOriginX,cap);
+        int lower=value.lower(),upper=value.upper();
+        if(maximum) upper=next>=cap?-1:Math.max(next,Math.max(0,lower));
+        else { lower=Math.min(next,upper<0?cap:upper); if(lower==0) lower=-1; }
+        draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(lower,upper,value.batch(),value.pendingLimit()),tick);
     }
-
-    private static void setDraft(double x) {
-        if (layout.slider() == null) {
-            return;
-        }
-        int groupCap = snapshot.groupCapacity();
-        int min = PanelLayout.sliderValue(layout.slider().x(), layout.slider().width(), x, groupCap);
-        int cap = snapshot.cells().get(selected).maximum();
-        if (cap < 0) {
-            cap = groupCap;
-        }
-        if (draggingMaximum) {
-            cap = draftMaximum;
-        }
-        draftMinimum = Math.min(min, cap);
-    }
-
-    private static void setDraftMaximum(double x) {
-        if (layout.slider() == null) {
-            return;
-        }
-        int groupCap = snapshot.groupCapacity();
-        double relative = x - (double)layout.slider().x() - PanelLayout.TRACK_INSET;
-        int span = PanelLayout.sliderTrackSpan(layout.slider().width());
-        if (relative > span) {
-            draftMaximum = -1;
-            return;
-        }
-        int max = PanelLayout.sliderValue(layout.slider().x(), layout.slider().width(), x, groupCap);
-        int lower = snapshot.cells().get(selected).minimum();
-        if (lower < 0) {
-            lower = 0;
-        }
-        if (draggingSlider) {
-            lower = draftMinimum;
-        }
-        draftMaximum = Math.max(max, lower);
-    }
-
-    private static void sendThresholds(int min, int max) {
-        if (selected < 0 || !LogisticsPanel.active()) {
-            return;
-        }
-        // An address submit (or another command) may still be in flight; keep the player's change and
-        // flush it when that command settles instead of dropping it silently.
-        if (waiting != 0 || cursorPending || pendingCursorChange != null) {
-            pendingThresholdSlot = selected;
-            pendingThresholdMinimum = min;
-            pendingThresholdMaximum = max;
-            return;
-        }
-        LogisticsPanel.send(CacheActions.Action.THRESHOLDS, selected, min < 0 ? 0 : min, max, "");
-    }
-
-    /** Send a slider change that had to wait for an in-flight command. Never blocks or retries by
-     *  itself; it is called whenever a pending reply settles. */
     private static void flushPendingThresholds() {
-        if (pendingThresholdSlot < 0 || snapshot == null || !LogisticsPanel.active()
-                || waiting != 0 || cursorPending || pendingCursorChange != null) {
-            return;
-        }
-        int slot = pendingThresholdSlot;
-        int min = pendingThresholdMinimum;
-        int max = pendingThresholdMaximum;
-        pendingThresholdSlot = -1;
-        if (slot >= snapshot.cells().size() || snapshot.cells().get(slot).template().isEmpty()) {
-            return;
-        }
-        LogisticsPanel.send(CacheActions.Action.THRESHOLDS, slot, min < 0 ? 0 : min, max, "");
+        if(snapshot==null || !active() || waiting!=0 || cursorPending || pendingCursorChange!=null || draggingSlider || draggingMaximum) return;
+        submitControls(false);
     }
-
-    private static void sendMinimum(int minimum) {
-        LogisticsPanel.sendThresholds(minimum, snapshot.cells().get(selected).maximum());
-    }
-
-    private static void sendMaximum(int maximum) {
-        LogisticsPanel.sendThresholds(snapshot.cells().get(selected).minimum(), maximum);
+    private static void submitControls(boolean closing) {
+        controlDrafts.entrySet().removeIf(e -> !currentDraft(e.getValue()));
+        var drafts=controlDrafts.values().stream().filter(d->closing?d.dirty():d.ready(tick)).toList();
+        if(drafts.isEmpty())return;
+        var changes=drafts.stream().map(d->new CacheActions.SettingsChange(d.context().slot(),d.context().filterRevision(),d.value())).toList();
+        waiting=++sequence;waitingSince=tick;
+        PacketDistributor.sendToServer(new PanelPackets.SettingsBatch(window,snapshot.session(),waiting,changes));
+        for(var draft:drafts)draft.sentAll(waiting);
     }
 
     public static boolean recipeReady() {
@@ -1628,7 +1525,7 @@ public final class LogisticsPanel {
     }
 
     public static List<PanelLayout.Rect> exclusions(Screen candidate) {
-        return LogisticsPanel.current(candidate) && LogisticsPanel.visible() ? List.of(layout.bounds()) : List.of();
+        return LogisticsPanel.current(candidate) && LogisticsPanel.visible() ? (layout.slider()==null ? List.of(layout.bounds()) : List.of(layout.bounds(),layout.slider())) : List.of();
     }
 
     private static boolean send(CacheActions.Action action, int slot, int first, int second, String template) {
@@ -1710,7 +1607,6 @@ public final class LogisticsPanel {
         serial = -1L;
         capturedButton = -1;
         returnBuffer = "";
-        draftMaximum = -1;
         tooltip = List.of();
         recipeOverlay = candidate -> false;
         PANEL = ResourceLocation.fromNamespaceAndPath((String)"create_feed_me_packages", (String)"textures/gui/panel.png");
