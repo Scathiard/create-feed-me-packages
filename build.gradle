@@ -372,7 +372,15 @@ tasks.register('artifactProbeJar', Jar) {
     destinationDirectory = referenceOutput
     from(sourceSets.gameTest.output) {
         // Never create split packages with production domain/service classes from legacy test fixtures.
-        include 'dev/scathiard/feedmepackages/gametest/**'
+        // Only native client drivers and their item/container fixtures belong here. Including all
+        // GameTest holders makes NeoForge eagerly load historical migration-only dependencies.
+        include 'dev/scathiard/feedmepackages/gametest/*ClientReview*.class'
+        include 'dev/scathiard/feedmepackages/gametest/ArtifactProbeBootstrap*.class'
+        include 'dev/scathiard/feedmepackages/gametest/ConsumptionTests*.class'
+        include 'dev/scathiard/feedmepackages/gametest/GadgetsTests*.class'
+        include 'dev/scathiard/feedmepackages/gametest/InteractionTests*.class'
+        include 'dev/scathiard/feedmepackages/gametest/TestPlayers*.class'
+        include 'dev/scathiard/feedmepackages/gametest/ReceiveTests$Fixture.class'
         include 'data/**'
     }
     from(layout.buildDirectory.dir('generated/artifact-probe'))
