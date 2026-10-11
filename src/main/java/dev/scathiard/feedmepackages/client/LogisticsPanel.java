@@ -2,6 +2,8 @@ package dev.scathiard.feedmepackages.client;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.simibubi.create.foundation.gui.AllGuiTextures;
+import dev.scathiard.feedmepackages.FeedMePackages;
+import java.io.IOException;
 import dev.scathiard.feedmepackages.client.PanelLayout;
 import dev.scathiard.feedmepackages.client.SupplyCreativeScreen;
 import dev.scathiard.feedmepackages.client.SupplyInventoryScreen;
@@ -123,16 +125,9 @@ public final class LogisticsPanel {
      *  as soon as that command settles, so "edit the address, then drag the slider" still works. */
     private static int capturedButton;
     private static int passthroughReleaseButton = -1;
-    /**
-     * Hidden state of the panel (user picked "完全隐藏，只留一个小入口"): while hidden the whole panel is not drawn
-     * and, crucially, it does not cover - or intercept - the area it used to occupy, so clicks land on whatever
-     * is underneath (JEI's bookmark column lives there). It changes <b>nothing</b> about the cells, the
-     * coordinate table, the ledger or the inventory screen position: unfolding shows exactly the same grid.
-     *
-     * <p>Kept in memory for the client session ("本次会话内记住"). The server-side preference action exists
-     * ({@code CacheActions.Action.PREFERENCE}) but is <b>rejected</b> by the server, so there is no cross-session
-     * path to carry it; inventing a client config file was not asked for and was not done.
-     */
+    /** Local view state only: folding never disables logistics or changes cache contents. */
+    private static final PanelVisibilityState VISIBILITY = new PanelVisibilityState(
+            MC.gameDirectory.toPath().resolve("config").resolve(PanelVisibilityState.FILE_NAME));
     private static boolean hidden;
     /** The sequence whose result must stay silent: the one-key collect (user's silence rule). */
     private static int silentCollectSequence;
@@ -203,6 +198,12 @@ public final class LogisticsPanel {
     }
 
     public static void register() {
+        try {
+            hidden = VISIBILITY.load();
+        } catch (IOException | SecurityException failure) {
+            hidden = false;
+            FeedMePackages.LOGGER.warn("Could not read panel visibility; starting expanded", failure);
+        }
         PanelNetwork.receiveOnClient(LogisticsPanel::receive);
         PanelNetwork.receiveCursorOnClient(LogisticsPanel::receiveCursor);
         IEventBus bus = NeoForge.EVENT_BUS;
@@ -675,6 +676,11 @@ public final class LogisticsPanel {
     private static void toggleHidden() {
         LogisticsPanel.hidden = !LogisticsPanel.hidden;
         LogisticsPanel.updateLayout();
+        try {
+            VISIBILITY.save(hidden);
+        } catch (IOException | SecurityException failure) {
+            FeedMePackages.LOGGER.warn("Could not save panel visibility; current session remains usable", failure);
+        }
     }
 
     private static void foreground(ContainerScreenEvent.Render.Foreground event) {

@@ -22,6 +22,12 @@ if (project.hasProperty('fmpPhantomPublished')) {
     if (!project.hasProperty('fmpPhantomReview') || project.hasProperty('fmpPackaged')) throw new GradleException('Published transport probe requires its isolated review profile')
     runProfile += '-released023'
 }
+if (project.hasProperty('fmpFoldReview')) {
+    if (!(project.property('fmpFoldReview') in ['collapse', 'expand', 'verify']) ||
+            !project.hasProperty('fmpGameTests') || project.hasProperty('fmpPackaged'))
+        throw new GradleException('Fold review requires development tests and collapse/expand/verify')
+    runProfile += '-fold-review'
+}
 if (project.hasProperty('fmpLegacyWorldReview')) runProfile += '-legacy023'
 if (project.hasProperty('fmpPackaged')) {
     if (project.hasProperty('fmpGameTests') || project.hasProperty('fmpClientReview')) throw new GradleException('Packaged verification cannot load development test sources')
@@ -137,6 +143,7 @@ neoForge {
             if (project.hasProperty('fmpClientReview')) systemProperty 'fmp.clientReview', 'true'
             if (project.hasProperty('fmpConvergedReview')) systemProperty 'fmp.convergedReview', 'true'
             if (project.hasProperty('fmpT14Review')) systemProperty 'fmp.t14Review', 'true'
+            if (project.hasProperty('fmpFoldReview')) systemProperty 'fmp.foldReview', project.property('fmpFoldReview')
         }
 
         server {

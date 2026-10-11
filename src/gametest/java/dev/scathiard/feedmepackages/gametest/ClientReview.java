@@ -54,13 +54,14 @@ public final class ClientReview {
     private static final String RUN = Long.toString(System.currentTimeMillis());
     private static boolean failed;
     @SubscribeEvent public static void setup(FMLClientSetupEvent event) {
-        if (Boolean.getBoolean("fmp.clientReview") || Boolean.getBoolean("fmp.t14Review") || Boolean.getBoolean("fmp.convergedReview"))
+        if (Boolean.getBoolean("fmp.clientReview") || Boolean.getBoolean("fmp.t14Review") || Boolean.getBoolean("fmp.convergedReview") || System.getProperty("fmp.foldReview") != null)
             event.enqueueWork(() -> NeoForge.EVENT_BUS.addListener(ClientReview::tick));
     }
     private static void tick(ClientTickEvent.Post event) {
         var mc = Minecraft.getInstance(); ticks++;
         try {
             if (work != null) { if (!work.isDone()) return; work.join(); work = null; }
+            if (System.getProperty("fmp.foldReview") != null) { reviewFold(); return; }
             if (Boolean.getBoolean("fmp.convergedReview")) { reviewConverged(); return; }
             if (Boolean.getBoolean("fmp.t14Review")) {
                 reviewT14();
@@ -398,6 +399,144 @@ public final class ClientReview {
             case 24 -> { if(mc.level==null && mc.getSingleplayerServer()==null){mc.stop();advance();} }
         }
     }
+    private static boolean foldTransition;
+    private static dev.scathiard.feedmepackages.domain.CacheState<ItemVariantKey> foldBaseline;
+
+    /** Three separate JVM runs share only this isolated installation's saved UI state. */
+    private static void reviewFold() throws java.io.IOException {
+        if (foldTransition) return;
+        var mc = Minecraft.getInstance();
+        String mode = System.getProperty("fmp.foldReview");
+        boolean initialHidden = mode.equals("expand");
+        boolean finalHidden = mode.equals("collapse");
+        if (ticks - changed > 2400) throw new IllegalStateException("Fold review timed out at " + phase);
+        switch (phase) {
+            case 0 -> {
+                if (mc.getOverlay() != null || mc.screen == null) return;
+                require(panelBoolean("hidden") == initialHidden, "Cold-start visibility differs in " + mode);
+                mc.getWindow().setTitle("FMP isolated fold persistence - " + mode);
+                mc.options.pauseOnLostFocus = false;
+                mc.options.guiScale().set(2); mc.resizeDisplay();
+                mc.options.languageCode = "zh_cn"; mc.getLanguageManager().setSelected("zh_cn");
+                work = mc.reloadResourcePacks(); advance();
+            }
+            case 1 -> {
+                FeedMePackages.LOGGER.info("FMP_FOLD_REVIEW_BEGIN mode={} directory={} run={}", mode, mc.gameDirectory, RUN);
+                mc.createWorldOpenFlows().createFreshLevel("fmp-fold-" + RUN,
+                        new LevelSettings("FMP fold " + RUN, GameType.SURVIVAL, false, Difficulty.PEACEFUL,
+                                true, new GameRules(), WorldDataConfiguration.DEFAULT),
+                        new WorldOptions(7319L, false, false),
+                        r -> r.registryOrThrow(Registries.WORLD_PRESET).getHolderOrThrow(WorldPresets.FLAT)
+                                .value().createWorldDimensions(), mc.screen);
+                advance();
+            }
+            case 2 -> {
+                if (mc.player == null || mc.screen != null || mc.getSingleplayerServer() == null || mc.player.tickCount < 20) return;
+                server(player -> {
+                    TestPlayers.necklace(player).setStackInSlot(0, FmpRegistries.PENDANT.toStack());
+                    var access = AccessGate.resolve(player);
+                    require(access.active(), "Ordinary pendant is not active");
+                    var ledger = CacheLedger.get(player.getServer());
+                    var record = ledger.find(access.handle().cacheId());
+                    var edit = record.state().edit();
+                    var stone = ItemVariantKey.of(new ItemStack(Items.STONE), player.registryAccess());
+                    edit.filter(0, stone); edit.insert(0, stone, 12);
+                    foldBaseline = edit.finish();
+                    ledger.replace(access.handle(), record.state().revision(), record.withState(foldBaseline));
+                });
+                advance();
+            }
+            case 3 -> {
+                if (ticks - changed < 30) return;
+                mc.setScreen(new InventoryScreen(mc.player)); advance();
+            }
+            case 4 -> {
+                if (ticks - changed < 20 || panelLayout() == null || panelSnapshot() == null || panelSnapshot().session() == null) return;
+                checkFoldState(initialHidden); capture("fold-" + mode + "-initial");
+                if (!mode.equals("verify")) {
+                    var button = panelLayout().foldButton();
+                    click(button.x() + 6, button.y() + 6);
+                }
+                advance();
+            }
+            case 5 -> {
+                if (ticks - changed < 10) return;
+                checkFoldState(finalHidden);
+                var file = mc.gameDirectory.toPath().resolve("config/create_feed_me_packages-ui-state.txt");
+                require(java.nio.file.Files.readString(file).strip().equals(finalHidden ? "collapsed" : "expanded"),
+                        "Real click did not persist UI state");
+                require(mc.player.containerMenu.getCarried().isEmpty(), "Folding changed the carried item");
+                server(ClientReview::checkFoldServer);
+                capture("fold-" + mode + "-saved");
+                mc.screen.onClose(); advance();
+            }
+            case 6 -> {
+                if (ticks - changed < 10) return;
+                require(mc.screen == null, "Inventory did not close");
+                mc.setScreen(new InventoryScreen(mc.player)); advance();
+            }
+            case 7 -> {
+                if (ticks - changed < 20 || panelLayout() == null || panelSnapshot() == null) return;
+                checkFoldState(finalHidden);
+                server(p -> p.setGameMode(GameType.CREATIVE)); advance();
+            }
+            case 8 -> {
+                if (ticks - changed < 10) return;
+                mc.setScreen(new CreativeModeInventoryScreen(mc.player, mc.player.connection.enabledFeatures(), false));
+                advance();
+            }
+            case 9 -> {
+                if (ticks - changed < 20 || panelLayout() == null || panelSnapshot() == null) return;
+                checkFoldState(finalHidden);
+                mc.getWindow().setWindowed(1280, 900);
+                mc.options.guiScale().set(3); mc.resizeDisplay(); advance();
+            }
+            case 10 -> {
+                if (ticks - changed < 20 || panelLayout() == null) return;
+                require(mc.getWindow().getGuiScale() == 3, "Fold review did not reach GUI scale 3");
+                checkFoldState(finalHidden);
+                capture("fold-" + mode + "-creative-scale3");
+                server(ClientReview::checkFoldServer); advance();
+            }
+            case 11 -> {
+                FeedMePackages.LOGGER.info("FMP_FOLD_CLIENT_PASSED mode={} initialHidden={} finalHidden={} survival/creative/scale3/reopen/state-isolation/event-input/no-os-mouse",
+                        mode, initialHidden, finalHidden);
+                advance();
+            }
+            case 12 -> {
+                if (ticks - changed < 15) return;
+                foldTransition = true;
+                try { mc.level.disconnect(); mc.disconnect(new TitleScreen()); }
+                finally { foldTransition = false; }
+                advance();
+            }
+            case 13 -> {
+                if (mc.level == null && mc.getSingleplayerServer() == null) { mc.stop(); advance(); }
+            }
+        }
+    }
+
+    private static void checkFoldState(boolean expectedHidden) {
+        var mc = Minecraft.getInstance();
+        var layout = panelLayout();
+        require(panelBoolean("hidden") == expectedHidden && layout.hidden() == expectedHidden,
+                "Folded layout did not match saved choice");
+        require(LogisticsPanel.visibleCells(mc.screen).isEmpty() == expectedHidden,
+                "Folded panel still exposes cells, or expanded panel has none");
+        var entry = layout.foldButton();
+        require(entry.x() >= 0 && entry.y() >= 0 && entry.x() + entry.width() <= mc.screen.width
+                        && entry.y() + entry.height() <= mc.screen.height,
+                "Fold entry is unreachable");
+    }
+
+    private static void checkFoldServer(ServerPlayer player) {
+        var access = AccessGate.resolve(player);
+        require(access.active() && access.handle().cacheId().equals(foldBaseline.id()),
+                "Folding changed pendant access or cache identity");
+        require(CacheLedger.get(player.getServer()).find(access.handle().cacheId()).state().equals(foldBaseline),
+                "Folding changed cache contents, settings or pending orders");
+    }
+
     private static void controlWheel(int field,double amount) {
         var b=dev.scathiard.feedmepackages.client.CellControlGeometry.field(panelLayout().slider(),field);
         var event=new ScreenEvent.MouseScrolled.Pre(Minecraft.getInstance().screen,b.x()+b.width()/2.,b.y()+8,0,amount);
