@@ -170,6 +170,12 @@ public final class TemplateClientReview {
                             case "wand" -> "WandClientReview";
                             case "gadgets" -> "GadgetsClientReview";
                             case "effortless" -> "EffortlessClientReview";
+                            case "craftingtweaks" -> "CraftingTweaksClientReview";
+case "mousetweaks" -> "MouseTweaksClientReview";
+case "toms" -> "TomsClientReview";
+case "toms-network" -> "TomsNetworkClientReview";
+case "toms-polymorph" -> "TomsPolymorphClientReview";
+case "polymorph" -> "PolymorphClientReview";
                             default -> throw new IllegalArgumentException("Unknown review "+MODE);
                         };
                         var method=Class.forName("dev.scathiard.feedmepackages.gametest."+name)

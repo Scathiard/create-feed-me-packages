@@ -37,6 +37,28 @@ import java.util.Map;
 @GameTestHolder(FeedMePackages.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class FoundationTests {
+    /** The host seeds a real TOML before starting this fresh isolated server process. */
+    @GameTest(template = "empty", templateNamespace = "fmp_config_startup")
+    public static void actualConfigStartup(GameTestHelper h) {
+        String scenario=System.getProperty("fmp.configStartup", "");
+        h.assertTrue(List.of("missing","broken","illegal","custom").contains(scenario), "Dedicated startup probe required");
+        var config=dev.scathiard.feedmepackages.FmpConfig.rules();
+        h.assertTrue(dev.scathiard.feedmepackages.FmpConfig.SERVER_SPEC.isLoaded(), "Actual loader never loaded the server file");
+        int slots=scenario.equals("custom")?50:scenario.equals("illegal")?dev.scathiard.feedmepackages.domain.CacheCapacity.MAX_SLOTS:9;
+        int groups=scenario.equals("custom")?3:scenario.equals("illegal")?1:2;
+        h.assertTrue(config.capacity(1).slots()==slots && config.capacity(1).groups()==groups, "Physical TOML did not yield expected safe capacity: "+config.capacity(1));
+        h.assertTrue(dev.scathiard.feedmepackages.FmpConfig.taczAmmoEnabled()!=scenario.equals("custom"), "Actual compatibility flag did not load safely");
+        var p=TestPlayers.real(h,UUID.randomUUID()); TestPlayers.necklace(p).setStackInSlot(0,FmpRegistries.PENDANT.toStack());
+        ConsumptionTests.seed(p,0,new ItemStack(Items.STONE),17);
+        var a=AccessGate.resolve(p); var ledger=CacheLedger.get(p.getServer()); var record=ledger.find(a.handle().cacheId());
+        h.assertTrue(record.state().capacity().equals(config.capacity(1)) && record.state().cells().size()==slots
+                && record.state().cells().get(0).amount()==17, "Runtime access ignored the loaded configuration or changed stock");
+        var raw=ledger.save(new CompoundTag(),p.registryAccess());var decoded=CacheLedger.load(raw,p.registryAccess());
+        h.assertTrue(decoded.problem().isEmpty() && decoded.find(a.handle().cacheId()).state().cells().get(0).amount()==17, "Config startup produced an invalid save");
+        FeedMePackages.LOGGER.info("FMP_CONFIG_STARTUP_PASSED case={} slots={} groups={} actualLoader=true conserved=17",scenario,slots,groups);
+        h.succeed();
+    }
+
     /** Same physical world across four separate JVMs; not selected by the ordinary test namespace. */
     @GameTest(template = "empty", templateNamespace = "fmp_lifecycle")
     public static void optionalFluidRemovalAndRestoration(GameTestHelper h) {

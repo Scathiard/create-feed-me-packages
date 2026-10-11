@@ -740,9 +740,17 @@ public final class LogisticsPanel {
         ((ContainerScreenAccess)screen).fmp$setLeft(next);
         for (GuiEventListener child : screen.children()) {
             AbstractWidget widget;
-            if (!(child instanceof AbstractWidget) || (widget = (AbstractWidget)child).getX() < old || widget.getX() >= old + screen.getXSize()) continue;
+            if (!(child instanceof AbstractWidget) || (widget = (AbstractWidget)child).getX() < old || widget.getX() >= old + screen.getXSize() || followsMenuAnchor(widget)) continue;
             widget.setX(widget.getX() + delta);
         }
+    }
+
+    private static boolean followsMenuAnchor(AbstractWidget widget) {
+        // Crafting Tweaks adjusts to the menu anchor in its own renderWidget.
+        // Moving it here as well displaces both its drawing and hitbox twice.
+        for (Class<?> type = widget.getClass(); type != null; type = type.getSuperclass())
+            if (type.getName().equals("net.blay09.mods.craftingtweaks.client.GuiTweakButton")) return true;
+        return false;
     }
 
     /** Hide the panel (leaving only its entry) or bring it back. View state only - no cell, coordinate or ledger change. */

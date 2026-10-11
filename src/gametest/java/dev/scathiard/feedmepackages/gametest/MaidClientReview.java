@@ -49,7 +49,12 @@ final class MaidClientReview {
                 require(button.active && button.visible, "Native maid Curios button unavailable");
                 TemplateClientReview.click(button.getX() + button.getWidth() / 2.0, button.getY() + button.getHeight() / 2.0); next();
             }
-            case 3 -> { if (!MC.player.containerMenu.getClass().getName().endsWith(".CuriosContainer")) break; click(playerSlot(0)); next(); }
+            case 3 -> {
+                if (!MC.player.containerMenu.getClass().getName().endsWith(".CuriosContainer")) break;
+                // Seed only inside this foreign menu: ordinary inventory ticks legitimately retire old keys.
+                server(p -> { p.getInventory().setItem(1, FmpRegistries.PERSONAL_PENDANT.toStack()); p.containerMenu.broadcastChanges(); });
+                click(playerSlot(0)); next();
+            }
             case 4 -> { click(necklace()); next(); }
             case 5 -> {
                 server(p -> { var a = MaidAccess.resolve(maid(p)); require(a.active() && a.handle().cacheId().equals(cache)
@@ -66,11 +71,13 @@ final class MaidClientReview {
             case 9 -> {
                 server(p -> {
                     var worn = CuriosApi.getCuriosInventory(maid(p)).orElseThrow().getStacksHandler("necklace").orElseThrow().getStacks().getStackInSlot(0);
-                    require(worn.is(FmpRegistries.PERSONAL_PENDANT.get()) && !worn.has(FmpRegistries.OWNER.get())
-                            && !worn.has(FmpRegistries.IDENTITY.get()) && !MaidAccess.resolve(maid(p)).active() && stock(p) == 8,
-                            "Maid claimed a personal key or retained ordinary access");
+                    var legacy = p.containerMenu.getCarried();
+                    require(worn.isEmpty() && legacy.is(FmpRegistries.PERSONAL_PENDANT.get())
+                            && !legacy.has(FmpRegistries.OWNER.get()) && !legacy.has(FmpRegistries.IDENTITY.get())
+                            && !MaidAccess.resolve(maid(p)).active() && stock(p) == 8,
+                            "Retired item rejection: worn="+worn+" carried="+legacy+" access="+MaidAccess.resolve(maid(p)).status()+" originalStock="+stock(p));
                 });
-                TemplateClientReview.capture("75-maid-personal-inert"); click(necklace()); next();
+                TemplateClientReview.capture("75-maid-legacy-item-rejected"); next();
             }
             case 10 -> { click(playerSlot(1)); next(); }
             case 11 -> {
@@ -78,7 +85,7 @@ final class MaidClientReview {
                         && p.getInventory().getItem(1).getCount() == 1 && stock(p) == 8, "Maid UI failed item conservation")); next();
             }
             case 12 -> {
-                FeedMePackages.LOGGER.info("FMP_MAID_CLIENT_PASSED nativeEntityInteraction=true nativeCuriosButton=true mouseEquip=true mouseUnequip=true personalKeyInert=true stock=8");
+                FeedMePackages.LOGGER.info("FMP_MAID_CLIENT_PASSED nativeEntityInteraction=true nativeCuriosButton=true mouseEquip=true mouseUnequip=true legacyItemRejectedIntact=true stock=8");
                 return true;
             }
         }
@@ -88,7 +95,7 @@ final class MaidClientReview {
         p.closeContainer(); p.getInventory().clearContent(); ConsumptionTests.seed(p, 0, new ItemStack(Items.BREAD), 8);
         cache = AccessGate.resolve(p).handle().cacheId();
         var ordinary = TestPlayers.necklace(p).getStackInSlot(0); TestPlayers.necklace(p).setStackInSlot(0, ItemStack.EMPTY);
-        p.getInventory().setItem(0, ordinary); p.getInventory().setItem(1, FmpRegistries.PERSONAL_PENDANT.toStack());
+        p.getInventory().setItem(0, ordinary);
         p.getInventory().selected = 7; p.inventoryMenu.broadcastChanges();
         var type = BuiltInRegistries.ENTITY_TYPE.get(ResourceLocation.parse("touhou_little_maid:maid"));
         var maid = (TamableAnimal) type.create(p.serverLevel()); require(maid != null, "Native maid absent");

@@ -34,9 +34,13 @@ if (project.hasProperty('fmpFoldReview')) {
     runProfile += '-fold-review'
 }
 if (project.hasProperty('fmpLegacyWorldReview')) runProfile += '-legacy023'
+if (project.hasProperty('withInstanceJei') && (!project.hasProperty('withJei') || project.findProperty('jei_runtime_version') != '19.56.0.441'))
+    throw new GradleException('Pinned newer JEI requires withJei and jei_runtime_version=19.56.0.441')
+if (project.hasProperty('fmpArtifactProbe') && !project.hasProperty('fmpPackaged'))
+    throw new GradleException('Artifact probe must use the actual packaged JAR')
 if (project.hasProperty('fmpPackaged')) {
     if (project.hasProperty('fmpGameTests') || project.hasProperty('fmpClientReview')) throw new GradleException('Packaged verification cannot load development test sources')
-    runProfile += '-packaged'
+    runProfile += '-packaged' + (project.hasProperty('fmpArtifactProbe') ? '-probe' : '')
 }
 if (project.hasProperty('fmpProbeMissing')) {
     def missing = project.property('fmpProbeMissing')
@@ -107,6 +111,7 @@ dependencies {
         def artifact = layout.buildDirectory.file("libs/create-feed-me-packages-${project.version}.jar").get().asFile
         if (!artifact.isFile()) throw new GradleException('Build the main JAR before packaged verification')
         localRuntime files(artifact)
+        if (project.hasProperty('fmpArtifactProbe')) localRuntime files(new File(referenceOutput, 'fmp-artifact-probe.jar'))
     }
 
     [withDeployer: 'deployer/0.1.3/deployer-0.1.3.jar',
@@ -179,7 +184,11 @@ dependencies {
     compileOnly "mezz.jei:jei-1.21.1-common-api:${jei_version}"
     compileOnly "mezz.jei:jei-1.21.1-neoforge-api:${jei_version}"
     if (project.hasProperty('withJei')) {
-        localRuntime "mezz.jei:jei-1.21.1-neoforge:${project.findProperty('jei_runtime_version') ?: jei_version}"
+        if (project.hasProperty('withInstanceJei')) {
+            def jei = new File(dependencyInput, 'dependencies/artifacts/jei/19.56.0.441/jei-1.21.1-neoforge-19.56.0.441.jar')
+            if (!jei.isFile()) throw new GradleException('Missing pinned JEI 19.56.0.441 test input')
+            localRuntime files(jei)
+        } else localRuntime "mezz.jei:jei-1.21.1-neoforge:${project.findProperty('jei_runtime_version') ?: jei_version}"
     }
     if (project.hasProperty('withMobile')) {
         localRuntime files('../../../reference-build-safe/research/transports/1.21.1-0.7.7/create_mobile_packages-1.21.1-0.7.7.jar')
@@ -224,9 +233,9 @@ neoForge {
             gameDirectory = file("${referenceOutput}/run/client/${runProfile}")
             if (project.hasProperty('fmpClientReview')) systemProperty 'fmp.clientReview', 'true'
             if (project.hasProperty('fmpCompatReview')) {
-                if (!project.hasProperty('fmpGameTests')) throw new GradleException('Compatibility review requires isolated test sources')
+                if (!project.hasProperty('fmpGameTests') && !project.hasProperty('fmpArtifactProbe')) throw new GradleException('Compatibility review requires isolated test sources or external artifact probe')
                 def review = project.property('fmpCompatReview').toString()
-                if (!(review in ['templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','feedback','tacz','wand','gadgets','effortless']))
+                if (!(review in ['templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','feedback','tacz','wand','gadgets','effortless','craftingtweaks','mousetweaks','toms','toms-network','toms-polymorph','polymorph']))
                     throw new GradleException('Unknown compatibility review')
                 systemProperty 'fmp.compatReview', review
             }
@@ -252,6 +261,15 @@ neoForge {
                 gameDirectory = new File(referenceOutput, "run/gametest/fluid-lifecycle-${scenario.split(':')[0]}-converged1")
                 systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_lifecycle'
                 systemProperty 'fmp.fluidLifecycle', scenario
+            }
+            if (project.hasProperty('fmpConfigStartup')) {
+                def scenario = project.property('fmpConfigStartup').toString()
+                if (!project.hasProperty('fmpGameTests') || !(scenario ==~ /(missing|broken|illegal|custom):[a-z0-9_-]+/))
+                    throw new GradleException('Config startup requires isolated tests and <missing|broken|illegal|custom>:<batch>')
+                def parts = scenario.split(':')
+                gameDirectory = new File(referenceOutput, "run/gametest/config-startup-${parts[0]}-${parts[1]}")
+                systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_config_startup'
+                systemProperty 'fmp.configStartup', parts[0]
             }
             if (project.hasProperty('fmpCapacityLifecycle')) {
                 def scenario = project.property('fmpCapacityLifecycle').toString()
@@ -325,11 +343,64 @@ if (project.hasProperty('fmpPhantomPublished')) {
     tasks.named('runGameTestServer').configure { dependsOn tasks.named('phantomProbeJar') }
 }
 
+// External test driver only. The production JAR is loaded unchanged, with no production output dirs.
+def artifactProbeMetadata = tasks.register('artifactProbeMetadata') {
+    def metadata = layout.buildDirectory.file('generated/artifact-probe/META-INF/neoforge.mods.toml')
+    outputs.file(metadata)
+    doLast {
+        def target = metadata.get().asFile
+        target.parentFile.mkdirs()
+        target.text = '''modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="fmp_isolated_probe"
+version="1"
+displayName="FMP isolated artifact test driver"
+[[dependencies.fmp_isolated_probe]]
+modId="create_feed_me_packages"
+type="required"
+versionRange="[0,)"
+ordering="AFTER"
+side="BOTH"
+'''
+    }
+}
+tasks.register('artifactProbeJar', Jar) {
+    dependsOn tasks.named('gameTestClasses'), artifactProbeMetadata
+    archiveFileName = 'fmp-artifact-probe.jar'
+    destinationDirectory = referenceOutput
+    from(sourceSets.gameTest.output) {
+        // Never create split packages with production domain/service classes from legacy test fixtures.
+        include 'dev/scathiard/feedmepackages/gametest/**'
+        include 'data/**'
+    }
+    from(layout.buildDirectory.dir('generated/artifact-probe'))
+    doFirst {
+        def mainJar = layout.buildDirectory.file("libs/create-feed-me-packages-${project.version}.jar").get().asFile
+        if (!mainJar.isFile()) throw new GradleException('Build and fix the production artifact before its probe')
+        def production = new java.util.zip.ZipFile(mainJar)
+        try {
+            def classes = production.entries().findAll { it.name.endsWith('.class') }.collect { it.name }.toSet()
+            sourceSets.gameTest.output.classesDirs.files.each { root ->
+                if (root.isDirectory()) fileTree(root).matching { include '**/*.class' }.files.each { file ->
+                    def relative = root.toPath().relativize(file.toPath()).toString().replace('\\','/')
+                    if (classes.contains(relative)) throw new GradleException("Probe would shadow production class ${relative}")
+                }
+            }
+        } finally { production.close() }
+    }
+}
+if (project.hasProperty('fmpArtifactProbe')) {
+    tasks.withType(net.neoforged.moddevgradle.internal.RunGameTask).configureEach { dependsOn tasks.named('artifactProbeJar') }
+}
+
 tasks.named('test', Test).configure {
     useJUnitPlatform()
 }
 
 tasks.named('processGameTestResources', ProcessResources).configure {
+    from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_config_startup/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') {
         into 'data/fmp_phantom_compat/structure'
     }
@@ -344,7 +415,7 @@ tasks.named('runServer', JavaExec).configure {
 
 if (project.hasProperty('fmpPackaged') || project.hasProperty('fmpPhantomPublished')) {
     tasks.withType(net.neoforged.moddevgradle.internal.RunGameTask).configureEach {
-        def sourceOutputs = sourceSets.main.output.files
+        def sourceOutputs = sourceSets.main.output.files + sourceSets.gameTest.output.files
         // Snapshot the input providers before replacing the collection, avoiding a self-referential filter.
         def originalRuntime = project.files(new ArrayList<>(classpathProvider.from))
         classpathProvider.setFrom(originalRuntime.filter { !sourceOutputs.contains(it) })
