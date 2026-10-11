@@ -35,6 +35,7 @@ public final class FeedMePackages {
         dev.scathiard.feedmepackages.item.PocketPalletItem.hooks();
         modBus.addListener(dev.scathiard.feedmepackages.network.PalletNetwork::register);
         modBus.addListener(dev.scathiard.feedmepackages.network.CompatibilityStatus::register);
+        modBus.addListener(dev.scathiard.feedmepackages.compat.sophisticated.SophisticatedTransfer::register);
         modBus.addListener(this::setup);
         modBus.addListener(PanelNetwork::register);
         modBus.addListener(MaterialHints::register);
@@ -59,6 +60,8 @@ public final class FeedMePackages {
     private void setup(FMLCommonSetupEvent event) {
         event.enqueueWork(() -> {
             dev.scathiard.feedmepackages.compat.wand.WandMaterials.initialize();
+            dev.scathiard.feedmepackages.compat.sophisticated.SophisticatedAccess.initialize();
+            dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.initialize();
             ICurioItem behavior = new ICurioItem() {
                 @Override public boolean canEquip(SlotContext context, ItemStack stack) {
                     return dev.scathiard.feedmepackages.service.AccessGate.canEquip(context, stack);

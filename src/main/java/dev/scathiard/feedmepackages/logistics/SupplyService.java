@@ -17,22 +17,24 @@ public final class SupplyService {
     private SupplyService() {}
     public static String address(ServerPlayer player) { return "FMP@" + player.getGameProfile().getName(); }
 
-    public static void tick(ServerPlayer player) {
-        var currentAccess = AccessGate.resolve(player);
+    public static void tick(ServerPlayer player) { tick(LogisticsEndpoint.player(player)); }
+    public static void tick(LogisticsEndpoint endpoint) {
+        var player = endpoint.entity();
+        var currentAccess = endpoint.access();
         if (currentAccess.active() && dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(currentAccess.handle().cacheId())) return;
         // Arrival precedes demand evaluation, including the first tick after re-equipping.
-        ReceiveService.resume(player);
+        ReceiveService.resume(endpoint);
         if (player.tickCount % 20 != 0) return;
-        var access = AccessGate.resolve(player);
+        var access = endpoint.access();
         if (!access.active() || access.handle().networkId() == null) return;
-        if (!Create.LOGISTICS.mayInteract(access.handle().networkId(), player)) return;
+        if (!endpoint.mayRequest(access.handle().networkId())) return;
         var ledger = CacheLedger.get(player.getServer());
         var initialHandle = access.handle();
         int count = ledger.find(access.handle().cacheId()).state().cells().size();
         for (int slot = 0; slot < count; slot++) {
-            access = AccessGate.resolve(player);
+            access = endpoint.access();
             if (!access.active() || !initialHandle.equals(access.handle())
-                    || !Create.LOGISTICS.mayInteract(access.handle().networkId(), player)) return;
+                    || !endpoint.mayRequest(access.handle().networkId())) return;
             var before = ledger.find(access.handle().cacheId()); var state = before.state();
             int wanted = state.requestable(slot);
             if (wanted == 0 || state.orders().size() >= CacheState.MAX_ORDERS) continue;
@@ -40,7 +42,7 @@ public final class SupplyService {
             if (!before.residual(cell.filter()).isEmpty()) continue;
             var template = cell.filter().stack(player.registryAccess(), 1);
             var order = PackageOrderWithCrafts.simple(List.of(new BigItemStack(template, wanted)));
-            var requests = LogisticsManager.findPackagersForRequest(access.handle().networkId(), order, null, address(player));
+            var requests = LogisticsManager.findPackagersForRequest(access.handle().networkId(), order, null, endpoint.address());
             if (requests.isEmpty() || requests.keySet().stream().anyMatch(packager -> packager.isTooBusyFor(RequestType.RESTOCK))) continue;
             int planned = requests.values().stream().mapToInt(request -> request.getCount()).sum();
             if (planned < cell.settings().batch() || planned > wanted) continue;
@@ -48,7 +50,7 @@ public final class SupplyService {
             edit.request(slot, requestId, player.getUUID(), planned, true);
             ledger.replace(access.handle(), state.revision(), before.withState(edit.finish()));
             var route = new ParcelSeal(UUID.randomUUID(), state.id(), player.getUUID(), requestId,
-                    cell.filter().encoded(), cell.filterRevision(), address(player), false, "");
+                    cell.filter().encoded(), cell.filterRevision(), endpoint.address(), false, "");
             try (var scope = new DispatchScope(ledger, player.registryAccess(), route)) {
                 LogisticsManager.performPackageRequests(requests);
                 int unsent = requests.values().stream().mapToInt(request -> request.getCount()).sum();

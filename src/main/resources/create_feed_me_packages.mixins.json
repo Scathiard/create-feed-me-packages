@@ -30,7 +30,18 @@
     "GadgetSourcesMixin",
     "GadgetBuildMixin",
     "PalletStackMixin",
-    "PalletPlacementMixin"
+    "PalletPlacementMixin",
+    "CraftingTweaksEditMixin",
+    "EmiPacketSourcesMixin",
+    "FxntTransferMixin",
+    "JeiServerEditMixin",
+    "JeiServerResultEditMixin",
+    "SophisticatedRefillMixin",
+    "SophisticatedSourcesMixin",
+    "MaidPaperMixin",
+    "MaidBeeTargetMixin",
+    "MaidBeePortMixin",
+    "MaidBeeDeliveryMixin"
   ],
   "client": [
     "ContainerScreenAccess",
@@ -41,7 +52,16 @@
     "CreativeCursorClickMixin",
     "TaczHudSourcesMixin",
     "TaczClientShootMixin",
-    "PalletAttackMixin"
+    "PalletAttackMixin",
+    "EmiInventorySourcesMixin",
+    "EmiRecipeSourcesMixin",
+    "EmiStandardSourcesMixin",
+    "FxntEmiOriginMixin",
+    "FxntJeiMixin",
+    "JeiContextSourcesMixin",
+    "JeiSourcesMixin",
+    "SophisticatedJeiMixin",
+    "TemplateSelectionMouseMixin"
   ],
   "injectors": {
     "defaultRequire": 1

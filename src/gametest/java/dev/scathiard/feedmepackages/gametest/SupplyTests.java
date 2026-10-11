@@ -228,4 +228,18 @@ public final class SupplyTests {
         helper.assertTrue(f.record().state().orders().isEmpty() && f.record().state().arrow(0) == CacheState.Arrow.UNSUPPLIED, "Unavailable network fabricated a dispatch");
         helper.succeed();
     }
+    static void placeItemFactory(GameTestHelper h, BlockPos pos) {
+        h.setBlock(pos.south(), Blocks.CHEST.defaultBlockState());
+        h.setBlock(pos, AllBlocks.PACKAGER.get().defaultBlockState().setValue(PackagerBlock.FACING, Direction.NORTH));
+        h.setBlock(pos.above(), AllBlocks.STOCK_LINK.get().defaultBlockState().setValue(PackagerLinkBlock.FACE, AttachFace.FLOOR));
+    }
+    static void connect(GameTestHelper h, BlockPos pos, UUID network) {
+        var link = (PackagerLinkBlockEntity) h.getBlockEntity(pos.above()); LogisticallyLinkedBehaviour.remove(link.behaviour);
+        link.behaviour.freqId = network; LogisticallyLinkedBehaviour.keepAlive(link.behaviour);
+        h.assertTrue(link.getPackager() == h.getBlockEntity(pos), "Stock link is not attached to its native packager");
+    }
+    static ItemStack takeOutput(GameTestHelper h, BlockPos pos) {
+        var handler = h.getLevel().getCapability(net.neoforged.neoforge.capabilities.Capabilities.ItemHandler.BLOCK, h.absolutePos(pos), Direction.NORTH);
+        return handler == null ? ItemStack.EMPTY : handler.extractItem(0, 1, false);
+    }
 }

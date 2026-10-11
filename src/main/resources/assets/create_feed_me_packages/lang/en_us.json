@@ -180,5 +180,8 @@
   "command.create_feed_me_packages.recovery.already_rejected": "This handoff was confirmed not sent and cannot be charged as successful. Use retry-refund.",
   "command.create_feed_me_packages.recovery.not_rejected": "Not yet confirmed as unsent; no refund or resend is allowed.",
   "command.create_feed_me_packages.recovery.evidence_required": "Provide 1-256 characters of investigation evidence without line breaks or control characters. Nothing was modified.",
-  "command.create_feed_me_packages.recovery.busy": "Native logistics is still running; recovery cannot modify its sources yet."
+  "command.create_feed_me_packages.recovery.busy": "Native logistics is still running; recovery cannot modify its sources yet.",
+  "gui.create_feed_me_packages.template_no_browser": "Install JEI or EMI to choose a filter template",
+  "gui.create_feed_me_packages.template_choose": "Choose a JEI / EMI ingredient; right-click or Esc cancels",
+  "gui.create_feed_me_packages.template_hint": "%s: choose a recipe-browser template"
 }

@@ -181,7 +181,10 @@ public final class LogisticsPanel {
     private static List<Component> tooltip;
     private static int mouseX;
     private static int mouseY;
-    private static Predicate<Screen> recipeOverlay;
+    private static final Map<String, Predicate<Screen>> recipeOverlays = new java.util.concurrent.ConcurrentHashMap<>();
+    private static int templateTarget = -1, templateSequence, earlyTemplateButton = -1;
+    private record BrowserDrag(Screen screen, double x, double y, TemplateBrowsers.Template template) {}
+    private static BrowserDrag browserDrag;
     private static boolean retainTransition;
     private static int overlayBottomInset;
     private static final ResourceLocation PANEL;
@@ -189,9 +192,10 @@ public final class LogisticsPanel {
     private LogisticsPanel() {
     }
 
-    public static void recipeOverlay(Predicate<Screen> predicate) {
-        recipeOverlay = Objects.requireNonNull(predicate);
+    public static void recipeOverlay(String browser, Predicate<Screen> predicate) {
+        recipeOverlays.put(browser, Objects.requireNonNull(predicate));
     }
+    private static boolean isRecipeOverlay(Screen candidate) { return recipeOverlays.values().stream().anyMatch(p -> p.test(candidate)); }
 
     public static void overlayBottomInset(int pixels) {
         overlayBottomInset = Math.clamp((long)pixels, (int)0, (int)64);
@@ -208,7 +212,7 @@ public final class LogisticsPanel {
         PanelNetwork.receiveCursorOnClient(LogisticsPanel::receiveCursor);
         IEventBus bus = NeoForge.EVENT_BUS;
         bus.addListener((ScreenEvent.Opening event) -> {
-            boolean bl = retainTransition = window != null && (event.getNewScreen() == screen || recipeOverlay.test(event.getNewScreen()));
+            boolean bl = retainTransition = window != null && (event.getNewScreen() == screen || isRecipeOverlay(event.getNewScreen()));
             if (LogisticsPanel.MC.player == null || event.getNewScreen() == null) {
                 return;
             }
@@ -228,9 +232,19 @@ public final class LogisticsPanel {
                 LogisticsPanel.updateLayout();
             }
         });
-        bus.addListener(LogisticsPanel::foreground);
+        bus.addListener(net.neoforged.bus.api.EventPriority.HIGHEST, LogisticsPanel::foreground);
         bus.addListener(LogisticsPanel::postRender);
-        bus.addListener((ScreenEvent.MouseButtonPressed.Pre event) -> {
+        // Observe the browser's press without consuming it: short clicks must still open recipes.
+        bus.addListener(net.neoforged.bus.api.EventPriority.HIGHEST,
+                (ScreenEvent.MouseButtonPressed.Pre event) -> {
+                    browserDrag = null;
+                    if (current(event.getScreen()) && recipeReady() && templateTarget < 0 && event.getButton() == 0
+                            && MC.player.containerMenu.getCarried().isEmpty() && !layout.bounds().contains(event.getMouseX(), event.getMouseY())) {
+                        var source = TemplateBrowsers.selection();
+                        if (!source.isEmpty()) browserDrag = new BrowserDrag(event.getScreen(), event.getMouseX(), event.getMouseY(), source);
+                    }
+                });
+        bus.addListener(net.neoforged.bus.api.EventPriority.HIGHEST, (ScreenEvent.MouseButtonPressed.Pre event) -> {
             if (LogisticsPanel.current(event.getScreen()) && LogisticsPanel.press(event.getMouseX(), event.getMouseY(), event.getButton())) {
                 event.setCanceled(true);
             }
@@ -240,6 +254,18 @@ public final class LogisticsPanel {
                 event.setCanceled(true);
             }
         });
+        // Run after browser input routing, including a consumed release, so its pending click
+        // is cleared normally. Only an actual drag ending inside a writable FMP cell is a drop.
+        bus.addListener(net.neoforged.bus.api.EventPriority.LOWEST, true,
+                (ScreenEvent.MouseButtonReleased.Pre event) -> {
+                    var drag = browserDrag; browserDrag = null;
+                    if (drag == null || event.getButton() != 0 || drag.screen() != event.getScreen()
+                            || MC.screen != event.getScreen() || !current(event.getScreen())
+                            || Math.pow(event.getMouseX() - drag.x(), 2) + Math.pow(event.getMouseY() - drag.y(), 2) < 64) return;
+                    for (var cell : visibleCells(event.getScreen())) if (cell.bounds().contains(event.getMouseX(), event.getMouseY())) {
+                        setTemplate(cell.slot(), drag.template()); return;
+                    }
+                });
         bus.addListener((ScreenEvent.MouseDragged.Pre event) -> {
             if (!LogisticsPanel.current(event.getScreen()) || !LogisticsPanel.visible()) {
                 return;
@@ -416,7 +442,7 @@ public final class LogisticsPanel {
         ++tick;
         if (MC.player == null || MC.getConnection() == null) pendingCursorChange = null;
 
-        boolean bl = overlay = recipeOverlay.test(LogisticsPanel.MC.screen) && window != null;
+        boolean bl = overlay = isRecipeOverlay(LogisticsPanel.MC.screen) && window != null;
         if (LogisticsPanel.MC.player == null || MC.getConnection() == null || !LogisticsPanel.supported(LogisticsPanel.MC.screen) && !overlay) {
             if (window != null) {
                 LogisticsPanel.close();
@@ -469,6 +495,7 @@ public final class LogisticsPanel {
     }
 
     private static void close() {
+        templateTarget = -1; templateSequence = 0; earlyTemplateButton = -1; browserDrag = null;
         if(MC.getConnection()!=null && MC.player!=null && active() && window!=null) submitControls(true);
         controlDrafts.clear();
         dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP_CLOSE_PREVIEW confirmed={} variant={} remaining={} carry={}",
@@ -534,7 +561,7 @@ public final class LogisticsPanel {
         if (incoming != null && pendingCursorChange != null
                 && pendingCursorChange.window.equals(incoming.window()) && pendingCursorChange.sequence == incoming.acknowledged()
                 && incoming.result() != CacheActions.Result.OK) pendingCursorChange = null;
-        if (incoming == null || window == null || MC.screen != screen && !recipeOverlay.test(MC.screen)
+        if (incoming == null || window == null || MC.screen != screen && !isRecipeOverlay(MC.screen)
                 || !window.equals(incoming.window())) return;
         // A later processed sequence also proves earlier bounded cleanup commands were handled.
         pendingReleases.keySet().removeIf(seq -> seq <= incoming.acknowledged());
@@ -575,7 +602,14 @@ public final class LogisticsPanel {
         boolean wasVisible = snapshot != null && snapshot.status() != AccessGate.Status.NOT_WORN;
         serial = incoming.serial();
         CellFeedback.accept(snapshot, incoming, net.minecraft.Util.getMillis());
+        if (snapshot != null && !Objects.equals(snapshot.session(), incoming.session())) templateTarget = -1;
         snapshot = incoming;
+        if (templateSequence != 0 && incoming.acknowledged() == templateSequence) {
+            templateSequence = 0;
+            if (incoming.result() == CacheActions.Result.OK) templateTarget = -1;
+        }
+        if (!active() || templateTarget >= incoming.cells().size()
+                || templateTarget >= 0 && incoming.cells().get(templateTarget).amount() != 0) templateTarget = -1;
         controlDrafts.entrySet().removeIf(entry -> !currentDraft(entry.getValue()));
         if (dragContext != null && (snapshot.session() == null || !snapshot.session().equals(dragContext.session())
                 || !controlDrafts.containsKey(dragContext.slot()) || !controlDrafts.get(dragContext.slot()).context().equals(dragContext))) {
@@ -680,6 +714,7 @@ public final class LogisticsPanel {
 
     /** Hide the panel (leaving only its entry) or bring it back. View state only - no cell, coordinate or ledger change. */
     private static void toggleHidden() {
+        templateTarget = -1; browserDrag = null;
         LogisticsPanel.hidden = !LogisticsPanel.hidden;
         LogisticsPanel.updateLayout();
         try {
@@ -700,6 +735,16 @@ public final class LogisticsPanel {
         g.pose().pushPose();
         g.pose().translate((float)(-screen.getGuiLeft()), (float)(-screen.getGuiTop()), 0.0f);
         LogisticsPanel.render(g);
+        if (templateTarget >= 0) {
+            // This foreground hook runs before recipe-browser overlays. An overlay render type
+            // darkens the native inventory without writing depth that would hide later JEI/EMI.
+            g.fill(net.minecraft.client.renderer.RenderType.guiOverlay(), 0, 0, screen.width, screen.height, 0xb0000000);
+            g.flush();
+            layout.cells().stream().filter(c -> c.slot() == templateTarget).findFirst().ifPresent(c -> {
+                var r = c.bounds(); g.enableScissor(r.x(), r.y(), r.x() + r.width(), r.y() + r.height());
+                frame(g, layout.bounds()); renderCell(g, c); g.disableScissor();
+            });
+        }
         g.pose().popPose();
     }
 
@@ -709,6 +754,12 @@ public final class LogisticsPanel {
         }
         mouseX = event.getMouseX();
         mouseY = event.getMouseY();
+        if (browserDrag != null && browserDrag.screen() == screen
+                && Math.pow(mouseX - browserDrag.x(), 2) + Math.pow(mouseY - browserDrag.y(), 2) >= 64) {
+            var g = event.getGuiGraphics(); g.pose().pushPose(); g.pose().translate(0, 0, 400);
+            browserDrag.template().render(g, mouseX - 8, mouseY - 8); g.pose().popPose();
+        }
+
         if (layout.compact()) {
             tooltip = List.of();
             LogisticsPanel.button(event.getGuiGraphics(), layout.bounds().x(), layout.bounds().y(), "+", "expand");
@@ -1226,6 +1277,16 @@ public final class LogisticsPanel {
             LogisticsPanel.toggleHidden();
             return true;
         }
+        if (templateTarget >= 0) {
+            if (button == 1 || button == 2) { templateTarget = -1; capturedButton = button; return true; }
+            var template = TemplateBrowsers.selection();
+            if (button == 0 && !template.isEmpty()) {
+                setTemplate(templateTarget, template); capturedButton = button; return true;
+            }
+            if (layout.bounds().contains(x, y)) { capturedButton = button; return true; }
+            return false;
+        }
+        if (ClientBootstrap.SELECT_TEMPLATE.matchesMouse(button) && beginTemplate(x, y)) { capturedButton = button; return true; }
         if (active() && layout.slider() != null && layout.slider().contains(x,y)) {
             closeReturnEditorForClick(x,y,layout);
             capturedButton = button;
@@ -1431,6 +1492,7 @@ public final class LogisticsPanel {
     }
 
     private static boolean scroll(double x, double y, double amount) {
+        if (templateTarget >= 0 && layout != null && layout.bounds().contains(x, y)) return true;
         if (!visible()) return false;
         if (!layout.hidden() && layout.slider() != null && layout.slider().contains(x,y)) {
             var draft=controls(); if (draft==null || amount==0 || draggingSlider || draggingMaximum) return true;
@@ -1452,6 +1514,11 @@ public final class LogisticsPanel {
     }
 
     private static boolean key(int key, int scan, int modifiers) {
+        if (templateTarget >= 0 && key == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) { templateTarget = -1; return true; }
+        if (ClientBootstrap.SELECT_TEMPLATE.matches(key, scan)) {
+            if (templateTarget >= 0) { templateTarget = -1; return true; }
+            return beginTemplate(TemplateBrowsers.cursorX(), TemplateBrowsers.cursorY());
+        }
         return LogisticsPanel.visible() && waiting != 0 && key != 256;
     }
 
@@ -1526,6 +1593,42 @@ public final class LogisticsPanel {
 
     public static boolean recipeReady() {
         return LogisticsPanel.active() && waiting == 0 && window != null;
+    }
+
+    public static boolean templateTarget(int slot) {
+        return recipeReady() && slot >= 0 && slot < snapshot.cells().size() && snapshot.cells().get(slot).amount() == 0
+                && MC.player.containerMenu.getCarried().isEmpty() && (templateTarget < 0 || templateTarget == slot);
+    }
+    private static boolean beginTemplate(double x, double y) {
+        if (!active() || waiting != 0 || layout == null || hidden || layout.compact() || returnEditing || !MC.player.containerMenu.getCarried().isEmpty()) return false;
+        for (var cell : layout.cells()) if (cell.bounds().contains(x, y)) {
+            if (snapshot.cells().get(cell.slot()).amount() != 0) notice("result.filter_occupied");
+            else if (!TemplateBrowsers.available()) notice("template_no_browser");
+            else { templateTarget = cell.slot(); selected = -1; updateLayout(); notice("template_choose"); }
+            return true;
+        }
+        return false;
+    }
+    public static boolean earlyTemplateInput(int button, int action) {
+        if (action == 0 && earlyTemplateButton == button) { earlyTemplateButton = -1; return true; }
+        if (action != 1 || templateTarget < 0 || !current(MC.screen) || !visible()) return false;
+        if (button == 1 || button == 2) { templateTarget = -1; earlyTemplateButton = button; return true; }
+        if (button != 0) return false;
+        var template = TemplateBrowsers.selection();
+        if (template.isEmpty()) return false; // Search, paging and empty space keep their normal routing.
+        setTemplate(templateTarget, template); earlyTemplateButton = button; return true;
+    }
+    public static boolean setTemplate(int slot, ItemStack template) {
+        return setTemplate(slot, TemplateBrowsers.Template.of(template));
+    }
+    public static boolean setTemplate(int slot, TemplateBrowsers.Template template) {
+        if (!templateTarget(slot) || template == null || template.isEmpty()) return false;
+        try {
+            if (!template.fluid().isEmpty()) { notice("result.invalid_item"); return false; }
+            String encoded = ItemVariantKey.of(template.item(), MC.player.registryAccess()).encoded();
+            if (!send(CacheActions.Action.SET_GHOST, slot, 0, -1, encoded)) return false;
+            templateSequence = waiting; return true;
+        } catch (IllegalArgumentException invalid) { notice("result.invalid_item"); return false; }
     }
 
     public static boolean fillRecipe(ResourceLocation recipe, boolean maximum) {
@@ -1624,7 +1727,6 @@ public final class LogisticsPanel {
         capturedButton = -1;
         returnBuffer = "";
         tooltip = List.of();
-        recipeOverlay = candidate -> false;
         PANEL = ResourceLocation.fromNamespaceAndPath((String)"create_feed_me_packages", (String)"textures/gui/panel.png");
     }
 }

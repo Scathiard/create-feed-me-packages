@@ -17,7 +17,7 @@ public final class ReceiveService {
     private static final Map<ServerPlayer, UUID> WARNED_RESIDUALS = new WeakHashMap<>();
     private record Plan(CacheRecord replacement) {}
 
-    private static Plan simulate(ServerPlayer player, CacheHandle handle, ItemStack box, boolean residual) {
+    private static Plan simulate(net.minecraft.world.entity.LivingEntity player, CacheHandle handle, ItemStack box, boolean residual) {
         var seal = box.get(FmpRegistries.PARCEL_SEAL.get());
         if (seal == null) return null;
         // A residual is already owned by this cache; its next lawful holder may resume it.
@@ -53,20 +53,26 @@ public final class ReceiveService {
         return new Plan(new CacheRecord(intake.state(), record.owner(), nextResiduals));
     }
 
-    public static boolean receive(ServerPlayer player, ItemStack source) {
+    public static boolean receive(ServerPlayer player, ItemStack source) { return receive(LogisticsEndpoint.player(player), source); }
+    public static boolean receive(LogisticsEndpoint endpoint, ItemStack source) {
+        var player = endpoint.entity();
         if (source.isEmpty() || !source.has(FmpRegistries.PARCEL_SEAL.get())) return false;
-        var access = AccessGate.resolve(player); if (!access.active()) return false;
+        var access = endpoint.access(); if (!access.active()) return false;
         if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(access.handle().cacheId())) return false;
         var ledger = CacheLedger.get(player.getServer()); var before = ledger.find(access.handle().cacheId());
         Plan plan = simulate(player, access.handle(), source, false); if (plan == null) return false;
+        var again = endpoint.access();
+        if (!again.active() || !again.handle().equals(access.handle()) || ledger.find(access.handle().cacheId()) != before) return false;
         // No callbacks between the state replacement and relinquishing the original stack.
         ledger.replace(access.handle(), before.state().revision(), plan.replacement()); source.setCount(0);
         LogisticsSignals.received(before.state(), plan.replacement().state());
-        player.getInventory().setChanged(); return true;
+        if (player instanceof ServerPlayer serverPlayer) serverPlayer.getInventory().setChanged(); return true;
     }
 
-    public static void resume(ServerPlayer player) {
-        var access = AccessGate.resolve(player); if (!access.active()) return;
+    public static void resume(ServerPlayer player) { resume(LogisticsEndpoint.player(player)); }
+    public static void resume(LogisticsEndpoint endpoint) {
+        var player = endpoint.entity();
+        var access = endpoint.access(); if (!access.active()) return;
         if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(access.handle().cacheId())) return;
         var ledger = CacheLedger.get(player.getServer());
         if (ledger.find(access.handle().cacheId()).anyResidual()) {
@@ -79,12 +85,13 @@ public final class ReceiveService {
                     LogisticsSignals.received(record.state(), plan.replacement().state());
                 }
             }
-            returnUnmatchedResidual(player, access.handle());
+            if (player instanceof ServerPlayer serverPlayer) returnUnmatchedResidual(serverPlayer, access.handle());
         } else WARNED_RESIDUALS.remove(player);
+        if (!(player instanceof ServerPlayer serverPlayer)) return;
         // Bounded original inventory + offhand; no hidden slots, no recursion into backpacks.
-        for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
-            ItemStack stack = player.getInventory().getItem(slot);
-            if (receive(player, stack)) player.getInventory().setItem(slot, ItemStack.EMPTY);
+        for (int slot = 0; slot < serverPlayer.getInventory().getContainerSize(); slot++) {
+            ItemStack stack = serverPlayer.getInventory().getItem(slot);
+            if (receive(endpoint, stack)) serverPlayer.getInventory().setItem(slot, ItemStack.EMPTY);
         }
     }
 

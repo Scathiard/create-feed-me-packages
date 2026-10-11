@@ -180,5 +180,8 @@
   "command.create_feed_me_packages.recovery.already_rejected": "这笔交接已明确未发出，不能改为成功收费；可 retry-refund。",
   "command.create_feed_me_packages.recovery.not_rejected": "尚未确认未发出，不能自动退还或重发。",
   "command.create_feed_me_packages.recovery.evidence_required": "请填写 1—256 字的核查依据，不能包含换行或控制字符；未进行任何处理。",
-  "command.create_feed_me_packages.recovery.busy": "原生物流调用尚未结束，当前不能人工处理；未修改任何来源。"
+  "command.create_feed_me_packages.recovery.busy": "原生物流调用尚未结束，当前不能人工处理；未修改任何来源。",
+  "gui.create_feed_me_packages.template_no_browser": "需要 JEI 或 EMI 才能打开模板选择",
+  "gui.create_feed_me_packages.template_choose": "点击 JEI / EMI 物品设置过滤；右键或 Esc 取消",
+  "gui.create_feed_me_packages.template_hint": "%s：从物品浏览器选品"
 }

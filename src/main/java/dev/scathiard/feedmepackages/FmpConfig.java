@@ -10,9 +10,9 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public final class FmpConfig {
     private FmpConfig() {}
     public static final ModConfigSpec SERVER_SPEC;
-    public static final ModConfigSpec.BooleanValue TACZ, WAND, GADGETS, EFFORTLESS;
-    private record Enabled(boolean tacz, boolean wand, boolean gadgets, boolean effortless) {}
-    private static final Enabled DEFAULTS = new Enabled(true, true, true, true);
+    public static final ModConfigSpec.BooleanValue TACZ, WAND, GADGETS, EFFORTLESS, JEI, EMI, FXNT, SOPHISTICATED, MAID;
+    private record Enabled(boolean tacz, boolean wand, boolean gadgets, boolean effortless, boolean jei, boolean emi, boolean fxnt, boolean sophisticated, boolean maid) {}
+    private static final Enabled DEFAULTS = new Enabled(true, true, true, true, true, true, true, true, true);
     private static volatile Enabled enabled = DEFAULTS;
     static {
         var b = new ModConfigSpec.Builder().push("compatibility");
@@ -20,12 +20,22 @@ public final class FmpConfig {
         WAND = b.comment("Supply the worn cache through Construction Wand KOTS native container API.").define("construction_wand", true);
         GADGETS = b.comment("Supply cached blocks to Building Gadgets 2 with native placement payment verification.").define("building_gadgets", true);
         EFFORTLESS = b.comment("Supply plain cached blocks to Effortless Building native inventory requests.").define("effortless_building", true);
+        JEI = b.comment("Supply cache materials to native JEI transfers.").define("jei_crafting", true);
+        EMI = b.comment("Supply cache materials to native EMI transfers.").define("emi_crafting", true);
+        FXNT = b.comment("Add cache sources to Create: Storage native recipe transfers.").define("fxnt_materials", true);
+        SOPHISTICATED = b.comment("Add cache sources to Sophisticated Backpacks crafting upgrades.").define("sophisticated_backpacks", true);
+        MAID = b.comment("Allow ordinary pendant supplies and direct replenishment for tamed Touhou Little Maids.").define("touhou_little_maid", true);
         b.pop(); SERVER_SPEC = b.build();
     }
     public static boolean taczAmmoEnabled() { return enabled.tacz; }
     public static boolean constructionWandEnabled() { return enabled.wand; }
     public static boolean gadgetsEnabled() { return enabled.gadgets; }
     public static boolean effortlessEnabled() { return enabled.effortless; }
+    public static boolean jeiCraftingEnabled() { return enabled.jei; }
+    public static boolean emiCraftingEnabled() { return enabled.emi; }
+    public static boolean fxntMaterialsEnabled() { return enabled.fxnt; }
+    public static boolean sophisticatedEnabled() { return enabled.sophisticated; }
+    public static boolean maidEnabled() { return enabled.maid; }
     public static void register(ModContainer container, IEventBus bus) {
         container.registerConfig(ModConfig.Type.SERVER, SERVER_SPEC);
         bus.addListener((ModConfigEvent.Loading event) -> refresh(event.getConfig()));
@@ -35,7 +45,7 @@ public final class FmpConfig {
     private static void refresh(ModConfig config) { if (config.getSpec() == SERVER_SPEC) refreshServer(); }
     public static void refreshServer() {
         if (!SERVER_SPEC.isLoaded()) { enabled = DEFAULTS; return; }
-        try { enabled = new Enabled(TACZ.get(), WAND.get(), GADGETS.get(), EFFORTLESS.get()); }
+        try { enabled = new Enabled(TACZ.get(), WAND.get(), GADGETS.get(), EFFORTLESS.get(), JEI.get(), EMI.get(), FXNT.get(), SOPHISTICATED.get(), MAID.get()); }
         catch (RuntimeException invalid) { enabled = DEFAULTS; FeedMePackages.LOGGER.error("FMP configuration rejected; using complete defaults", invalid); }
     }
 }

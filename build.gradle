@@ -15,7 +15,7 @@ def runProfile = "neo${project.neo_version}" + (project.hasProperty('withCourier
         (project.hasProperty('withMobile') ? '-mobile' : '') +
         (project.hasProperty('withPhantom') ? '-phantom102' : '') +
         (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-converged1'
-['withTacz','withWand','withGadgets','withEffortless'].each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
+['withTacz','withWand','withGadgets','withEffortless','withEmi','withFxnt','withSophisticated','withMaid'].each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
 if (project.hasProperty('fmpPhantomReview')) {
     if (!project.hasProperty('withPhantom')) throw new GradleException('Phantom review requires the locked official transport JAR')
     runProfile += '-phantom-review'
@@ -61,6 +61,8 @@ sourceSets {
 }
 
 repositories {
+    maven { url = new File(dependencyInput, 'dependencies/maven'); content { includeGroup 'dev.emi' } }
+    maven { url = 'https://repo.sleeping.town/'; content { includeGroup 'dev.emi' } }
     maven { url = 'https://maven.createmod.net' }
     maven { url = 'https://maven.ithundxr.dev/snapshots' }
     maven { url = 'https://maven.blamejared.com' }
@@ -115,6 +117,22 @@ dependencies {
         def effortless = new File(dependencyInput, "dependencies/artifacts/effortlessbuilding/4.2/effortlessbuilding-4.2+1.21.1.jar")
         if (!effortless.isFile()) throw new GradleException('Missing pinned, isolated Effortless Building test artifact')
         localRuntime files(effortless)
+    }
+    compileOnly 'dev.emi:emi-neoforge:1.1.24+1.21.1:api'
+    if (project.hasProperty('withEmi')) localRuntime 'dev.emi:emi-neoforge:1.1.24+1.21.1'
+    if (project.hasProperty('withFxnt')) localRuntime files(new File(dependencyInput, 'dependencies/artifacts/fxntstorage/1.3.4/fxntstorage-1.3.4+mc-1.21.1-neoforge.jar'))
+    if (project.hasProperty('withMaid')) {
+        def maid = new File(dependencyInput, 'dependencies/artifacts/touhoulittlemaid/1.5.3/touhoulittlemaid-1.5.3-neoforge+mc1.21.1.jar')
+        if (!maid.isFile()) throw new GradleException('Missing pinned isolated Touhou Little Maid artifact')
+        localRuntime files(maid)
+    }
+    if (project.hasProperty('withSophisticated')) {
+        ['sophisticatedbackpacks/3.26.3.2158/sophisticatedbackpacks-1.21.1-3.26.3.2158.jar',
+         'sophisticatedcore/1.5.1.2341/sophisticatedcore-1.21.1-1.5.1.2341.jar'].each { path ->
+            def artifact = new File(dependencyInput, 'dependencies/artifacts/' + path)
+            if (!artifact.isFile()) throw new GradleException('Missing pinned isolated backpack artifact: ' + path)
+            localRuntime files(artifact)
+        }
     }
     compileOnly "mezz.jei:jei-1.21.1-common-api:${jei_version}"
     compileOnly "mezz.jei:jei-1.21.1-neoforge-api:${jei_version}"

@@ -16,6 +16,14 @@ public final class CraftingPlanner {
     }
     private record Demand(int slot, Ingredient ingredient) {}
     private static final int MAX_NODES = 32768;
+    /** Viewers add batches to the current recipe, capped by both grid and available sources. */
+    public static int fillLimit(RecipeHolder<CraftingRecipe> recipe, net.minecraft.world.inventory.CraftingContainer grid,
+                                Level level, int additional) {
+        if (additional < 1) return 0;
+        int existing = recipe.value().matches(grid.asCraftInput(), level)
+                ? grid.getItems().stream().filter(s -> !s.isEmpty()).mapToInt(ItemStack::getCount).min().orElse(0) : 0;
+        return (int) Math.min(grid.getMaxStackSize(), (long) existing + additional);
+    }
     public static Choice solve(RecipeHolder<CraftingRecipe> recipe, int width, int height, int limit,
                                int requested, boolean maximum, List<ItemStack> sources, Level level) {
         if (width < 1 || height < 1 || width * height > 9 || requested < 1 || limit < 1 || limit > 99
@@ -33,7 +41,8 @@ public final class CraftingPlanner {
             int index = -1;
             for (int i = 0; i < groups.size(); i++) if (ItemStack.isSameItemSameComponents(groups.get(i), source)) { index = i; break; }
             if (index < 0) { groups.add(source.copyWithCount(1)); counts.add(source.getCount()); }
-            else counts.set(index, Math.addExact(counts.get(index), source.getCount()));
+            // Planning answers at most nine native input stacks; wide availability must not wrap.
+            else counts.set(index, (int) Math.min(Integer.MAX_VALUE, (long) counts.get(index) + source.getCount()));
         }
         int[] budget = {MAX_NODES};
         for (int sets = maximum ? limit : requested; sets >= (maximum ? 1 : requested); sets--) {

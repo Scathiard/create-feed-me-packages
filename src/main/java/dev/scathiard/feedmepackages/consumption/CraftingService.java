@@ -10,14 +10,7 @@ import net.minecraft.world.item.crafting.*;
 import net.minecraft.world.level.GameRules;
 import java.util.*;
 
-/**
- * Backed reservations in the native grid; the native result and remainder path still executes.
- *
- * <p>There is no automatic refill: taking a result never puts material back into the grid
- * (specs/05 "网格填好后，玩家 Shift 点击结果能连续合成的次数由原版当前网格真实材料决定；本模组不会在每次结果取出后暗中续填").
- * The only ways cache material enters the grid are the JEI transfer and the native recipe book, both of
- * which go through {@link #place} / {@link #fromRecipeBook} and leave a menu-local lease behind.
- */
+/** Explicit recipe placement creates backed reservations. Native result taking never refills the grid. */
 public final class CraftingService {
     private CraftingService() {}
     public enum Result { OK, INACTIVE, UNSUPPORTED, MISSING, NO_SPACE, STALE, TOO_COMPLEX }
@@ -29,12 +22,16 @@ public final class CraftingService {
     public static final class Plan {
         private final ServerPlayer player; private final AbstractContainerMenu menu; private final TransientCraftingContainer grid;
         private final MaterialTransaction materials; private final List<ItemStack> before, after;
+        private final RecipeManager recipes;
         private Plan(ServerPlayer player, MaterialTransaction materials, List<ItemStack> before, List<ItemStack> after) {
             this.player = player; this.menu = player.containerMenu; this.grid = grid(menu); this.materials = materials;
+            this.recipes = player.getServer().getRecipeManager();
             this.before = MaterialTransaction.copies(before); this.after = MaterialTransaction.copies(after);
         }
         public boolean commit() {
-            if (player.containerMenu != menu || !menu.stillValid(player) || !MaterialTransaction.matches(before, grid.getItems()) || !materials.valid()) return false;
+            // /reload replaces the native recipe manager, including tags and scripted component outputs.
+            if (player.getServer().getRecipeManager() != recipes || player.containerMenu != menu || !menu.stillValid(player)
+                    || !MaterialTransaction.matches(before, grid.getItems()) || !materials.valid()) return false;
             var raw = ((CraftingItemsAccess) grid).fmp$items();
             if (raw.size() != after.size() || !materials.commitPreparation(menu, after)) return false;
             for (int i = 0; i < raw.size(); i++) raw.set(i, after.get(i).copy());
@@ -43,6 +40,9 @@ public final class CraftingService {
     }
     public record Simulation(Result result, Plan plan) {}
     public static Simulation simulate(ServerPlayer player, RecipeHolder<CraftingRecipe> recipe, boolean maximum, boolean recipeBook) {
+        return simulate(player, recipe, maximum, recipeBook, 0);
+    }
+    private static Simulation simulate(ServerPlayer player, RecipeHolder<CraftingRecipe> recipe, boolean maximum, boolean recipeBook, int additional) {
         var menu = player.containerMenu;
         if (!supported(menu) || !menu.stillValid(player)) return new Simulation(Result.UNSUPPORTED, null);
         CraftingReservations.validate(player);
@@ -55,7 +55,8 @@ public final class CraftingService {
         int requested = 1;
         if (!maximum && recipe.value().matches(grid.asCraftInput(), player.level()))
             requested = before.stream().filter(s -> !s.isEmpty()).mapToInt(ItemStack::getCount).min().orElse(0) + 1;
-        var choice = CraftingPlanner.solve(recipe, grid.getWidth(), grid.getHeight(), grid.getMaxStackSize(), requested, maximum, sources, player.level());
+        int limit = additional > 0 ? CraftingPlanner.fillLimit(recipe, grid, player.level(), additional) : grid.getMaxStackSize();
+        var choice = CraftingPlanner.solve(recipe, grid.getWidth(), grid.getHeight(), limit, requested, maximum, sources, player.level());
         if (choice.error() != CraftingPlanner.Error.NONE) return new Simulation(switch (choice.error()) {
             case UNSUPPORTED -> Result.UNSUPPORTED; case MISSING -> Result.MISSING; case TOO_COMPLEX -> Result.TOO_COMPLEX; default -> throw new IllegalStateException();
         }, null);
@@ -73,6 +74,12 @@ public final class CraftingService {
     }
     public static Result place(ServerPlayer player, RecipeHolder<CraftingRecipe> recipe, boolean maximum, boolean recipeBook, boolean commit) {
         var simulation = simulate(player, recipe, maximum, recipeBook);
+        if (simulation.result != Result.OK || !commit) return simulation.result;
+        return simulation.plan.commit() ? Result.OK : Result.STALE;
+    }
+    public static Result placeBatches(ServerPlayer player, RecipeHolder<CraftingRecipe> recipe, int additional, boolean commit) {
+        if (additional < 1) return Result.UNSUPPORTED;
+        var simulation = simulate(player, recipe, true, false, additional);
         if (simulation.result != Result.OK || !commit) return simulation.result;
         return simulation.plan.commit() ? Result.OK : Result.STALE;
     }
