@@ -7,6 +7,38 @@ import java.util.HashSet;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PanelLayoutTest {
+    @Test void borderFlashesTwiceAndDarkensInOppositeDirections() {
+        var request=dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.REQUEST;
+        assertEquals(18,BorderAnimation.sample(request,0,18).to());
+        assertEquals(0,BorderAnimation.sample(request,150,18).to());
+        assertEquals(18,BorderAnimation.sample(request,250,18).to());
+        assertTrue(BorderAnimation.sample(request,300,18).finished());
+        var arrival=dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.ARRIVAL;
+        var departure=dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE;
+        assertEquals(new BorderAnimation.Rows(0,18,false),BorderAnimation.sample(arrival,0,18));
+        assertEquals(new BorderAnimation.Rows(9,18,false),BorderAnimation.sample(arrival,350,18));
+        assertEquals(new BorderAnimation.Rows(0,9,false),BorderAnimation.sample(departure,350,18));
+        assertTrue(BorderAnimation.sample(arrival,700,18).finished());
+        assertTrue(BorderAnimation.sample(departure,700,18).finished());
+    }
+    @Test void logisticsViewersOnlyRememberTheLatestVisibleEvent() {
+        var cache=java.util.UUID.randomUUID();
+        try(var viewer=new dev.scathiard.feedmepackages.logistics.LogisticsSignals.Viewer(cache)) {
+            viewer.page(36,36);
+            dev.scathiard.feedmepackages.logistics.LogisticsSignals.publish(cache,0,dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.REQUEST);
+            assertEquals(0,viewer.get(0).sequence());
+            dev.scathiard.feedmepackages.logistics.LogisticsSignals.publish(cache,36,dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.REQUEST);
+            long first=viewer.get(36).sequence();
+            dev.scathiard.feedmepackages.logistics.LogisticsSignals.publish(cache,36,dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE);
+            assertEquals(first+1,viewer.get(36).sequence());
+            assertEquals(dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE,viewer.get(36).kind());
+            viewer.page(0,36);assertEquals(0,viewer.get(36).sequence());
+        }
+        try(var reopened=new dev.scathiard.feedmepackages.logistics.LogisticsSignals.Viewer(cache)) {
+            reopened.page(36,36);assertEquals(0,reopened.get(36).sequence());
+        }
+    }
+
     @Test void palletViewsKeepEveryTargetReachableAtSeveralGuiSizes() {
         for (boolean spiral : new boolean[]{false, true}) for (int count : new int[]{0, 1, 40, 80, 4096})
             for (int[] size : new int[][]{{320,240},{427,240},{854,480},{1920,1080}}) {
@@ -508,8 +540,8 @@ class PanelLayoutTest {
                 .filter(name -> name.endsWith(".png"))
                 .sorted()
                 .toList();
-        assertEquals(List.of("button.png", "button_fold.png", "button_unfold.png", "pallet_slots.png", "panel.png", "slot_source.png"),
-                shipped, "the texture folder must hold the three buttons, pallet slots, panel and slot art");
+        assertEquals(List.of("button.png", "button_fold.png", "button_unfold.png", "logistics_feedback.png", "pallet_slots.png", "panel.png", "slot_source.png"),
+                shipped, "the texture folder must hold the three buttons, logistics feedback, pallet slots, panel and slot art");
     }
     /**
      * The three button tooltips are capped at FOUR Chinese characters (user: "按钮说明删减到四个字"), which is what

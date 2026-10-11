@@ -45,7 +45,7 @@ public final class FoundationTests {
         edit.insert(0, stone, 37); edit.insert(1, pearl, 11);
         edit.request(0, UUID.randomUUID(), owner, 27, true);
         old.replace(handle, source.state().revision(), source.withState(edit.finish())); old.setReturnAddress(id, "keep-return");
-        var eight = old.save(new CompoundTag(), registry); eight.putInt("schema", 8); eight.remove("private_retirements");
+        var eight = old.save(new CompoundTag(), registry); eight.putInt("schema", 8); eight.remove("private_retirements"); eight.remove("return_handoffs");
         for (Tag row : eight.getList("caches", Tag.TAG_COMPOUND))
             for (Tag cell : ((CompoundTag) row).getList("cells", Tag.TAG_COMPOUND)) ((CompoundTag) cell).remove("item_controls");
         var loaded = CacheLedger.load(eight, registry); var record = loaded.find(id);

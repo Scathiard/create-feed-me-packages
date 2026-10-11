@@ -77,4 +77,71 @@ public final class ReturnTests {
         helper.assertTrue(cell.maximum() == -1, "No-return marker should survive the upgrade: " + cell.maximum());
         helper.succeed();
     }
+
+    private record Held(net.minecraft.server.level.ServerPlayer player, CacheLedger ledger, CacheHandle handle,
+                        CacheRecord before, ReturnEscrow hold) {}
+    private static Held held(GameTestHelper h, boolean cached) {
+        var p = TestPlayers.create(h, FmpRegistries.PENDANT.toStack());
+        var handle = AccessGate.resolve(p).handle(); var ledger = CacheLedger.get(p.getServer());
+        var before = ledger.find(handle.cacheId()); var edit = before.state().edit();
+        var stone = ItemVariantKey.of(new ItemStack(Items.STONE), p.registryAccess());
+        var carrier = new ItemStack(Items.PAPER);
+        edit.filter(0, stone); edit.insert(0, stone, 100);
+        if (cached) { var key = ItemVariantKey.of(carrier, p.registryAccess()); edit.filter(1, key); edit.insert(1, key, 3); }
+        ledger.replace(handle, before.state().revision(), before.withState(edit.finish())); before = ledger.find(handle.cacheId());
+        var hold = new ReturnEscrow(java.util.UUID.randomUUID(), handle, before.state().revision(), 0, stone, 7,
+                carrier, cached ? -1 : 7, cached ? 1 : -1, "phantom", "fixture", false);
+        ledger.beginReturn(hold, before, p.registryAccess());
+        return new Held(p, ledger, handle, before, hold);
+    }
+    @GameTest(template = "empty") public static void uncertainReturnLocksSourcesAndSurvivesReload(GameTestHelper h) {
+        var f=held(h,true);
+        h.assertTrue(AccessGate.resolve(f.player).status()==AccessGate.Status.RETURN_HELD
+                && dev.scathiard.feedmepackages.consumption.MaterialTransaction.open(f.player).isEmpty(), "Held return remained spendable");
+        boolean blocked=false;
+        try { f.ledger.replace(f.handle,f.before.state().revision(),f.before); } catch(IllegalStateException expected) { blocked=true; }
+        h.assertTrue(blocked,"Direct cache transaction bypassed return hold");
+        blocked=false;
+        try { f.ledger.prepareOrdinaryUpgrade(f.before,2); } catch(IllegalStateException expected) { blocked=true; }
+        h.assertTrue(blocked,"Manufacturing bypassed return hold");
+        var reloaded=CacheLedger.load(f.ledger.save(new CompoundTag(),f.player.registryAccess()),f.player.registryAccess());
+        h.assertTrue(reloaded.problem().isEmpty() && reloaded.returnEscrow(f.handle.cacheId()).id().equals(f.hold.id())
+                && reloaded.find(f.handle.cacheId()).state().equals(f.before.state()),"Reload lost held original stock");
+        reloaded.finishReturn(reloaded.returnEscrow(f.handle.cacheId()),f.player.registryAccess());
+        h.assertTrue(reloaded.find(f.handle.cacheId()).state().cells().get(0).amount()==93
+                && reloaded.find(f.handle.cacheId()).state().cells().get(1).amount()==2,"Settlement did not debit cargo and carrier exactly once");
+        boolean duplicate=false;try {reloaded.finishReturn(f.hold,f.player.registryAccess());}catch(IllegalStateException expected){duplicate=true;}
+        h.assertTrue(duplicate,"Repeated receipt settled twice");
+        f.ledger.cancelRejectedReturn(f.ledger.rejectReturn(f.hold));h.succeed();
+    }
+    @GameTest(template = "empty") public static void recoveryRequiresAuthorityEvidenceAndExactHandoff(GameTestHelper h) {
+        var f=held(h,true);var source=f.player.createCommandSourceStack().withSuppressedOutput();
+        var low=source.withPermission(0);var admin=source.withPermission(2);
+        var recovery=dev.scathiard.feedmepackages.logistics.ReturnRecovery.Result.class;
+        h.assertTrue(dev.scathiard.feedmepackages.logistics.ReturnRecovery.confirm(low,f.handle.cacheId(),f.hold.id(),true,"inspected")
+                ==dev.scathiard.feedmepackages.logistics.ReturnRecovery.Result.FORBIDDEN,"Unprivileged recovery allowed");
+        h.assertTrue(dev.scathiard.feedmepackages.logistics.ReturnRecovery.confirm(admin,f.handle.cacheId(),f.hold.id(),true,"")
+                ==dev.scathiard.feedmepackages.logistics.ReturnRecovery.Result.EVIDENCE_REQUIRED,"Evidence-free recovery allowed");
+        h.assertTrue(dev.scathiard.feedmepackages.logistics.ReturnRecovery.confirm(admin,f.handle.cacheId(),java.util.UUID.randomUUID(),true,"inspected")
+                ==dev.scathiard.feedmepackages.logistics.ReturnRecovery.Result.STALE,"Wrong handoff receipt allowed");
+        h.assertTrue(f.ledger.find(f.handle.cacheId())==f.before,"Refused recovery changed source");
+        h.assertTrue(dev.scathiard.feedmepackages.logistics.ReturnRecovery.confirm(admin,f.handle.cacheId(),f.hold.id(),false,"native registration rejected")
+                ==dev.scathiard.feedmepackages.logistics.ReturnRecovery.Result.REFUNDED,"Confirmed rejection failed to release cached carrier");
+        h.assertTrue(f.ledger.find(f.handle.cacheId())==f.before && AccessGate.resolve(f.player).active(),"Rejection created or deducted cargo");h.succeed();
+    }
+    @GameTest(template = "empty") public static void rejectedCarrierWaitsForSpaceAndNeverDuplicates(GameTestHelper h) {
+        var f=held(h,false);for(int i=0;i<f.player.getInventory().getContainerSize();i++)f.player.getInventory().setItem(i,new ItemStack(Items.DIRT,64));
+        f.ledger.rejectReturn(f.hold);ReturnService.resumeRejected(f.player);
+        h.assertTrue(f.ledger.returnEscrow(f.handle.cacheId())!=null && f.ledger.find(f.handle.cacheId())==f.before,"Full inventory erased pending carrier");
+        f.player.getInventory().setItem(7,ItemStack.EMPTY);ReturnService.resumeRejected(f.player);ReturnService.resumeRejected(f.player);
+        h.assertTrue(f.ledger.returnEscrow(f.handle.cacheId())==null && f.player.getInventory().getItem(7).is(Items.PAPER)
+                && f.player.getInventory().getItem(7).getCount()==1 && f.ledger.find(f.handle.cacheId())==f.before,"Carrier refund was lost or duplicated");h.succeed();
+    }
+    @GameTest(template = "empty") public static void corruptReturnRecordLocksLedgerWithoutReplacingStock(GameTestHelper h) {
+        var f=held(h,true);var tag=f.ledger.save(new CompoundTag(),f.player.registryAccess());
+        tag.getList("return_handoffs",net.minecraft.nbt.Tag.TAG_COMPOUND).getCompound(0).putInt("amount",9999);
+        var bad=CacheLedger.load(tag,f.player.registryAccess());h.assertTrue(!bad.problem().isEmpty()
+                && bad.save(new CompoundTag(),f.player.registryAccess()).equals(tag),"Corrupt return was silently dropped");
+        f.ledger.cancelRejectedReturn(f.ledger.rejectReturn(f.hold));h.succeed();
+    }
 }

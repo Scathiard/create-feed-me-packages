@@ -27,8 +27,7 @@ import net.neoforged.neoforge.gametest.GameTestHolder;
 import java.util.*;
 import java.util.function.Consumer;
 
-/** Isolated black-box probes also run against the untouched 0.2.3 JAR, not only development classes.
- * Uses the existing real cache/packager fixtures; no production Phantom adapter is installed. */
+/** Current ordinary 0.3 native Phantom tests. Historical frozen-version probe evidence stays in its original files. */
 @GameTestHolder("fmp_phantom_compat")
 public final class PhantomCompatibilityTests {
     private static final String HELPER = "com.yision.phantom.logistics.courier.AirCourierHelper";
@@ -41,7 +40,10 @@ public final class PhantomCompatibilityTests {
                 test("full_and_residual", PhantomCompatibilityTests::fullAndResidual),
                 test("unworn", PhantomCompatibilityTests::unworn),
                 test("ordinary_parcel", PhantomCompatibilityTests::ordinaryParcel),
-                test("return_not_supported", PhantomCompatibilityTests::returnNotSupported),
+                test("return_waits_for_destination", PhantomCompatibilityTests::returnWaitsForDestination),
+                test("return_native_port_and_carrier", h -> returnNativePort(h, false)),
+                test("return_cached_carrier", h -> returnNativePort(h, true)),
+                test("return_full_port", PhantomCompatibilityTests::returnFullPort),
                 test("network_flight", PhantomCompatibilityTests::networkFlight));
     }
 
@@ -155,7 +157,7 @@ public final class PhantomCompatibilityTests {
         passed("ordinary_parcel_untouched"); h.succeed();
     }
 
-    private static void returnNotSupported(GameTestHelper h) {
+    private static void returnWaitsForDestination(GameTestHelper h) {
         var f = ReceiveTests.setup(h, 100); f.player().getInventory().clearContent();
         TestPlayers.necklace(f.player()).getStackInSlot(0).set(FmpRegistries.NETWORK.get(), UUID.randomUUID());
         f.ledger().setReturnAddress(f.handle().cacheId(), "phantom-return-fixture");
@@ -166,8 +168,8 @@ public final class PhantomCompatibilityTests {
         f.player().getInventory().setItem(0, new ItemStack(item)); before = f.record();
         ReturnService.check(f.player());
         h.assertTrue(f.record() == before && f.player().getInventory().getItem(0).getCount() == 1,
-                "Unsupported return changed stock or consumed a Phantom");
-        passed("automatic_return_UNSUPPORTED_stock_and_carrier_unchanged"); h.succeed();
+                "Missing target changed stock or consumed a Phantom");
+        passed("return_rejected_missing_target_stock_and_carrier_unchanged"); h.succeed();
     }
 
     private static void networkFlight(GameTestHelper h) {
@@ -201,6 +203,86 @@ public final class PhantomCompatibilityTests {
               unregister(h, f.player());
               passed("NETWORK_FLIGHT source=64 cache=64 pending=0 backpack=full native_firework_launch=true");
           }).thenSucceed();
+    }
+
+
+    private static com.simibubi.create.content.logistics.packagePort.PackagePortBlockEntity port(GameTestHelper h, String address) {
+        var pos=new net.minecraft.core.BlockPos(3,2,3);
+        var block=BuiltInRegistries.BLOCK.get(ResourceLocation.parse("createphantom:phantomport"));
+        h.assertTrue(block!=net.minecraft.world.level.block.Blocks.AIR,"Native Phantom port missing");h.setBlock(pos,block.defaultBlockState().setValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.HORIZONTAL_FACING,net.minecraft.core.Direction.EAST));
+        var port=(com.simibubi.create.content.logistics.packagePort.PackagePortBlockEntity)h.getBlockEntity(pos);
+        port.addressFilter=address;port.setChanged();
+        invoke("com.yision.phantom.block.phantomport.PhantomPortTargetRegistry","update",
+                new Class<?>[]{ServerLevel.class,net.minecraft.core.BlockPos.class,String.class},h.getLevel(),h.absolutePos(pos),address);
+        return port;
+    }
+    /** A real powered two-block runway, with the native extraction funnel required for empty returns. */
+    private static void returnRunway(GameTestHelper h) {
+        var east=net.minecraft.core.Direction.EAST;
+        var first=new net.minecraft.core.BlockPos(4,1,3);
+        var state=com.simibubi.create.AllBlocks.BELT.getDefaultState()
+                .setValue(com.simibubi.create.content.kinetics.belt.BeltBlock.HORIZONTAL_FACING,east)
+                .setValue(com.simibubi.create.content.kinetics.belt.BeltBlock.SLOPE,com.simibubi.create.content.kinetics.belt.BeltSlope.HORIZONTAL);
+        h.setBlock(first,state.setValue(com.simibubi.create.content.kinetics.belt.BeltBlock.PART,com.simibubi.create.content.kinetics.belt.BeltPart.START));
+        h.setBlock(first.east(),state.setValue(com.simibubi.create.content.kinetics.belt.BeltBlock.PART,com.simibubi.create.content.kinetics.belt.BeltPart.END));
+        com.simibubi.create.content.kinetics.belt.BeltBlock.initBelt(h.getLevel(),h.absolutePos(first));
+        h.setBlock(first.north(),com.simibubi.create.AllBlocks.CREATIVE_MOTOR.getDefaultState()
+                .setValue(com.simibubi.create.content.kinetics.motor.CreativeMotorBlock.FACING,net.minecraft.core.Direction.SOUTH));
+        var motor=(com.simibubi.create.content.kinetics.motor.CreativeMotorBlockEntity)h.getBlockEntity(first.north());
+        motor.generatedSpeed.setValue(-256);
+        h.setBlock(first.above(),com.simibubi.create.AllBlocks.ANDESITE_BELT_FUNNEL.getDefaultState()
+                .setValue(com.simibubi.create.content.logistics.funnel.BeltFunnelBlock.HORIZONTAL_FACING,east)
+                .setValue(com.simibubi.create.content.logistics.funnel.BeltFunnelBlock.SHAPE,com.simibubi.create.content.logistics.funnel.BeltFunnelBlock.Shape.PUSHING));
+    }
+    private static ReceiveTests.Fixture returnFixture(GameTestHelper h, boolean cached, String address) {
+        var f=ReceiveTests.setup(h,100);f.player().getInventory().clearContent();register(h,f.player());
+        TestPlayers.necklace(f.player()).getStackInSlot(0).set(FmpRegistries.NETWORK.get(),UUID.randomUUID());
+        var carrier=new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse("createphantom:mini_phantom")));
+        var before=f.record();var edit=before.state().edit();edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(-1,64,1,-1));
+        if(cached){var key=dev.scathiard.feedmepackages.item.ItemVariantKey.of(carrier,f.player().registryAccess());edit.filter(1,key);edit.insert(1,key,3);}
+        else f.player().getInventory().setItem(0,carrier);
+        f.ledger().replace(f.handle(),before.state().revision(),before.withState(edit.finish()));f.ledger().setReturnAddress(f.handle().cacheId(),address);
+        return f;
+    }
+    private static int carrierCount(ServerPlayer p) {
+        int n=0;var item=BuiltInRegistries.ITEM.get(ResourceLocation.parse("createphantom:mini_phantom"));
+        for(int i=0;i<p.getInventory().getContainerSize();i++)if(p.getInventory().getItem(i).is(item))n+=p.getInventory().getItem(i).getCount();return n;
+    }
+    private static void returnNativePort(GameTestHelper h, boolean cached) {
+        String address="FmpReturn-"+UUID.randomUUID();var f=returnFixture(h,cached,address);var destination=port(h,address);returnRunway(h);
+        h.assertTrue(dev.scathiard.feedmepackages.compat.PhantomDispatch.ready(),"Native Phantom task adapter unavailable");
+        try(var signals=new dev.scathiard.feedmepackages.logistics.LogisticsSignals.Viewer(f.handle().cacheId())) {
+            signals.page(0,9);ReturnService.check(f.player());
+            h.assertTrue(f.record().state().cells().getFirst().amount()==64 && carrierCount(f.player())==0
+                    && (!cached || f.record().state().cells().get(1).amount()==2)
+                    && f.ledger().returnEscrow(f.handle().cacheId())==null,"Native dispatch did not settle exact cargo and one carrier");
+            h.assertTrue(signals.get(0).kind()==dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE,"Accepted native return omitted departure signal");
+        }
+        ReturnService.check(f.player());
+        h.startSequence().thenWaitUntil(()->{
+            int count=0;for(int i=0;i<destination.inventory.getSlots();i++)count+=cargo(destination.inventory.getStackInSlot(i));
+            h.assertTrue(count==36,"Native flight has not delivered exactly 36 items to the port");
+            var belt=(com.simibubi.create.content.kinetics.belt.BeltBlockEntity)h.getBlockEntity(new net.minecraft.core.BlockPos(4,1,3));
+            h.assertTrue(carrierCount(f.player())==1,"Native empty carrier has not returned; runway speed="+belt.getSpeed()
+                    +" length="+belt.beltLength+" direction="+belt.getMovementFacing());
+        }).thenIdle(30).thenExecute(()->{
+            ReturnService.check(f.player());
+            h.assertTrue(f.record().state().cells().getFirst().amount()==64 && carrierCount(f.player())==1,"Settled return repeated");
+            unregister(h,f.player());passed("RETURN_NATIVE_PORT carrier_source="+(cached?"cache":"inventory")+" cargo=36 carrier_recovered=1");
+        }).thenSucceed();
+    }
+    private static void returnFullPort(GameTestHelper h) {
+        String address="FmpFull-"+UUID.randomUUID();var f=returnFixture(h,false,address);var destination=port(h,address);
+        var filler=PackageItem.containing(List.of(new ItemStack(Items.DIRT,64)));PackageItem.addAddress(filler,address);
+        for(int i=0;i<destination.inventory.getSlots();i++)destination.inventory.setStackInSlot(i,filler.copy());
+        var before=f.record();ReturnService.check(f.player());
+        h.assertTrue(f.record()==before && carrierCount(f.player())==1 && f.ledger().returnEscrow(f.handle().cacheId())==null,"Full native destination lost cargo or carrier");
+        // An occupied carrier is never overwritten when a destination later opens.
+        destination.inventory.setStackInSlot(0,ItemStack.EMPTY);
+        var loaded=(ItemStack)invoke(MINI,"createLoaded",new Class<?>[]{ItemStack.class},filler);
+        f.player().getInventory().setItem(0,loaded);ReturnService.check(f.player());
+        h.assertTrue(f.record()==before && ItemStack.matches(loaded,f.player().getInventory().getItem(0)),"Occupied Phantom cargo was overwritten");
+        unregister(h,f.player());passed("RETURN_FULL_PORT_AND_OCCUPIED_CARRIER preserved=true");h.succeed();
     }
 
     private static int cargo(ItemStack box) {

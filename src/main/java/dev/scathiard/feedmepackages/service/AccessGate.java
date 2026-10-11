@@ -13,7 +13,7 @@ import java.util.*;
 /** Every operation re-resolves actual functional Curios slots. Client GUI state grants no access. */
 public final class AccessGate {
     private AccessGate() {}
-    public enum Status { ACTIVE, NOT_WORN, DISABLED, NETWORK_CONFLICT, CACHE_CONFLICT, INVALID_IDENTITY, STORAGE_LOCKED, MULTIPLE_TERMINALS }
+    public enum Status { ACTIVE, NOT_WORN, DISABLED, NETWORK_CONFLICT, CACHE_CONFLICT, INVALID_IDENTITY, STORAGE_LOCKED, MULTIPLE_TERMINALS, RETURN_HELD, RETURN_REFUND }
     public record Terminal(int slot, ItemStack stack, UUID cacheId, UUID network, boolean disabled) {}
     public record Result(Status status, CacheHandle handle, List<Terminal> terminals) {
         public Result { terminals = List.copyOf(terminals); }
@@ -57,6 +57,9 @@ public final class AccessGate {
         if (!ledger.ordinaryEntry(cacheId, stack.get(FmpRegistries.RETIREMENT_RECEIPT.get())))
             return new Result(Status.INVALID_IDENTITY, null, terminals);
         UUID network = stack.get(FmpRegistries.NETWORK.get());
+        var hold = ledger.returnEscrow(cacheId);
+        if (hold != null) return new Result(hold.rejected() ? Status.RETURN_REFUND : Status.RETURN_HELD,
+                new CacheHandle(cacheId, player.getUUID(), network), terminals);
         return new Result(Status.ACTIVE, new CacheHandle(cacheId, player.getUUID(), network),
                 List.of(new Terminal(context.index(), stack, cacheId, network, false)));
     }

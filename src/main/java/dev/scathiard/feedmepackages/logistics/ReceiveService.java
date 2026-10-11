@@ -61,6 +61,7 @@ public final class ReceiveService {
         Plan plan = simulate(player, access.handle(), source, false); if (plan == null) return false;
         // No callbacks between the state replacement and relinquishing the original stack.
         ledger.replace(access.handle(), before.state().revision(), plan.replacement()); source.setCount(0);
+        LogisticsSignals.received(before.state(), plan.replacement().state());
         player.getInventory().setChanged(); return true;
     }
 
@@ -73,7 +74,10 @@ public final class ReceiveService {
             for (var entry : List.copyOf(ledger.find(access.handle().cacheId()).residuals().entrySet())) {
                 var record = ledger.find(access.handle().cacheId());
                 var plan = simulate(player, access.handle(), entry.getValue(), true);
-                if (plan != null) ledger.replace(access.handle(), record.state().revision(), plan.replacement());
+                if (plan != null) {
+                    ledger.replace(access.handle(), record.state().revision(), plan.replacement());
+                    LogisticsSignals.received(record.state(), plan.replacement().state());
+                }
             }
             returnUnmatchedResidual(player, access.handle());
         } else WARNED_RESIDUALS.remove(player);

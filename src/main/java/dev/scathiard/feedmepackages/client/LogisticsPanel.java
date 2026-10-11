@@ -503,6 +503,7 @@ public final class LogisticsPanel {
         screen = null;
         window = null;
         snapshot = null;
+        CellFeedback.clear();
         layout = null;
         waiting = 0;
         predict = null;
@@ -573,6 +574,7 @@ public final class LogisticsPanel {
         }
         boolean wasVisible = snapshot != null && snapshot.status() != AccessGate.Status.NOT_WORN;
         serial = incoming.serial();
+        CellFeedback.accept(snapshot, incoming, net.minecraft.Util.getMillis());
         snapshot = incoming;
         controlDrafts.entrySet().removeIf(entry -> !currentDraft(entry.getValue()));
         if (dragContext != null && (snapshot.session() == null || !snapshot.session().equals(dragContext.session())
@@ -623,6 +625,9 @@ public final class LogisticsPanel {
         LogisticsPanel.flushPendingThresholds();
     }
 
+    static boolean feedbackVisible(int slot) {
+        return layout != null && !hidden && !layout.compact() && layout.cells().stream().anyMatch(box -> box.slot() == slot);
+    }
     private static void updateLayout() {
         if (screen == null || snapshot == null || snapshot.status() == AccessGate.Status.NOT_WORN) {
             layout = null;
@@ -631,6 +636,7 @@ public final class LogisticsPanel {
         int count = LogisticsPanel.active() ? snapshot.cells().size() : 0;
         CacheGrid grid = CacheGrid.forCount(count);
         if (hidden) {
+            CellFeedback.clear();
             // Fully hidden: only the entry square exists, at the place the fold button had. The inventory screen
             // is deliberately NOT moved - the entry must not jump, and the layout keeps the same anchor.
             layout = PanelLayout.hidden(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop(), grid, LogisticsPanel.bookOpen());
@@ -899,6 +905,7 @@ public final class LogisticsPanel {
             g.drawString(LogisticsPanel.MC.font, amount, 0, 0, display == 0 ? -6909823 : -661306, true);
             g.pose().popPose();
         }
+        CellFeedback.render(g, box.slot(), x, y);
         boolean hover = r.contains(mouseX, mouseY);
         if (cell.residual()) {
             LogisticsPanel.overlay(g, x + 1, y + 13, 3, 3, -8206747);
@@ -1170,6 +1177,7 @@ public final class LogisticsPanel {
             return;
         }
         if (click.kind() == QueuedClickKind.SCROLL) {
+            CellFeedback.clear();
             firstRow = click.row();
             selected = -1;
             LogisticsPanel.updateLayout();
@@ -1302,6 +1310,7 @@ public final class LogisticsPanel {
         // its band is not stolen by the 2-pixel rail; elsewhere the rail behaves as before.
         PanelLayout.Rect rail = inputLayout.scrollbar();
         if (inputLayout.totalRows() > inputLayout.visibleRows() && rail.contains(x, y)) {
+            CellFeedback.clear();
             firstRow = (int) Math.round((y - rail.y()) * (inputLayout.totalRows() - inputLayout.visibleRows())
                     / Math.max(1, rail.height() - 1));
             selected = -1;
@@ -1438,6 +1447,7 @@ public final class LogisticsPanel {
         }
         if(!layout.bounds().contains(x,y)) return false;
         if(waiting!=0 || layout.compact() || layout.hidden()) return true;
+        CellFeedback.clear();
         firstRow += amount>0?-1:1; selected=-1; updateLayout(); return true;
     }
 

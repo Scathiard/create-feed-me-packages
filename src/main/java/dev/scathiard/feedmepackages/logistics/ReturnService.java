@@ -12,6 +12,9 @@ import dev.scathiard.feedmepackages.service.AccessGate;
 import dev.scathiard.feedmepackages.storage.CacheHandle;
 import dev.scathiard.feedmepackages.storage.CacheLedger;
 import dev.scathiard.feedmepackages.storage.CacheRecord;
+import dev.scathiard.feedmepackages.storage.ReturnEscrow;
+import dev.scathiard.feedmepackages.interaction.InventoryTransfer;
+import java.util.UUID;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -25,16 +28,20 @@ import net.minecraft.world.item.Items;
 public final class ReturnService {
     private static final Item CARD = BuiltInRegistries.ITEM.get(ResourceLocation.parse("cmpackagecouriers:cardboard_plane_parts"));
     private static final Item BEE = BuiltInRegistries.ITEM.get(ResourceLocation.parse("create_mobile_packages:robo_bee"));
+    private static final Item PHANTOM = BuiltInRegistries.ITEM.get(ResourceLocation.parse("createphantom:mini_phantom"));
+    private static final java.util.Set<UUID> OPERATING = new java.util.HashSet<>();
+    public static boolean operating(net.minecraft.server.MinecraftServer server, UUID cache) { return server.isSameThread() && OPERATING.contains(cache); }
     private static final int PACKAGE_SLOTS = 9;
     private record Carrier(int inventorySlot, int cacheSlot) {}
     public static final int RETURN_UNKNOWN = 0;
     public static final int RETURN_FAILED = 1;
     public static final int RETURN_SENT = 2;
+    public static final int RETURN_UNCERTAIN = 3;
 
     private ReturnService() {}
 
     public static void clearTransient() {
-        ReturnDispatchState.clear();
+        ReturnDispatchState.clear(); OPERATING.clear();
     }
 
     public static void forget(ServerPlayer player) {
@@ -50,6 +57,7 @@ public final class ReturnService {
     }
 
     public static void check(ServerPlayer player) {
+        resumeRejected(player);
         AccessGate.Result access = AccessGate.resolve(player);
         if (!access.active()) return;
         CacheHandle handle = access.handle();
@@ -92,7 +100,9 @@ public final class ReturnService {
             // Preserve plane-first preference. A rejected attempt changes no FMP stock
             // and the bee receives its own newly built package, never the plane's object.
             int result = dispatch(player, handle, ledger, slot, CARD, address);
-            if (result == RETURN_FAILED) result = dispatch(player, handle, ledger, slot, BEE, address);
+            if (result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null) result = dispatch(player, handle, ledger, slot, BEE, address);
+            if (result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null)
+                result = dispatch(player, handle, ledger, slot, PHANTOM, address);
             ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), result);
         }
     }
@@ -117,26 +127,82 @@ public final class ReturnService {
         ItemStack box = buildBox(player, cell.filter(), amount, address);
         if (box == null) return RETURN_FAILED;
 
-        // Prepare both cache debits together, without publishing any change yet.
-        CacheEdit<ItemVariantKey> edit = state.edit();
-        if (edit.extract(slot, amount) != amount) return RETURN_FAILED;
-        if (carrier.cacheSlot() >= 0 && edit.extract(carrier.cacheSlot(), 1) != 1) return RETURN_FAILED;
-        CacheRecord after = record.withState(edit.finish());
-
-        boolean sent = carrierItem == CARD
-                ? TransportDispatch.paperPlane(player.serverLevel(), box.copy(), player.position()).dispatched()
-                : TransportDispatch.bee(player.serverLevel(), box.copy(), player.blockPosition(), handle.networkId()).dispatched();
-        if (!sent) return RETURN_FAILED;
-
-        // A single revision advance removes cargo AND any carrier held in the cache.
-        // The former consumeCarrier() committed separately and invalidated this revision.
-        ledger.replace(handle, state.revision(), after);
+        ItemStack carrierStack = carrier.inventorySlot() >= 0 ? player.getInventory().getItem(carrier.inventorySlot())
+                : state.cells().get(carrier.cacheSlot()).filter().stack(player.registryAccess(), 1);
+        var access = AccessGate.resolve(player);
+        if (!access.active() || !handle.equals(access.handle()) || ledger.find(handle.cacheId()) != record
+                || !address.equals(ledger.returnAddress(handle.cacheId())) || carrierStack.isEmpty() || !carrierStack.is(carrierItem))
+            return RETURN_FAILED;
+        var hold = new ReturnEscrow(UUID.randomUUID(), handle, state.revision(), slot, cell.filter(), amount,
+                carrierStack.copyWithCount(1), carrier.inventorySlot(), carrier.cacheSlot(), carrierItem == CARD ? "paper" : carrierItem == BEE ? "bee" : "phantom", address, false);
+        ledger.beginReturn(hold, record, player.registryAccess());
+        // The real carrier moves to escrow before any foreign callback can spend or replace it.
         if (carrier.inventorySlot() >= 0) {
-            player.getInventory().getItem(carrier.inventorySlot()).shrink(1);
+            carrierStack.shrink(1);
             player.getInventory().setChanged();
         }
-        return RETURN_SENT;
+        TransportDispatch.Result result;
+        OPERATING.add(handle.cacheId());
+        try {
+            result = carrierItem == CARD ? TransportDispatch.paperPlane(player.serverLevel(), box.copy(), player.position())
+                    : carrierItem == BEE ? TransportDispatch.bee(player.serverLevel(), box.copy(), player.blockPosition(), handle.networkId())
+                    : dev.scathiard.feedmepackages.compat.PhantomDispatch.send(player, box.copy());
+        } finally { OPERATING.remove(handle.cacheId()); }
+        if (result.outcome() == TransportDispatch.Outcome.SENT) {
+            ledger.finishReturn(hold, player.registryAccess());
+            LogisticsSignals.publish(handle.cacheId(), slot, dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE);
+            return RETURN_SENT;
+        }
+        if (result.outcome() == TransportDispatch.Outcome.NOT_SENT) {
+            var rejected = ledger.rejectReturn(hold);
+            refundCarrier(player, ledger, rejected);
+            return RETURN_FAILED;
+        }
+        FeedMePackages.LOGGER.error("FMP return handoff {} via {} is uncertain; cache {} and its carrier are held, not resent or charged",
+                hold.id(), hold.transport(), handle.cacheId(), result.failure());
+        return RETURN_UNCERTAIN;
     }
+
+    /** A rejected handoff may owe a carrier if foreign code occupied every real inventory slot.
+     * Recovery never launches another parcel and never treats an uncertain result as rejection. */
+    public static void resumeRejected(ServerPlayer player) {
+        var access = AccessGate.resolve(player);
+        if (access.status() != AccessGate.Status.RETURN_REFUND || access.handle() == null) return;
+        var ledger = CacheLedger.get(player.getServer()); var hold = ledger.returnEscrow(access.handle().cacheId());
+        if (hold != null && hold.handle().playerId().equals(player.getUUID())) refundCarrier(player, ledger, hold);
+    }
+    private static boolean refundCarrier(ServerPlayer player, CacheLedger ledger, ReturnEscrow hold) {
+        if (!hold.rejected() || ledger.returnEscrow(hold.handle().cacheId()) != hold) return false;
+        if (hold.inventorySlot() >= 0) {
+            var inventory = player.getInventory(); var actual = inventory.getItem(hold.inventorySlot()); var offered = hold.carrier();
+            // Prefer the original source; growing the original stack preserves any native use reference.
+            if (actual.isEmpty()) inventory.setItem(hold.inventorySlot(), offered);
+            else if (ItemStack.isSameItemSameComponents(actual, offered)
+                    && actual.getCount() < Math.min(actual.getMaxStackSize(), inventory.getMaxStackSize())) actual.grow(1);
+            else {
+                var plan = InventoryTransfer.insert(inventory, offered, 1);
+                if (plan.moved() != 1 || !plan.stillValid(inventory)) return false;
+                plan.commit(inventory);
+            }
+            inventory.setChanged();
+        }
+        ledger.cancelRejectedReturn(hold);
+        return true;
+    }
+
+    /** Administrative recovery still returns only the original held carrier to its original player. */
+    static boolean retryRefund(net.minecraft.server.MinecraftServer server, ReturnEscrow hold) {
+        var ledger=CacheLedger.get(server);
+        if (!hold.rejected() || ledger.returnEscrow(hold.handle().cacheId())!=hold) return false;
+        if (hold.inventorySlot()<0) { ledger.cancelRejectedReturn(hold);return true; }
+        var original=server.getPlayerList().getPlayer(hold.handle().playerId());
+        return original!=null && refundCarrier(original,ledger,hold);
+    }
+    static void recovered(ReturnEscrow hold, boolean sent) {
+        ReturnDispatchState.reset(hold.handle());
+        if (sent) LogisticsSignals.publish(hold.handle().cacheId(),hold.slot(),dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE);
+    }
+
 
     private static ItemStack buildBox(ServerPlayer player, ItemVariantKey variant, int amount, String address) {
         try {
@@ -161,6 +227,7 @@ public final class ReturnService {
         for (int i = 0; i < player.getInventory().getContainerSize(); i++) {
             ItemStack stack = player.getInventory().getItem(i);
             if (!stack.isEmpty() && stack.is(item)
+                    && (item != PHANTOM || dev.scathiard.feedmepackages.compat.PhantomDispatch.carrierUsable(stack))
                     && stack.getCount() > CraftingReservations.reservedInventory(player, i))
                 return new Carrier(i, -1);
         }

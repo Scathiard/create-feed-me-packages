@@ -29,6 +29,7 @@ public final class CacheLedger extends SavedData {
     private Map<UUID, Boolean> cacheFirst = Map.of();
     private Map<UUID, ParcelRedirect> redirects = Map.of();
     private Map<UUID, String> returnAddresses = Map.of();
+    private Map<UUID, ReturnEscrow> returnEscrows = Map.of();
     private Map<UUID, Retirement> retirements = Map.of();
     private final Set<UUID> interruptedRetirements = new HashSet<>();
     /** The owner is historical provenance only after completion; the cache itself is never copied. */
@@ -127,8 +128,46 @@ public final class CacheLedger extends SavedData {
         return record != null && record.owner() != null && record.owner().equals(player);
     }
     public String returnAddress(UUID cacheId) { return returnAddresses.get(cacheId); }
+    public ReturnEscrow returnEscrow(UUID cacheId) { return returnEscrows.get(cacheId); }
+    public Collection<ReturnEscrow> unresolvedReturns() { return returnEscrows.values(); }
+    private void available(UUID cacheId) {
+        if (returnEscrows.containsKey(cacheId)) throw new IllegalStateException("Cache has an unresolved return handoff");
+    }
+    public void beginReturn(ReturnEscrow escrow, CacheRecord expected, HolderLookup.Provider registries) {
+        writable(); available(escrow.handle().cacheId());
+        if (escrow.rejected() || caches.get(escrow.handle().cacheId()) != expected)
+            throw new IllegalStateException("Stale return preparation");
+        escrow.settled(expected, registries); // Prove every debit before calling any native transport code.
+        var next = new HashMap<>(returnEscrows); next.put(escrow.handle().cacheId(), escrow);
+        returnEscrows = Map.copyOf(next); setDirty();
+    }
+    private void currentReturn(ReturnEscrow escrow) {
+        writable();
+        if (returnEscrows.get(escrow.handle().cacheId()) != escrow) throw new IllegalStateException("Stale return completion");
+    }
+    public void finishReturn(ReturnEscrow escrow, HolderLookup.Provider registries) {
+        currentReturn(escrow);
+        if (escrow.rejected()) throw new IllegalStateException("Rejected transport cannot settle a fee");
+        var result = escrow.settled(caches.get(escrow.handle().cacheId()), registries);
+        var records = new HashMap<>(caches); records.put(escrow.handle().cacheId(), result);
+        var holds = new HashMap<>(returnEscrows); holds.remove(escrow.handle().cacheId());
+        // No external callbacks in this commit. All sources were unavailable for the whole native handoff.
+        caches = Map.copyOf(records); returnEscrows = Map.copyOf(holds); setDirty();
+    }
+    public ReturnEscrow rejectReturn(ReturnEscrow escrow) {
+        currentReturn(escrow); var rejected = escrow.asRejected();
+        var holds = new HashMap<>(returnEscrows); holds.put(escrow.handle().cacheId(), rejected);
+        returnEscrows = Map.copyOf(holds); setDirty(); return rejected;
+    }
+    /** Caller must first return the real inventory carrier, if any. Uncertain handoffs cannot use this path. */
+    public void cancelRejectedReturn(ReturnEscrow escrow) {
+        currentReturn(escrow);
+        if (!escrow.rejected()) throw new IllegalStateException("Uncertain transport cannot be automatically refunded");
+        var holds = new HashMap<>(returnEscrows); holds.remove(escrow.handle().cacheId());
+        returnEscrows = Map.copyOf(holds); setDirty();
+    }
     public void setReturnAddress(UUID cacheId, String address) {
-        writable(); var next = new HashMap<>(returnAddresses);
+        writable(); available(cacheId); var next = new HashMap<>(returnAddresses);
         if (address == null) next.remove(cacheId); else next.put(cacheId, address);
         returnAddresses = Map.copyOf(next); setDirty();
     }
@@ -152,6 +191,7 @@ public final class CacheLedger extends SavedData {
     public CacheRecord ordinaryForManufacturing(UUID id) {
         writable();
         if (id == null) return new CacheRecord(CacheState.empty(UUID.randomUUID()), null, Map.of());
+        available(id);
         var record = caches.get(id);
         if (record == null || record.owner() != null) throw new IllegalStateException("Invalid ordinary manufacturing source");
         return record;
@@ -159,6 +199,7 @@ public final class CacheLedger extends SavedData {
 
     /** Immutable proposed maps; neither construction nor inspection publishes any state. */
     public final class Mutation {
+        private final Map<UUID, ReturnEscrow> beforeReturns = returnEscrows;
         private final Map<UUID, CacheRecord> beforeCaches = caches;
         private final Map<UUID, UUID> beforePersonal = personal;
         private final Map<UUID, ParcelRedirect> beforeRedirects = redirects;
@@ -173,17 +214,19 @@ public final class CacheLedger extends SavedData {
         }
         public CacheRecord result() { return result; }
         public boolean current() {
-            return !committed && beforeCaches == caches && beforePersonal == personal && beforeRedirects == redirects;
+            return !committed && beforeCaches == caches && beforePersonal == personal && beforeRedirects == redirects && beforeReturns == returnEscrows;
         }
         /** Final caller must also prove actual input/output ownership; there are no callbacks here. */
         public void commit() {
             writable(); if (!current()) throw new IllegalStateException("Stale or repeated world transaction");
+            for (UUID id : returnEscrows.keySet()) if (afterCaches.get(id) != caches.get(id)) throw new IllegalStateException("Manufacturing changed held return stock");
             caches = afterCaches; personal = afterPersonal; redirects = afterRedirects;
             committed = true; setDirty();
         }
     }
 
     private void sourceCurrent(CacheRecord source) {
+        available(source.state().id());
         var actual = caches.get(source.state().id());
         if (actual == source) return;
         if (actual != null || redirects.containsKey(source.state().id()) || source.owner() != null || source.anyResidual()
@@ -211,7 +254,7 @@ public final class CacheLedger extends SavedData {
 
     /** No callbacks inside commit. The operation's effective access must be re-resolved first. */
     public void replace(CacheHandle handle, long expectedRevision, CacheRecord replacement) {
-        writable(); CacheRecord old = caches.get(handle.cacheId());
+        writable(); available(handle.cacheId()); CacheRecord old = caches.get(handle.cacheId());
         if (old == null || old.state().revision() != expectedRevision || !replacement.state().id().equals(handle.cacheId())
                 || !Objects.equals(old.owner(), replacement.owner()) || (old.owner() != null && !old.owner().equals(handle.playerId())))
             throw new IllegalStateException("Stale or unauthorized cache transaction");
@@ -286,13 +329,15 @@ public final class CacheLedger extends SavedData {
             data.putUUID("receipt", r.receipt()); data.putBoolean("completed", r.completed()); transfers.add(data);
         });
         tag.put("private_retirements", transfers);
+        var holds = new ListTag(); returnEscrows.values().forEach(hold -> holds.add(hold.save(registries)));
+        tag.put("return_handoffs", holds);
         return tag;
     }
 
     public static CacheLedger load(CompoundTag tag, HolderLookup.Provider registries) {
         var ledger = new CacheLedger();
         try {
-            fields(tag, Set.of("schema", "integrity_key", "caches", "preferences", "redirects", "grants", "returnAddresses", "private_retirements"));
+            fields(tag, Set.of("schema", "integrity_key", "caches", "preferences", "redirects", "grants", "returnAddresses", "private_retirements", "return_handoffs"));
             require(tag, "schema", Tag.TAG_INT);
             int sourceSchema = tag.getInt("schema");
             if (sourceSchema != SCHEMA && sourceSchema != 8 && sourceSchema != 2 && sourceSchema != 4 && sourceSchema != 5 && sourceSchema != 6 && sourceSchema != 7)
@@ -429,6 +474,18 @@ public final class CacheLedger extends SavedData {
                 }
             }
             ledger.returnAddresses = Map.copyOf(returnAddresses);
+            var holds = new HashMap<UUID, ReturnEscrow>();
+            if (tag.contains("return_handoffs")) {
+                if (sourceSchema != SCHEMA) throw new IllegalArgumentException("Return escrows in a foreign schema");
+                var pending = compounds(tag, "return_handoffs");
+                if (pending.size() > caches.size()) throw new IllegalArgumentException("Too many return escrows");
+                for (Tag element : pending) {
+                    var hold = ReturnEscrow.load((CompoundTag) element, registries);
+                    hold.settled(caches.get(hold.handle().cacheId()), registries);
+                    if (holds.put(hold.handle().cacheId(), hold) != null) throw new IllegalArgumentException("Duplicate return escrow");
+                }
+            }
+            ledger.returnEscrows = Map.copyOf(holds);
         } catch (RuntimeException failure) {
             ledger.problem = "Cache data rejected: " + failure.getClass().getSimpleName();
             ledger.preserved = tag.copy();

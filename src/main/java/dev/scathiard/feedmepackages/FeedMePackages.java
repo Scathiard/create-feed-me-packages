@@ -39,6 +39,7 @@ public final class FeedMePackages {
         modBus.addListener(PanelNetwork::register);
         modBus.addListener(MaterialHints::register);
         NeoForge.EVENT_BUS.addListener(this::playerTick);
+        NeoForge.EVENT_BUS.addListener(dev.scathiard.feedmepackages.logistics.ReturnRecovery::register);
         NeoForge.EVENT_BUS.addListener((PlayerContainerEvent.Close event) -> {
             if (event.getEntity() instanceof ServerPlayer player) PanelNetwork.forget(player);
         });

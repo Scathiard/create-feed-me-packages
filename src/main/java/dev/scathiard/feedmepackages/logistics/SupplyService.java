@@ -55,7 +55,9 @@ public final class SupplyService {
                 var current = ledger.find(state.id()); var confirmation = current.state().edit();
                 confirmation.confirmDispatch(requestId, unsent);
                 ledger.replace(access.handle(), current.state().revision(), current.withState(confirmation.finish()));
+                if (unsent < planned) LogisticsSignals.publish(state.id(), slot, dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.REQUEST);
             } catch (RuntimeException unknownOutcome) {
+                LogisticsSignals.publish(state.id(), slot, dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.REQUEST);
                 // Create may have produced real boxes already. Keep the reservation; never compensate/retry automatically.
                 FeedMePackages.LOGGER.error("FMP dispatch outcome uncertain for request {}; manual reset may be needed", requestId, unknownOutcome);
             }

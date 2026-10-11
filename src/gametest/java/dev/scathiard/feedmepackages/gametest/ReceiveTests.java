@@ -389,4 +389,35 @@ public final class ReceiveTests {
         helper.assertTrue(!ReceiveService.receive(f.player, box), "Invalid or inaccessible parcel accepted");
         helper.assertTrue(ItemStack.matches(before, box) && f.record().state().revision() == revision, "Rejected parcel mutated inventory or ledger");
     }
+    @GameTest(template = "empty")
+    public static void logisticsFeedbackTracksPaidIntakeNotLocalChangesAndDoesNotReplay(GameTestHelper h) {
+        var f=setup(h,FULL-8);var windows=new UUID[]{UUID.randomUUID()};
+        java.util.function.Supplier<dev.scathiard.feedmepackages.network.PanelPackets.Snapshot> query=()->{
+            f.player.tickCount+=4;
+            return dev.scathiard.feedmepackages.network.PanelNetwork.query(f.player,
+                    new dev.scathiard.feedmepackages.network.PanelPackets.Query(windows[0],f.player.containerMenu.containerId,true));
+        };
+        try {
+            h.assertTrue(query.get().cells().getFirst().signal().sequence()==0,"Initial snapshot replayed logistics history");
+            f.extract(4);h.assertTrue(query.get().cells().getFirst().signal().sequence()==0,"Local extraction emitted logistics feedback");
+            h.assertTrue(ReceiveService.receive(f.player,f.box(16)),"Real parcel failed to enter the fixture cache");
+            var arrived=query.get();var first=arrived.cells().getFirst().signal();
+            h.assertTrue(first.sequence()>0 && first.kind()==dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.ARRIVAL
+                    && arrived.cells().getFirst().amount()==FULL,"Intake did not reach the authoritative snapshot");
+            f.extract(3);h.assertTrue(query.get().cells().getFirst().signal().equals(first),"Manual take replaced the logistics signal");
+            ReceiveService.resume(f.player);var resumed=query.get();
+            h.assertTrue(resumed.cells().getFirst().signal().sequence()>first.sequence(),"Partial parcel continuation did not produce a new arrival");
+            var bytes=new net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(),f.player.registryAccess());
+            try {
+                dev.scathiard.feedmepackages.network.PanelPackets.Snapshot.CODEC.encode(bytes,resumed);
+                var decoded=dev.scathiard.feedmepackages.network.PanelPackets.Snapshot.CODEC.decode(bytes);
+                h.assertTrue(decoded.cells().getFirst().signal().equals(resumed.cells().getFirst().signal()),"Snapshot codec lost logistics cause or order");
+            } finally { bytes.release(); }
+            dev.scathiard.feedmepackages.network.PanelNetwork.query(f.player,
+                    new dev.scathiard.feedmepackages.network.PanelPackets.Query(windows[0],f.player.containerMenu.containerId,false));
+            f.extract(4);ReceiveService.resume(f.player);windows[0]=UUID.randomUUID();
+            h.assertTrue(query.get().cells().getFirst().signal().sequence()==0,"Reopened panel replayed closed-window intake");
+        } finally { dev.scathiard.feedmepackages.network.PanelNetwork.forget(f.player); }
+        h.succeed();
+    }
 }
