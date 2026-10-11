@@ -19,6 +19,11 @@ def runProfile = "neo${project.neo_version}" + (project.hasProperty('withCourier
         (project.hasProperty('withPhantom') ? '-phantom102' : '') +
         (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-converged1'
 ['withTacz','withWand','withGadgets','withEffortless','withEmi','withFxnt','withSophisticated','withMaid','withFluid','withFactory','withDeployer','withRepackaged','withConnected','withCraftingTweaks','withGravestone','withCorpse','withTombstone','withTomsStorage','withPolymorph','withMouseTweaks','withModernFix','withLithium'].each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
+if (project.hasProperty('mobile_runtime_version')) {
+    if (!project.hasProperty('withMobile') || project.property('mobile_runtime_version').toString() != '0.7.8')
+        throw new GradleException('The explicit Mobile Packages runtime input is pinned to 0.7.8 and requires withMobile')
+    runProfile += '-mobile078'
+}
 if (project.hasProperty('fmpPhantomReview')) {
     if (!project.hasProperty('withPhantom')) throw new GradleException('Phantom review requires the locked official transport JAR')
     runProfile += '-phantom-review'
@@ -191,7 +196,11 @@ dependencies {
         } else localRuntime "mezz.jei:jei-1.21.1-neoforge:${project.findProperty('jei_runtime_version') ?: jei_version}"
     }
     if (project.hasProperty('withMobile')) {
-        localRuntime files('../../../reference-build-safe/research/transports/1.21.1-0.7.7/create_mobile_packages-1.21.1-0.7.7.jar')
+        def mobile = project.hasProperty('mobile_runtime_version')
+                ? new File(referenceOutput, 'transport-compat/create_mobile_packages-1.21.1-0.7.8.jar')
+                : file('../../../reference-build-safe/research/transports/1.21.1-0.7.7/create_mobile_packages-1.21.1-0.7.7.jar')
+        if (!mobile.isFile()) throw new GradleException('Missing pinned isolated Mobile Packages input')
+        localRuntime files(mobile)
     }
     if (project.hasProperty('withCouriers')) {
         localRuntime files('../../../reference-build-safe/research/transports/2.3.0/cmpackagecouriers-neoforge-2.3.0.jar')

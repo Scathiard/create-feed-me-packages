@@ -228,6 +228,11 @@ case "polymorph" -> "PolymorphClientReview";
                 "Browser did not set the exact empty filter at " + slot + "; expected=" + expected + "; actual=" + cell);
         require(player.getInventory().isEmpty() && player.containerMenu.getCarried().isEmpty(), "A template created a real inventory item");
     }
+    static ItemStack clickBrowserSource(ItemStack excluded) throws ReflectiveOperationException {
+        var stack=findSource(excluded);
+        mouse(sourceX,sourceY,0,1); mouse(sourceX,sourceY,0,0);
+        return stack;
+    }
     private static ItemStack findSource(ItemStack excluded) throws ReflectiveOperationException {
         return findSource(excluded, null);
     }

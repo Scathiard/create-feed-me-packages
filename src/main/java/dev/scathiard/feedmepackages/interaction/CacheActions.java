@@ -38,8 +38,8 @@ public final class CacheActions {
 
     public static View open(ServerPlayer player) {
         FluidActions.cancel(player);
-        var access = AccessGate.resolve(player); var menu = player.containerMenu;
-        if (!(menu instanceof InventoryMenu || menu instanceof CraftingMenu)) {
+        var access = PanelAccess.resolve(player); var menu = player.containerMenu;
+        if (!PanelAccess.supported(menu)) {
             SESSIONS.remove(player); return new View(null, access, null, false);
         }
         var proofs = access.terminals().stream().map(t -> new TerminalProof(t.slot(), t.stack().copy())).toList();
@@ -60,7 +60,7 @@ public final class CacheActions {
         validateOpenContext(player);
         var session = SESSIONS.get(player);
         if (session == null) return open(player);
-        var access = AccessGate.resolve(player); var ledger = CacheLedger.get(player.getServer());
+        var access = PanelAccess.resolve(player); var ledger = CacheLedger.get(player.getServer());
         return new View(session.id(), access, access.active() ? ledger.find(access.handle().cacheId()) : null,
                 ledger.cacheFirst(player.getUUID()));
     }
@@ -69,7 +69,7 @@ public final class CacheActions {
         CursorReservations.validate(player);
         FluidActions.validate(player);
         var session = SESSIONS.get(player); if (session == null) return;
-        var access = AccessGate.resolve(player);
+        var access = PanelAccess.resolve(player);
         if (session.menu().get() != player.containerMenu || !Objects.equals(session.handle(), access.handle())
                 || access.terminals().size() != session.terminals().size()) { close(player); return; }
         for (var proof : session.terminals()) {
@@ -86,7 +86,7 @@ public final class CacheActions {
     }
     /** Settings use the filter lifetime, not the changing stock revision; the complete batch commits once. */
     public static Result settings(ServerPlayer player, UUID sessionId, List<SettingsChange> changes) {
-        validateOpenContext(player); var session=SESSIONS.get(player); var access=AccessGate.resolve(player);
+        validateOpenContext(player); var session=SESSIONS.get(player); var access=PanelAccess.resolve(player);
         if(session==null || !session.id().equals(sessionId) || session.menu().get()!=player.containerMenu) return Result.STALE;
         if(!access.active()) return Result.NOT_ACTIVE;
         if(!access.handle().equals(session.handle()) || CraftingReservations.operating(access.handle().cacheId()) || FluidActions.operating(access.handle().cacheId())) return Result.STALE;
@@ -155,7 +155,7 @@ public final class CacheActions {
     }
 
     private static Result execute(ServerPlayer player, Intent intent, ItemStack creativeCursor, int requestSeq) {
-        var access = AccessGate.resolve(player); var session = SESSIONS.get(player);
+        var access = PanelAccess.resolve(player); var session = SESSIONS.get(player);
         if (session == null || !session.id().equals(intent.session()) || session.menu().get() != player.containerMenu) return Result.STALE;
         // A client that replaced/consumed its preview asks to release only its own panel-session hold,
         // before an independent creative-source placement could otherwise be mis-debited by creativeAfter.
@@ -169,18 +169,21 @@ public final class CacheActions {
         if (intent.action() == Action.TERMINAL_ENABLED || intent.action() == Action.CLEAR_NETWORK
                 || intent.action() == Action.TAKE_RESIDUAL
                 || intent.action() == Action.PREFERENCE) return Result.INVALID_REQUEST;
-        if (!access.active()) return Result.NOT_ACTIVE;
-        if (!access.handle().equals(session.handle())) return Result.STALE;
+        if (!access.active()) { close(player); return Result.NOT_ACTIVE; }
+        // Recheck the captured menu and pendant proofs on every mutating command.
+        validateOpenContext(player);
+        if (SESSIONS.get(player) != session || !access.handle().equals(session.handle())) return Result.STALE;
         if (CraftingReservations.operating(access.handle().cacheId()) || FluidActions.operating(access.handle().cacheId())) return Result.STALE;
         var ledger = CacheLedger.get(player.getServer()); var before = ledger.find(access.handle().cacheId());
         if (before.state().revision() != intent.revision()) return Result.STALE;
-        if (intent.action() == Action.FILL_RECIPE) return recipe(player, intent);
+        if (intent.action() == Action.FILL_RECIPE) return PanelAccess.maid(player) ? Result.UNSUPPORTED_RECIPE : recipe(player, intent);
         // The one-key collect is a cache-level action too: it needs no cell, so it must bypass the per-cell
         // slot validation below (exactly like the return address and the recipe fill).
         if (intent.action() == Action.COLLECT_MATCHING) return collect(player, access, before, ledger);
         // The return address is a cache-level preference, not a cell action: it uses no slot, so it
         // must bypass the per-cell slot validation below. Setting it marks the ledger dirty (saved).
         if (intent.action() == Action.SET_RETURN_ADDRESS) {
+            if (PanelAccess.maid(player)) return Result.INVALID_REQUEST;
             if (intent.template().length() > 128) return Result.INVALID_REQUEST;
             if (intent.template().equals(ledger.returnAddress(access.handle().cacheId()))) return Result.OK;
             ledger.setReturnAddress(access.handle().cacheId(), intent.template());
@@ -326,7 +329,7 @@ public final class CacheActions {
         inventoryPlan.commit(inventory);
         player.containerMenu.broadcastChanges();
         // Told once, only when something moved - and told the truth about what the return path will do.
-        if (plan.shouldReport()) collectReport(player, plan, returnConfigured(ledger, access));
+        if (plan.shouldReport()) collectReport(player, plan, !PanelAccess.maid(player) && returnConfigured(ledger, access));
         return Result.OK;
     }
 

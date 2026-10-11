@@ -40,7 +40,7 @@ public final class FluidActions {
     }
     public static void validate(ServerPlayer player) {
         var held = HELD.get(player); if (held == null) return;
-        var access = AccessGate.resolve(player); var record = CacheLedger.get(player.getServer()).find(held.handle().cacheId());
+        var access = PanelAccess.resolve(player); var record = CacheLedger.get(player.getServer()).find(held.handle().cacheId());
         if (!access.active() || !held.handle().equals(access.handle()) || held.menu().get() != player.containerMenu
                 || !player.containerMenu.getCarried().isEmpty() || record == null || held.slot() >= record.fluids().state().cells().size()) {
             cancel(player); return;
@@ -226,7 +226,7 @@ public final class FluidActions {
     }
 
     private static boolean stable(ServerPlayer player, CacheHandle handle, CacheRecord before) {
-        var access = AccessGate.resolve(player);
+        var access = PanelAccess.resolve(player);
         return access.active() && handle.equals(access.handle()) && CacheLedger.get(player.getServer()).find(handle.cacheId()) == before;
     }
     private record Filled(ItemStack container, int amount) {}

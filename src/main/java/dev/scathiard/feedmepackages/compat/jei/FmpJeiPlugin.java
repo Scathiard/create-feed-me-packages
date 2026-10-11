@@ -66,6 +66,17 @@ public final class FmpJeiPlugin implements IModPlugin {
     }
     @Override public void registerGuiHandlers(IGuiHandlerRegistration registration) {
         register(registration, InventoryScreen.class); register(registration, CraftingScreen.class); register(registration, CreativeModeInventoryScreen.class);
+        if (net.neoforged.fml.ModList.get().isLoaded("touhou_little_maid")) registerMaid(registration);
+    }
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static void registerMaid(IGuiHandlerRegistration registration) {
+        try {
+            Class type = Class.forName("com.github.tartaricacid.touhoulittlemaid.client.gui.entity.maid.AbstractMaidContainerGui")
+                    .asSubclass(AbstractContainerScreen.class);
+            register(registration, type);
+        } catch (ReflectiveOperationException | LinkageError | ClassCastException unavailable) {
+            FeedMePackages.LOGGER.warn("FMP maid JEI exclusion unavailable: native screen API changed", unavailable);
+        }
     }
     private static <T extends AbstractContainerScreen<?>> void register(IGuiHandlerRegistration registration, Class<T> type) {
         // JEI explicitly disallows global ghost handlers on the vanilla inventories.

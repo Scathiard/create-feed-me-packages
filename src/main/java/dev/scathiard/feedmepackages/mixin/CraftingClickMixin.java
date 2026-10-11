@@ -16,8 +16,13 @@ public abstract class CraftingClickMixin {
     @WrapMethod(method = "clicked")
     private void fmp$click(int slot, int button, ClickType click, Player player, Operation<Void> original) {
         var menu = (AbstractContainerMenu)(Object)this;
-        if (!(player instanceof ServerPlayer server) || !CraftingService.supported(menu)) {
-            original.call(slot, button, click, player); return;
+        if (!(player instanceof ServerPlayer server)) { original.call(slot, button, click, player); return; }
+        if (!CraftingService.supported(menu)) {
+            // Maid inventory clicks need preview settlement, never the player's crafting sources.
+            if (dev.scathiard.feedmepackages.compat.maid.MaidMenus.supports(menu)) {
+                try (var cursor = CursorReservations.beforeClick(server, menu)) { original.call(slot, button, click, player); }
+            } else original.call(slot, button, click, player);
+            return;
         }
         try (var cursor = CursorReservations.beforeClick(server, menu);
              var scope = CraftingReservations.begin(server, menu, slot, button, click)) {

@@ -30,6 +30,9 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import net.neoforged.neoforge.items.IItemHandler;
 import top.theillusivec4.curios.api.CuriosApi;
 import java.util.*;
+import dev.scathiard.feedmepackages.interaction.CacheActions;
+import dev.scathiard.feedmepackages.interaction.CursorReservations;
+import dev.scathiard.feedmepackages.interaction.PanelAccess;
 import java.util.function.Predicate;
 
 /** Loads real maids and author inventory/AI/transport entry points, never a successful absence placeholder. */
@@ -54,7 +57,8 @@ public final class MaidTests {
                 test("full_inventory", MaidTests::full), test("native_meal", MaidTests::meal), test("native_bow", MaidTests::bow),
                 test("receipt_identity", MaidTests::receipt), test("native_air_and_residual", MaidTests::noFuel),
                 test("native_death", MaidTests::death), test("entity_roundtrip", MaidTests::entityRoundtrip),
-                test("network_permission", MaidTests::permission)));
+                test("network_permission", MaidTests::permission),
+                test("native_panel_access", MaidTests::panelAccess), test("native_panel_revocation", MaidTests::panelRevocation)));
         if (ModList.get().isLoaded("tacz")) tests.add(test("native_tacz_reload", MaidTests::tacz));
         if (ModList.get().isLoaded("cmpackagecouriers")) {
             tests.add(test("paper_direct_flight", h -> flight(h, false, false)));
@@ -95,6 +99,105 @@ public final class MaidTests {
         h.assertTrue(access.active() && access.handle().cacheId().equals(handle.cacheId()), "Native maid necklace did not expose its ordinary cache");
         return new Fixture(owner, maid, CacheLedger.get(h.getLevel().getServer()), access.handle(), pendant,
                 ItemVariantKey.of(item, maid.registryAccess()));
+    }
+    private static net.minecraft.world.inventory.AbstractContainerMenu panelMenu(ServerPlayer player, TamableAnimal maid, int id) throws ReflectiveOperationException {
+        return (net.minecraft.world.inventory.AbstractContainerMenu)Class.forName(
+                "com.github.tartaricacid.touhoulittlemaid.compat.curios.menu.CuriosContainer")
+                .getConstructor(int.class,net.minecraft.world.entity.player.Inventory.class,int.class)
+                .newInstance(id,player.getInventory(),maid.getId());
+    }
+    @SuppressWarnings("unchecked")
+    private static Map<UUID, ServerPlayer> onlineOwners(ServerPlayer player) throws ReflectiveOperationException {
+        var field=net.minecraft.server.players.PlayerList.class.getDeclaredField("playersByUUID");
+        field.setAccessible(true);
+        return (Map<UUID, ServerPlayer>)field.get(player.getServer().getPlayerList());
+    }
+    private static CacheActions.Result panelAction(ServerPlayer player, CacheActions.Action action, int slot, int amount, String value) {
+        var view=CacheActions.snapshot(player);
+        return CacheActions.execute(player,new CacheActions.Intent(view.session(),view.record().state().revision(),action,slot,amount,-1,value));
+    }
+    private static void panelAccess(GameTestHelper h) throws ReflectiveOperationException {
+        var f=setup(h,new ItemStack(Items.BREAD),8);var p=f.owner;
+        p.setPos(f.maid.position().add(1,0,0));
+        h.getLevel().addNewPlayer(p);
+        onlineOwners(p).put(p.getUUID(),p);
+        try {
+            h.assertTrue(f.maid.isOwnedBy(p), "Panel fixture owner is not present in the native level");
+            p.containerMenu=panelMenu(p,f.maid,81);
+            var view=CacheActions.open(p);
+            h.assertTrue(view.access().active() && view.access().handle().equals(f.handle) && !AccessGate.resolve(p).active()
+                    && PanelAccess.address(p).equals(MaidAccess.address(f.maid)),"Unworn owner could not access exactly the native maid target");
+            h.assertTrue(panelAction(p,CacheActions.Action.TAKE_CURSOR,0,4,"")==CacheActions.Result.OK,"Maid preview refused");
+            var destination=p.containerMenu.slots.stream().filter(slot->slot.container==p.getInventory() && slot.getContainerSlot()==9).findFirst().orElseThrow();
+            p.containerMenu.clicked(destination.index,1,net.minecraft.world.inventory.ClickType.PICKUP,p);
+            p.containerMenu.clicked(destination.index,1,net.minecraft.world.inventory.ClickType.PICKUP,p);
+            h.assertTrue(f.stock()==6 && p.getInventory().getItem(9).getCount()==2 && p.containerMenu.getCarried().getCount()==2,
+                    "Native partial placement did not debit exactly the maid stock");
+            CacheActions.close(p);
+            h.assertTrue(f.stock()==6 && p.containerMenu.getCarried().isEmpty() && CursorReservations.reserved(f.handle.cacheId(),0)==0,
+                    "Cancel materialized the remainder of a maid preview");
+            h.assertTrue(panelAction(p,CacheActions.Action.TAKE_INVENTORY,0,64,"")==CacheActions.Result.OK && f.stock()==0
+                    && p.getInventory().countItem(Items.BREAD)==8,"Maid shift destination was not the operating player's inventory");
+            var stone=ItemVariantKey.of(new ItemStack(Items.STONE),p.registryAccess());
+            h.assertTrue(panelAction(p,CacheActions.Action.SET_GHOST,1,0,stone.encoded())==CacheActions.Result.OK
+                    && panelAction(p,CacheActions.Action.CLEAR_FILTER,1,0,"")==CacheActions.Result.OK,"Maid filter edit or empty unbind failed");
+            view=CacheActions.snapshot(p);
+            h.assertTrue(CacheActions.settings(p,view.session(),List.of(new CacheActions.SettingsChange(0,
+                    f.record().state().cells().getFirst().filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(4,-1,64,128))))==CacheActions.Result.OK,
+                    "Maid supply settings failed");
+            var before=f.record();var edit=before.state().edit();edit.request(0,UUID.randomUUID(),f.maid.getUUID(),64,false);
+            f.ledger.replace(f.handle,before.state().revision(),before.withState(edit.finish()));
+            h.assertTrue(panelAction(p,CacheActions.Action.RESET_REQUEST,0,0,"")==CacheActions.Result.OK && f.record().state().pending(0)==0,
+                    "Maid manual request reset failed");
+            h.assertTrue(panelAction(p,CacheActions.Action.SET_RETURN_ADDRESS,-1,0,"elsewhere")==CacheActions.Result.INVALID_REQUEST
+                    && panelAction(p,CacheActions.Action.FILL_RECIPE,-1,0,"minecraft:bread")==CacheActions.Result.UNSUPPORTED_RECIPE,
+                    "Maid panel silently enabled returns or player recipe access");
+            TestPlayers.necklace(p).setStackInSlot(0,FmpRegistries.PENDANT.toStack());
+            var own=AccessGate.resolve(p).handle();
+            h.assertTrue(!own.cacheId().equals(f.handle.cacheId()) && CacheActions.snapshot(p).access().handle().equals(f.handle),
+                    "Player necklace stole the active maid panel");
+            CacheActions.close(p);p.containerMenu=p.inventoryMenu;
+            h.assertTrue(CacheActions.open(p).access().handle().equals(own),"Leaving the maid page did not restore the player's own cache");
+            CacheActions.close(p);h.succeed();
+        } finally {
+            CacheActions.close(p);
+            onlineOwners(p).remove(p.getUUID(),p);
+            h.getLevel().removePlayerImmediately(p, net.minecraft.world.entity.Entity.RemovalReason.DISCARDED);
+        }
+    }
+    private static void panelRevocation(GameTestHelper h) throws ReflectiveOperationException {
+        for(String condition:List.of("owner","distance","unwear","replace","menu","removed")) {
+            var f=setup(h,new ItemStack(Items.BREAD),8);var p=f.owner;
+            p.setPos(f.maid.position().add(1,0,0));
+            h.getLevel().addNewPlayer(p);
+            onlineOwners(p).put(p.getUUID(),p);
+            try {
+                h.assertTrue(f.maid.isOwnedBy(p), "Revocation fixture owner is not present in the native level");
+                p.containerMenu=panelMenu(p,f.maid,82);
+                var old=p.containerMenu;var view=CacheActions.open(p);
+                h.assertTrue(panelAction(p,CacheActions.Action.TAKE_CURSOR,0,4,"")==CacheActions.Result.OK,"Revocation preview unavailable");
+                switch(condition) {
+                    case "owner" -> f.maid.setOwnerUUID(UUID.randomUUID());
+                    case "distance" -> p.setPos(f.maid.position().add(30,0,0));
+                    case "unwear" -> CuriosApi.getCuriosInventory(f.maid).orElseThrow().getStacksHandler("necklace").orElseThrow().getStacks().setStackInSlot(0,ItemStack.EMPTY);
+                    case "replace" -> CuriosApi.getCuriosInventory(f.maid).orElseThrow().getStacksHandler("necklace").orElseThrow().getStacks().setStackInSlot(0,FmpRegistries.PENDANT.toStack());
+                    case "menu" -> p.containerMenu=p.inventoryMenu;
+                    case "removed" -> f.maid.discard();
+                }
+                CacheActions.validateOpenContext(p);
+                h.assertTrue(old.getCarried().isEmpty() && CursorReservations.reserved(f.handle.cacheId(),0)==0 && f.stock()==8,
+                        "Invalid maid context retained/materialized preview: "+condition);
+                var result=CacheActions.execute(p,new CacheActions.Intent(view.session(),view.record().state().revision(),
+                        CacheActions.Action.TAKE_INVENTORY,0,4,-1,""));
+                h.assertTrue(result!=CacheActions.Result.OK && f.stock()==8,"Stale maid command succeeded: "+condition);
+                CacheActions.close(p);
+            } finally {
+                CacheActions.close(p);
+                onlineOwners(p).remove(p.getUUID(),p);
+                h.getLevel().removePlayerImmediately(p, net.minecraft.world.entity.Entity.RemovalReason.DISCARDED);
+            }
+        }
+        h.succeed();
     }
     private static int find(Fixture f, Predicate<ItemStack> filter, int limit) throws ReflectiveOperationException {
         return (int) Class.forName("com.github.tartaricacid.touhoulittlemaid.util.ItemsUtil")

@@ -8,6 +8,7 @@ import dev.scathiard.feedmepackages.client.PanelLayout;
 import dev.scathiard.feedmepackages.client.SupplyCreativeScreen;
 import dev.scathiard.feedmepackages.client.SupplyInventoryScreen;
 import dev.scathiard.feedmepackages.domain.CacheDropTarget;
+import dev.scathiard.feedmepackages.compat.maid.MaidMenus;
 import dev.scathiard.feedmepackages.domain.CacheGrid;
 import dev.scathiard.feedmepackages.domain.CacheViewport;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
@@ -416,7 +417,23 @@ public final class LogisticsPanel {
     }
 
     private static boolean supported(Screen candidate) {
-        return candidate instanceof InventoryScreen || candidate instanceof CreativeModeInventoryScreen || candidate instanceof CraftingScreen;
+        return candidate instanceof InventoryScreen || candidate instanceof CreativeModeInventoryScreen || candidate instanceof CraftingScreen
+                || candidate instanceof AbstractContainerScreen<?> container && MaidMenus.supports(container.getMenu());
+    }
+
+    private static boolean maidPanel() { return screen != null && MaidMenus.supports(screen.getMenu()); }
+
+    /** Native maid pages have a left tab strip; reserve it as part of the host, not as free cache space. */
+    private static int panelAnchorX() {
+        int anchor = screen.getGuiLeft();
+        if (maidPanel()) {
+            for (var child : screen.children())
+                if (child instanceof AbstractWidget widget && widget.visible && widget.getX() < anchor
+                        && widget.getY() < screen.getGuiTop() + screen.getYSize()
+                        && widget.getY() + widget.getHeight() > screen.getGuiTop())
+                    anchor = widget.getX();
+        }
+        return anchor;
     }
 
     private static boolean current(Screen candidate) {
@@ -700,22 +717,23 @@ public final class LogisticsPanel {
             CellFeedback.clear();
             // Fully hidden: only the entry square exists, at the place the fold button had. The inventory screen
             // is deliberately NOT moved - the entry must not jump, and the layout keeps the same anchor.
-            layout = PanelLayout.hidden(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop(), grid, LogisticsPanel.bookOpen());
+            layout = PanelLayout.hidden(LogisticsPanel.screen.height, panelAnchorX(), screen.getGuiTop(), grid, LogisticsPanel.bookOpen());
             firstRow = 0;
             return;
         }
         int availableColumns = Math.max(2, (LogisticsPanel.screen.width - screen.getXSize() - 12 - 2 * PanelLayout.SIDE) / PanelLayout.ROW);
         int width = Math.min(PanelLayout.preferredWidth(CacheGrid.window(snapshot.totalSlots(), 0, 6)), availableColumns * PanelLayout.ROW + 2 * PanelLayout.SIDE);
-        if (!LogisticsPanel.bookOpen() && screen.getGuiLeft() < width + 8 && LogisticsPanel.screen.width >= screen.getXSize() + width + 12) {
-            LogisticsPanel.shiftScreenTo(width + 8);
+        if (!LogisticsPanel.bookOpen() && panelAnchorX() < width + 8
+                && LogisticsPanel.screen.width >= screen.getXSize() + (screen.getGuiLeft() - panelAnchorX()) + width + 12) {
+            LogisticsPanel.shiftScreenTo(screen.getGuiLeft() + width + 8 - panelAnchorX());
         }
-        int nextColumns = Math.clamp((screen.getGuiLeft() - (bookOpen() ? PanelLayout.BOOK_WIDTH : 0)
+        int nextColumns = Math.clamp((panelAnchorX() - (bookOpen() ? PanelLayout.BOOK_WIDTH : 0)
                 - PanelLayout.GAP - PanelLayout.MARGIN - 2 * PanelLayout.SIDE) / PanelLayout.ROW, 2, CacheViewport.COLUMNS);
         if (active() && nextColumns != requestedColumnLimit && preparePageChange()) {
             requestedColumnLimit = nextColumns; requestedFirstSlot = 0; firstRow = 0; queuedScrollRow = -1;
             clearPageSelection(); lastQuery = tick - 10;
         }
-        layout = PanelLayout.compute(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
+        layout = PanelLayout.compute(LogisticsPanel.screen.height, panelAnchorX(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
         int availableHeight = LogisticsPanel.screen.height - overlayBottomInset;
         for (GuiEventListener child : screen.children()) {
             if (!(child instanceof AbstractWidget)) continue;
@@ -726,7 +744,7 @@ public final class LogisticsPanel {
             availableHeight = Math.min(availableHeight, widget.getY() - 2);
         }
         if (availableHeight != LogisticsPanel.screen.height) {
-            layout = PanelLayout.compute(availableHeight, screen.getGuiLeft(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
+            layout = PanelLayout.compute(availableHeight, panelAnchorX(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
         }
         layout = layout.clampControls(LogisticsPanel.screen.width, LogisticsPanel.screen.height);
         firstRow = layout.firstRow();
@@ -737,10 +755,11 @@ public final class LogisticsPanel {
         int old = screen.getGuiLeft();
         if (old == next) return;
         int delta = next - old;
+        int hostLeft = panelAnchorX();
         ((ContainerScreenAccess)screen).fmp$setLeft(next);
         for (GuiEventListener child : screen.children()) {
             AbstractWidget widget;
-            if (!(child instanceof AbstractWidget) || (widget = (AbstractWidget)child).getX() < old || widget.getX() >= old + screen.getXSize() || followsMenuAnchor(widget)) continue;
+            if (!(child instanceof AbstractWidget) || (widget = (AbstractWidget)child).getX() < hostLeft || widget.getX() >= old + screen.getXSize() || followsMenuAnchor(widget)) continue;
             widget.setX(widget.getX() + delta);
         }
     }
@@ -832,11 +851,14 @@ public final class LogisticsPanel {
         LogisticsPanel.frame(g, b);
         PanelLayout.Rect copy = layout.address();
         String address = snapshot.address();
+        var maid = maidPanel() ? MaidMenus.target(screen.getMenu()) : null;
+        String caption = maid == null ? address : tr("maid_cache", maid.getName()).getString();
         int textWidth = copy.width() - 2;
-        String displayed = LogisticsPanel.MC.font.width(address) <= textWidth ? address : LogisticsPanel.MC.font.plainSubstrByWidth(address, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026";
+        String displayed = LogisticsPanel.MC.font.width(caption) <= textWidth ? caption : LogisticsPanel.MC.font.plainSubstrByWidth(caption, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026";
         LogisticsPanel.text(g, displayed, copy.x() + 1, copy.y() + 3, copy.contains(mouseX, mouseY) ? -9419222 : 0xFF000000);
         if (copy.contains(mouseX, mouseY)) {
-            tooltip = List.of(LogisticsPanel.tr("address", new Object[0]), Component.literal((String)address));
+            tooltip = maid == null ? List.of(tr("address"), Component.literal(address))
+                    : List.of(tr("maid_cache", maid.getName()), tr("address"), Component.literal(address));
         }
         if (!LogisticsPanel.active() || !snapshot.bound()) {
             LogisticsPanel.text(g, "!", x + 10, y + 20, -9352640);
@@ -1019,15 +1041,11 @@ public final class LogisticsPanel {
         }
         if (cell.writable() && !cell.template().isEmpty() && cell.minimum() >= 0 && cell.amount() < cell.minimum()) {
             int color = cell.pending() > 0 ? -8206747 : -7105653;
-            LogisticsPanel.overlay(g, x + 3, y + 1, 1, 3, color);
-            LogisticsPanel.overlay(g, x + 1, y + 3, 5, 1, color);
-            LogisticsPanel.overlay(g, x + 2, y + 4, 3, 1, color);
+            renderStatusArrow(g, x + 1, y + 1, color, false);
         }
         if (cell.writable() && !cell.template().isEmpty() && cell.maximum() >= 0 && cell.amount() > cell.maximum()) {
             int color = cell.returnState() == dev.scathiard.feedmepackages.logistics.ReturnService.RETURN_SENT ? -2058918 : -6909823;
-            LogisticsPanel.overlay(g, x + 1, y + 1, 5, 1, color);
-            LogisticsPanel.overlay(g, x + 2, y + 2, 3, 1, color);
-            LogisticsPanel.overlay(g, x + 3, y + 3, 1, 3, color);
+            renderStatusArrow(g, x + 1, y + 1, color, true);
         }
         if (hover && cell.writable() && !cell.template().isEmpty()) {
             LogisticsPanel.overlay(g, box.dot().x(), box.dot().y() + 1, 4, 4, -2047362);
@@ -1045,6 +1063,7 @@ public final class LogisticsPanel {
                 }
                 if (display == 0 && cell.reserved() > 0) tooltip.add(LogisticsPanel.tr("held_preview", new Object[0]));
             }
+            if (cell.writable() && !cell.template().isEmpty()) tooltip.add(tr("clear_filter_hint"));
             if (cell.fluid()) tooltip.add(tr("fluid_take"));
             if (cell.fluid() || cell.template().isEmpty()) tooltip.add(tr("fluid_deposit"));
             if (cell.amount() == 0 && TemplateBrowsers.available()) tooltip.add(tr("template_hint",ClientBootstrap.SELECT_TEMPLATE.getTranslatedKeyMessage()));
@@ -1148,6 +1167,10 @@ public final class LogisticsPanel {
         int w = r.width();
         int h = r.height();
         // Background and hook were drawn once by frame(); only live text goes here.
+        if (maidPanel()) {
+            if (r.contains(mouseX, mouseY)) tooltip = List.of(tr("maid_no_return"));
+            return;
+        }
         String value = returnEditing ? returnBuffer : (snapshot.returnAddress() == null ? "" : snapshot.returnAddress());
         int textWidth = Math.max(0, w - 12);
         boolean bl = placeholder = value.isEmpty() && !returnEditing;
@@ -1202,6 +1225,14 @@ public final class LogisticsPanel {
         g.pose().translate(0.0f, 0.0f, 190.0f);
         g.drawString(LogisticsPanel.MC.font, value, x, y, color, false);
         g.pose().popPose();
+    }
+
+    /** A complete 5x5 arrow, mirrored vertically without changing its item-overlay layer. */
+    private static void renderStatusArrow(GuiGraphics g, int x, int y, int color, boolean up) {
+        overlay(g, x + 2, up ? y : y + 4, 1, 1, color);
+        overlay(g, x + 1, up ? y + 1 : y + 3, 3, 1, color);
+        overlay(g, x, y + 2, 5, 1, color);
+        overlay(g, x + 2, up ? y + 3 : y, 1, 2, color);
     }
 
     private static void overlay(GuiGraphics g, int x, int y, int w, int h, int color) {
@@ -1416,6 +1447,7 @@ public final class LogisticsPanel {
             return true;
         }
         if (LogisticsPanel.active() && inputLayout.returnAddressContains(x, y)) {
+            if (maidPanel()) return true;
             returnEditing = true;
             returnBuffer = snapshot.returnAddress() == null ? "" : snapshot.returnAddress();
             return true;
@@ -1589,8 +1621,8 @@ public final class LogisticsPanel {
             if(!fluid && CellControlGeometry.field(layout.slider(),0).contains(x,y)) batch=CellControlDraft.wheel(batch,direction,step,1,nine,false);
             else if(!fluid && CellControlGeometry.field(layout.slider(),1).contains(x,y)) limit=CellControlDraft.wheel(limit,direction,step,1,nine,true);
             else if(CellControlGeometry.field(layout.slider(),2).contains(x,y)) {
-                lower=CellControlDraft.wheel(Math.max(0,lower),direction,step,0,upper<0?cap:upper,false); if(lower==0) lower=-1;
-            } else if(CellControlGeometry.field(layout.slider(),3).contains(x,y)) upper=CellControlDraft.wheel(upper,direction,step,Math.max(0,lower),cap,true);
+                lower=CellControlDraft.wheel(Math.max(0,lower),direction,step,0,upper<0?cap:upper,false,!fluid); if(lower==0) lower=-1;
+            } else if(CellControlGeometry.field(layout.slider(),3).contains(x,y)) upper=CellControlDraft.wheel(upper,direction,step,Math.max(0,lower),cap,true,!fluid);
             draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(lower,upper,batch,limit),tick);
             return true; // Includes wheel-at-boundary and the blank area: never scroll the backing grid.
         }

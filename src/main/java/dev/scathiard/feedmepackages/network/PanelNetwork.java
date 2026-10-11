@@ -144,7 +144,7 @@ public final class PanelNetwork {
                 false, t.disabled(), t.network() == null ? "" : t.network().toString())).toList();
         List<PanelPackets.CellView> cells = new ArrayList<>();
         String residualItem = "";
-        String returnAddress = access.active() && access.handle() != null
+        String returnAddress = !dev.scathiard.feedmepackages.interaction.PanelAccess.maid(player) && access.active() && access.handle() != null
                 ? dev.scathiard.feedmepackages.storage.CacheLedger.get(player.getServer()).returnAddress(access.handle().cacheId()) : null;
         if (record == null) window.closeFeedback();
         if (record != null) {
@@ -179,7 +179,7 @@ public final class PanelNetwork {
         return new PanelPackets.Snapshot(window.id, view.session(), ++window.serial, ack, result, access.status(),
                 record == null ? -1 : record.state().revision(), record == null ? 0 : record.state().level(),
                 record == null ? 0 : Math.multiplyExact(record.state().capacity().groups(),64), record != null && record.owner() != null,
-                view.cacheFirst(), access.active() && access.handle().networkId() != null, SupplyService.address(player),
+                view.cacheFirst(), access.active() && access.handle().networkId() != null, dev.scathiard.feedmepackages.interaction.PanelAccess.address(player),
                 returnAddress == null ? "" : returnAddress, residualItem, cells, terminals,
                 new PanelPackets.FluidPreviewView(fluid.slot(), fluid.template(), fluid.amount(), fluid.sequence()),
                 record==null?0:window.firstSlot,record==null?0:record.state().cells().size(),window.columnLimit);

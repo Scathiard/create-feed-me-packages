@@ -39,12 +39,12 @@ class PanelLayoutTest {
         }
     }
 
-    @Test void palletViewsKeepEveryTargetReachableAtSeveralGuiSizes() {
-        for (boolean spiral : new boolean[]{false, true}) for (int count : new int[]{0, 1, 40, 80, 4096})
+    @Test void palletGridKeepsEveryTargetReachableAtSeveralGuiSizes() {
+        for (int count : new int[]{0, 1, 40, 80, 4096})
             for (int[] size : new int[][]{{320,240},{427,240},{854,480},{1920,1080}}) {
                 java.util.Set<Integer> reached = new java.util.HashSet<>(); int first = 0;
                 while (true) {
-                    var view = dev.scathiard.feedmepackages.domain.PalletLayout.view(spiral,count,first,size[0],size[1]);
+                    var view = dev.scathiard.feedmepackages.domain.PalletLayout.grid(count,first,size[0],size[1]);
                     for (var tile : view.tiles()) {
                         assertTrue(tile.x() >= 0 && tile.x() + 24 <= size[0] && tile.y() >= 50 && tile.y() + 24 <= size[1] - 26);
                         assertTrue(tile.contains(tile.x()+12,tile.y()+12)); reached.add(tile.index());
@@ -58,16 +58,117 @@ class PanelLayoutTest {
             }
     }
 
+
+    @Test void spiralContinuesAcrossTurnsAndReversesWithoutPaging() {
+        var spiral = new dev.scathiard.feedmepackages.domain.PalletSpiral(100, 0);
+        double step = dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        spiral.move(100, 0, 15);
+        assertEquals(0, spiral.selected());
+        for (int i = 1; i <= 48; i++) {
+            spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100, 15);
+            assertEquals(i, spiral.selected(), "clockwise item " + i);
+        }
+        for (int i = 47; i >= 0; i--) {
+            spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100, 15);
+            assertEquals(i, spiral.selected(), "counterclockwise item " + i);
+        }
+    }
+    @Test void spiralIgnoresRadialMovementAndCenterCrossingWhileWrapping() {
+        var spiral = new dev.scathiard.feedmepackages.domain.PalletSpiral(40, 18);
+        spiral.move(100, 0, 15);
+        spiral.move(45, 0, 15);
+        assertEquals(18, spiral.selected());
+        spiral.move(-100, 0, 15);
+        assertEquals(18, spiral.selected(), "crossing the center cannot add half a turn");
+        spiral.move(0, 0, 15);
+        assertEquals(-1, spiral.selected(), "center release cancels");
+        spiral.move(0, 100, 15);
+        assertEquals(18, spiral.selected(), "leaving center only reanchors");
+        spiral.reset(3, 2);
+        spiral.move(100, 0, 15);
+        spiral.move(0, 100, 15);
+        assertEquals(0, spiral.selected());
+        double angle = Math.PI / 2 - dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        spiral.move(Math.cos(angle) * 100, Math.sin(angle) * 100, 15);
+        assertEquals(2, spiral.selected(), "reversing across the cyclic seam responds immediately");
+        spiral.reset(0, 0);
+        spiral.move(100, 0, 15);
+        assertEquals(-1, spiral.selected());
+    }
+    @Test void spiralLoopsBothDirectionsAndKeepsItsPhaseBounded() {
+        double step = dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        for (int count : new int[]{1,2,3,16,34,128}) {
+            var spiral = new dev.scathiard.feedmepackages.domain.PalletSpiral(count, 0);
+            spiral.move(100, 0, 15);
+            for (int i = 1; i <= count * 3 + 7; i++) {
+                spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100, 15);
+                assertEquals(i % count, spiral.selected(), "forward count=" + count + " step=" + i);
+                assertTrue(spiral.position() >= 0 && spiral.position() < count);
+            }
+            for (int i = count * 3 + 6; i >= -count * 2; i--) {
+                spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100, 15);
+                assertEquals(Math.floorMod(i, count), spiral.selected(), "reverse count=" + count + " step=" + i);
+                assertTrue(spiral.position() >= 0 && spiral.position() < count);
+            }
+        }
+    }
+    @Test void spiralDrawsAcrossTheHeadTailSeamAndRepeatsWithoutAnEmptyEnd() {
+        double step = dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        var first = dev.scathiard.feedmepackages.domain.PalletLayout.spiral(34, 0, 0, 854, 480);
+        assertTrue(first.tiles().stream().anyMatch(tile -> tile.index() == 33), "last item precedes first visually");
+        for (int lap : new int[]{-7,-1,1,9}) {
+            var next = dev.scathiard.feedmepackages.domain.PalletLayout.spiral(34, lap * 34, -lap * 34 * step, 854, 480);
+            assertEquals(first.tiles().size(), next.tiles().size());
+            for (int i = 0; i < first.tiles().size(); i++) {
+                var a = first.tiles().get(i); var b = next.tiles().get(i);
+                assertEquals(a.index(), b.index());
+                assertEquals(a.x(), b.x(), 1e-8); assertEquals(a.y(), b.y(), 1e-8);
+                assertEquals(a.size(), b.size(), 1e-8); assertEquals(a.opacity(), b.opacity(), 1e-8);
+            }
+        }
+    }
+    @Test void spiralLayoutKeepsTheCurrentIdentityVisibleAtEveryScaleAndTurn() {
+        for (int[] viewport : new int[][]{{320,240},{427,240},{854,480},{1920,1080}})
+            for (int index = 0; index < 128; index++) {
+                var view = dev.scathiard.feedmepackages.domain.PalletLayout.spiral(128, index + .1,
+                        .1, viewport[0], viewport[1]);
+                final int selected = index;
+                assertEquals(1, view.tiles().stream().filter(tile -> tile.current() && tile.index() == selected).count());
+                for (var tile : view.tiles()) {
+                    assertTrue(tile.index() >= 0 && tile.index() < 128);
+                    assertTrue(tile.x() - tile.size() / 2 >= 8 && tile.x() + tile.size() / 2 <= viewport[0] - 8);
+                    assertTrue(tile.y() - tile.size() / 2 >= 26 && tile.y() + tile.size() / 2 <= viewport[1] - 26);
+                    assertTrue(tile.opacity() > 0 && tile.opacity() <= 1);
+                }
+            }
+    }
+
     @Test void scrollingChangesExactItemsAndStopsAtNineStacksBeforeUnlimited() {
         for (int stack : new int[]{64,16,1}) {
             int max=9*stack;
             assertEquals(2,CellControlDraft.wheel(1,1,1,1,max,false));
-            assertEquals(1+stack,CellControlDraft.wheel(1,1,stack,1,max,false));
+            assertEquals(stack == 1 ? 2 : stack,CellControlDraft.wheel(1,1,stack,1,max,false));
             assertEquals(max,CellControlDraft.wheel(max-1,1,stack,1,max,true));
             assertEquals(-1,CellControlDraft.wheel(max,1,stack,1,max,true));
             assertEquals(max,CellControlDraft.wheel(-1,-1,stack,1,max,true));
             assertEquals(1,CellControlDraft.wheel(1,-1,stack,1,max,false));
         }
+    }
+    @Test void shiftScrollAlignsAlongTheDirectionBeforeSteppingWholeStacks() {
+        assertEquals(64, CellControlDraft.wheel(4, 1, 64, 0, 2048, false));
+        assertEquals(64, CellControlDraft.wheel(65, -1, 64, 0, 2048, false));
+        assertEquals(0, CellControlDraft.wheel(4, -1, 64, 0, 2048, false));
+        assertEquals(128, CellControlDraft.wheel(64, 1, 64, 0, 2048, false));
+        assertEquals(0, CellControlDraft.wheel(64, -1, 64, 0, 2048, false));
+        assertEquals(16, CellControlDraft.wheel(4, 1, 16, 0, 512, false));
+        assertEquals(16, CellControlDraft.wheel(17, -1, 16, 0, 512, false));
+        assertEquals(5, CellControlDraft.wheel(4, 1, 1, 0, 512, false));
+        assertEquals(65, CellControlDraft.wheel(70, -1, 64, 65, 2048, false));
+        assertEquals(70, CellControlDraft.wheel(65, 1, 64, 0, 70, false));
+    }
+    @Test void fluidWellsKeepTheirVolumeStepWithoutStackAlignment() {
+        assertEquals(8321, CellControlDraft.wheel(321, 1, 8000, 0, 32000, false, false));
+        assertEquals(321, CellControlDraft.wheel(8321, -1, 8000, 0, 32000, false, false));
     }
     @Test void newerDragIsNotRolledBackByInventorySnapshotsOrAnOlderAcknowledgement() {
         var initial=new dev.scathiard.feedmepackages.domain.CellSettings(64,512,1,-1);

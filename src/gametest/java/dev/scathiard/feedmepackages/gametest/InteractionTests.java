@@ -44,6 +44,7 @@ public final class InteractionTests {
         var pendant = TestPlayers.necklace(player).getStackInSlot(0); TestPlayers.necklace(player).setStackInSlot(0, ItemStack.EMPTY);
         var network = UUID.randomUUID(); pendant.set(FmpRegistries.NETWORK.get(), network); player.setItemInHand(InteractionHand.MAIN_HAND, pendant);
         player.setPos(helper.absoluteVec(new net.minecraft.world.phys.Vec3(2.5, 30, 2.5))); player.setXRot(0); player.xRotO = 0; player.setYRot(0); player.yRotO = 0;
+        player.setShiftKeyDown(true);
         var target = net.minecraft.core.BlockPos.containing(player.getEyePosition().add(0, 0, 2));
         helper.getLevel().setBlockAndUpdate(target, net.minecraft.world.level.block.Blocks.STONE.defaultBlockState());
         var ray = net.minecraft.world.item.Item.getPlayerPOVHitResult(helper.getLevel(), player, net.minecraft.world.level.ClipContext.Fluid.NONE);
@@ -55,6 +56,27 @@ public final class InteractionTests {
         helper.succeed();
     }
 
+    @GameTest(template = "empty")
+    public static void onlySneakAirUseClearsBindingAndNeverCache(GameTestHelper h) {
+        var f=ReceiveTests.setup(h,10); var p=f.player(); var before=f.record();
+        var pendant=TestPlayers.necklace(p).getStackInSlot(0);TestPlayers.necklace(p).setStackInSlot(0,ItemStack.EMPTY);
+        var network=UUID.randomUUID();pendant.set(FmpRegistries.NETWORK.get(),network);p.setItemInHand(InteractionHand.MAIN_HAND,pendant);
+        var expected=pendant.copy();expected.remove(FmpRegistries.NETWORK.get());
+        p.setPos(h.absoluteVec(new net.minecraft.world.phys.Vec3(2.5,30,2.5)));p.setYRot(0);p.setXRot(-90);
+        p.setShiftKeyDown(false);
+        h.assertTrue(p.gameMode.useItem(p,h.getLevel(),pendant,InteractionHand.MAIN_HAND)==net.minecraft.world.InteractionResult.PASS
+                && network.equals(pendant.get(FmpRegistries.NETWORK.get())),"Ordinary air use cleared the network");
+        p.setShiftKeyDown(true);p.setXRot(0);
+        var target=net.minecraft.world.entity.EntityType.ARMOR_STAND.create(h.getLevel());
+        target.setPos(p.position().add(0,0,2));h.getLevel().addFreshEntity(target);
+        h.assertTrue(pendant.getItem().use(h.getLevel(),p,InteractionHand.MAIN_HAND).getResult()==net.minecraft.world.InteractionResult.PASS
+                && network.equals(pendant.get(FmpRegistries.NETWORK.get())),"Entity aim was treated as air");target.discard();
+        p.setXRot(-90);
+        h.assertTrue(p.gameMode.useItem(p,h.getLevel(),pendant,InteractionHand.MAIN_HAND).consumesAction()
+                && !pendant.has(FmpRegistries.NETWORK.get()),"Sneak air use did not clear the binding");
+        h.assertTrue(ItemStack.isSameItemSameComponents(expected,pendant) && f.record()==before,"Clearing a network altered cache identity or inventory");
+        h.succeed();
+    }
     @GameTest(template = "empty")
     public static void curioEquipRejectsSecondPendantBeforeCreatingAnyCache(GameTestHelper helper) {
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
@@ -143,17 +165,19 @@ public final class InteractionTests {
                 var behavior = com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour.get(helper.getLevel(), absolute,
                         com.simibubi.create.content.logistics.packagerLink.LogisticallyLinkedBehaviour.TYPE);
                 helper.assertTrue(behavior != null, "Native fixture does not expose a logistics network behavior");
-                var context = new net.minecraft.world.item.context.UseOnContext(f.player(), InteractionHand.MAIN_HAND,
-                        new net.minecraft.world.phys.BlockHitResult(net.minecraft.world.phys.Vec3.atCenterOf(absolute), net.minecraft.core.Direction.UP, absolute, false));
-                f.player().setShiftKeyDown(false);
-                helper.assertTrue(pendant.getItem().useOn(context) == net.minecraft.world.InteractionResult.PASS
-                        && java.util.Objects.equals(prior, pendant.get(FmpRegistries.NETWORK.get())), "Non-sneaking use changed network binding");
+                var hit = new net.minecraft.world.phys.BlockHitResult(net.minecraft.world.phys.Vec3.atCenterOf(absolute), net.minecraft.core.Direction.UP, absolute, false);
+                var context = new net.minecraft.world.item.context.UseOnContext(f.player(), InteractionHand.MAIN_HAND, hit);
                 f.player().setShiftKeyDown(true);
-                helper.assertTrue(pendant.getItem().useOn(context).consumesAction() && behavior.freqId.equals(pendant.get(FmpRegistries.NETWORK.get())),
-                        "Sneaking use did not bind the actual device network");
+                helper.assertTrue(pendant.getItem().useOn(context) == net.minecraft.world.InteractionResult.PASS
+                        && java.util.Objects.equals(prior, pendant.get(FmpRegistries.NETWORK.get())), "Sneaking device use changed network binding");
+                f.player().setShiftKeyDown(false);
+                helper.assertTrue(f.player().gameMode.useItemOn(f.player(), helper.getLevel(), pendant, InteractionHand.MAIN_HAND, hit).consumesAction()
+                        && behavior.freqId.equals(pendant.get(FmpRegistries.NETWORK.get())) && f.player().containerMenu == f.player().inventoryMenu,
+                        "Ordinary device use did not bind before opening its menu");
                 helper.assertTrue(pendant.hasFoil() && !pendant.isEnchanted(), "Network binding did not derive its foil without adding enchantments");
                 prior = behavior.freqId;
             }
+            f.player().setShiftKeyDown(true);
             f.player().setXRot(-90); f.player().xRotO = -90;
             f.player().setPos(helper.absoluteVec(new net.minecraft.world.phys.Vec3(2, 40, 2)));
             var airUse = pendant.getItem().use(helper.getLevel(), f.player(), InteractionHand.MAIN_HAND).getResult();

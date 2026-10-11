@@ -234,7 +234,7 @@ public final class CursorReservations {
     public static void validate(ServerPlayer player) {
         Hold hold = HOLDS.get(player);
         if (hold == null || hold.clicking) return;
-        AccessGate.Result access = AccessGate.resolve(player);
+        AccessGate.Result access = PanelAccess.resolve(player);
         CacheRecord record = CacheLedger.get(player.getServer()).find(hold.handle.cacheId());
         if (hold.creative && !player.getAbilities().instabuild || !access.active() || !hold.handle.equals(access.handle()) || hold.menu.get() != player.containerMenu
                 || record == null || hold.slot >= record.state().cells().size()

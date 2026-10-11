@@ -49,11 +49,20 @@ public final class CellControlDraft {
             value = new CellSettings(value.lower(), value.upper(), current.batch(), current.pendingLimit());
     }
 
-    /** Shift changes only the step, never rounds to a stack boundary. */
+    /** Item scrolls align along their direction; a full stack step follows an aligned value. */
     public static int wheel(int value, int direction, int step, int min, int max, boolean unlimited) {
+        return wheel(value, direction, step, min, max, unlimited, true);
+    }
+    /** Fluid wells keep their existing fixed-volume step, without item-stack alignment. */
+    public static int wheel(int value, int direction, int step, int min, int max, boolean unlimited, boolean align) {
+        if (step < 1 || min > max) throw new IllegalArgumentException("Invalid numeric well");
         if (direction == 0) return value;
         if (unlimited && value == -1) return direction < 0 ? max : -1;
         if (unlimited && value == max && direction > 0) return -1;
-        return (int) Math.clamp((long) value + (direction > 0 ? step : -step), min, max);
+        long next = align
+                ? (direction > 0 ? Math.floorDiv((long) value, step) + 1
+                                 : Math.floorDiv((long) value - 1, step)) * step
+                : (long) value + (direction > 0 ? step : -step);
+        return (int) Math.clamp(next, min, max);
     }
 }
