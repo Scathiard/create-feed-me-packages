@@ -12,7 +12,16 @@ def referenceOutput = new File(referenceRoot, 'v0.3.0-converged')
 layout.buildDirectory = new File(referenceOutput, 'build-output')
 def runProfile = "neo${project.neo_version}" + (project.hasProperty('withCouriers') ? '-paper' : '') +
         (project.hasProperty('withMobile') ? '-mobile' : '') +
+        (project.hasProperty('withPhantom') ? '-phantom102' : '') +
         (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-converged1'
+if (project.hasProperty('fmpPhantomReview')) {
+    if (!project.hasProperty('withPhantom')) throw new GradleException('Phantom review requires the locked official transport JAR')
+    runProfile += '-phantom-review'
+}
+if (project.hasProperty('fmpPhantomPublished')) {
+    if (!project.hasProperty('fmpPhantomReview') || project.hasProperty('fmpPackaged')) throw new GradleException('Published transport probe requires its isolated review profile')
+    runProfile += '-released023'
+}
 if (project.hasProperty('fmpLegacyWorldReview')) runProfile += '-legacy023'
 if (project.hasProperty('fmpPackaged')) {
     if (project.hasProperty('fmpGameTests') || project.hasProperty('fmpClientReview')) throw new GradleException('Packaged verification cannot load development test sources')
@@ -90,6 +99,15 @@ dependencies {
     if (project.hasProperty('withCouriers')) {
         localRuntime files('../../../reference-build-safe/research/transports/2.3.0/cmpackagecouriers-neoforge-2.3.0.jar')
     }
+    if (project.hasProperty('withPhantom')) {
+        def phantom = new File(referenceOutput, 'phantom-compat/createphantom-1.0.2.jar')
+        if (!phantom.isFile()) throw new GradleException('Missing locked Create Phantom 1.0.2 research input')
+        localRuntime files(phantom)
+    }
+    if (project.hasProperty('fmpPhantomPublished')) {
+        localRuntime files('../../../release/stable/v0.2.3/create-feed-me-packages-0.2.3.jar')
+        localRuntime files(new File(referenceOutput, 'phantom-compat/fmp-phantom-test-probe.jar'))
+    }
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
@@ -108,7 +126,7 @@ neoForge {
     runs {
         configureEach {
             systemProperty 'forge.logging.markers', 'REGISTRIES'
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.hasProperty('fmpLegacyWorldReview') ? 'fmp_legacy_migration' : project.mod_id
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.hasProperty('fmpPhantomReview') ? 'fmp_phantom_compat' : (project.hasProperty('fmpLegacyWorldReview') ? 'fmp_legacy_migration' : project.mod_id + (project.hasProperty('withPhantom') ? ',fmp_phantom_compat' : ''))
             logLevel = org.slf4j.event.Level.INFO
             jvmArgument '-Xmx2G'
         }
@@ -138,7 +156,7 @@ neoForge {
         }
     }
 
-    if (!project.hasProperty('fmpPackaged')) {
+    if (!project.hasProperty('fmpPackaged') && !project.hasProperty('fmpPhantomPublished')) {
         mods {
             "${mod_id}" {
                 sourceSet sourceSets.main
@@ -148,15 +166,55 @@ neoForge {
     }
 }
 
+// A test-only mod loads alongside the untouched release JAR. No FMP production classes are copied.
+def phantomProbeMetadata = tasks.register('phantomProbeMetadata') {
+    def metadata = layout.buildDirectory.file('generated/phantom-probe/META-INF/neoforge.mods.toml')
+    outputs.file(metadata)
+    doLast {
+        def target = metadata.get().asFile
+        target.parentFile.mkdirs()
+        target.text = '''modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="fmp_phantom_probe"
+version="1"
+displayName="FMP isolated Phantom compatibility probe"
+'''
+    }
+}
+tasks.register('phantomProbeJar', Jar) {
+    dependsOn tasks.named('gameTestClasses'), phantomProbeMetadata
+    archiveFileName = 'fmp-phantom-test-probe.jar'
+    destinationDirectory = new File(referenceOutput, 'phantom-compat')
+    from(sourceSets.gameTest.output) {
+        include 'dev/scathiard/feedmepackages/gametest/PhantomCompatibilityTests*.class'
+        include 'dev/scathiard/feedmepackages/gametest/ReceiveTests*.class'
+        include 'dev/scathiard/feedmepackages/gametest/SupplyTests*.class'
+        include 'dev/scathiard/feedmepackages/gametest/TestPlayers*.class'
+        include 'data/fmp_phantom_compat/structure/empty.nbt'
+    }
+    from(layout.buildDirectory.dir('generated/phantom-probe'))
+}
+if (project.hasProperty('fmpPhantomPublished')) {
+    tasks.named('runGameTestServer').configure { dependsOn tasks.named('phantomProbeJar') }
+}
+
 tasks.named('test', Test).configure {
     useJUnitPlatform()
+}
+
+tasks.named('processGameTestResources', ProcessResources).configure {
+    from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') {
+        into 'data/fmp_phantom_compat/structure'
+    }
 }
 
 tasks.named('runServer', JavaExec).configure {
     standardInput = System.in
 }
 
-if (project.hasProperty('fmpPackaged')) {
+if (project.hasProperty('fmpPackaged') || project.hasProperty('fmpPhantomPublished')) {
     tasks.withType(net.neoforged.moddevgradle.internal.RunGameTask).configureEach {
         def sourceOutputs = sourceSets.main.output.files
         // Snapshot the input providers before replacing the collection, avoiding a self-referential filter.
@@ -165,7 +223,8 @@ if (project.hasProperty('fmpPackaged')) {
         setClasspath(project.files(classpath.files.findAll { !sourceOutputs.contains(it) }))
         doFirst {
             def paths = classpathProvider.files + classpath.files
-            def artifacts = paths.findAll { it.name == "create-feed-me-packages-${project.version}.jar" }
+            def expectedVersion = project.hasProperty('fmpPhantomPublished') ? '0.2.3' : project.version
+            def artifacts = paths.findAll { it.name == "create-feed-me-packages-${expectedVersion}.jar" }
             if (paths.any { sourceOutputs.contains(it) } || artifacts.size() != 1) throw new GradleException('Packaged run contains development outputs or lacks its single main JAR')
             println "FMP_PACKAGED_SOURCE jar=${artifacts.first()} developmentOutputs=0"
         }
