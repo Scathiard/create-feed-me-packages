@@ -54,8 +54,16 @@ public final class UiClientReview {
             case 12 -> {
                 if (!panelReady()) return false;
                 TemplateClientReview.capture("ui-pendant-icon-zh");
-                return true;
+                resize(854, 480);
+                next();
             }
+            case 13 -> {
+                if (!panelReady()) return false;
+                TemplateClientReview.capture("ui-panel-narrow-zh");
+                resize(1280, 800);
+                next();
+            }
+            case 14 -> { return true; }
             default -> { }
         }
         return false;
@@ -73,6 +81,12 @@ public final class UiClientReview {
     private static void openInventory() {
         MC.setScreen(new InventoryScreen(MC.player));
         next();
+    }
+
+    /** Window resize is how the panel's own narrow behaviour is exercised without touching the shipped code. */
+    private static void resize(int width, int height) {
+        org.lwjgl.glfw.GLFW.glfwSetWindowSize(MC.getWindow().getWindow(), width, height);
+        MC.resizeDisplay();
     }
 
     private static void openControls() {

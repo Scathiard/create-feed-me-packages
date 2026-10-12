@@ -160,7 +160,8 @@ public final class ReturnService {
         OPERATING.add(handle.cacheId());
         try {
             result = carrierItem == CARD ? TransportDispatch.paperPlane((ServerLevel)bearer.level(), box.copy(), bearer.position())
-                    : carrierItem == BEE ? TransportDispatch.bee((ServerLevel)bearer.level(), box.copy(), bearer.blockPosition(), handle.networkId())
+                    : carrierItem == BEE ? TransportDispatch.bee((ServerLevel)bearer.level(), box.copy(), bearer.blockPosition(), handle.networkId(),
+                            bearer instanceof TamableAnimal pet && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(pet) ? pet.getUUID() : null)
                     : dev.scathiard.feedmepackages.compat.PhantomDispatch.send((ServerPlayer)bearer, box.copy());
         } finally { OPERATING.remove(handle.cacheId()); }
         if (result.outcome() == TransportDispatch.Outcome.SENT) {

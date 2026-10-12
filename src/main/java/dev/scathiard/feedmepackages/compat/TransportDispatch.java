@@ -40,10 +40,17 @@ public final class TransportDispatch {
         }
     }
 
+    public static Result bee(ServerLevel level, ItemStack box, BlockPos spawnPos, java.util.UUID network) {
+        return bee(level, box, spawnPos, network, null);
+    }
+
     /** Try to send a package with a transport bee. dispatched=true means native transport accepted it.
      *  Supply the cache's actual network for native address lookup; fallback and later target reselection
-     *  remain the transport mod's responsibility. */
-    public static Result bee(ServerLevel level, ItemStack box, BlockPos spawnPos, java.util.UUID network) {
+     *  remain the transport mod's responsibility. {@code maidReturn} records the maid this bee must fly back to
+     *  once its cargo is gone (see {@link dev.scathiard.feedmepackages.compat.maid.MaidReturn}); null for a player
+     *  cache, where the native player target already owns the return leg. */
+    public static Result bee(ServerLevel level, ItemStack box, BlockPos spawnPos, java.util.UUID network,
+            java.util.UUID maidReturn) {
         boolean entered = false;
         try {
             if (!present("de.theidler.create_mobile_packages.robo.RoboManager")) return Result.known(false, "bee");
@@ -64,8 +71,12 @@ public final class TransportDispatch {
                     float.class, BlockPos.class, boolean.class);
             entered = true;
             Object uuid = newRobo.invoke(manager, level, box, spawnPos, network, 0f, null, false);
-            return uuid instanceof java.util.UUID ? Result.known(true, "bee")
-                    : new Result(Outcome.UNCERTAIN, "bee", new IllegalStateException("Unexpected native bee receipt"));
+            if (uuid instanceof java.util.UUID id) {
+                // Recorded only after the native call returned: an entity that was never created gets no record.
+                dev.scathiard.feedmepackages.compat.maid.MaidReturn.register(id, maidReturn);
+                return Result.known(true, "bee");
+            }
+            return new Result(Outcome.UNCERTAIN, "bee", new IllegalStateException("Unexpected native bee receipt"));
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             return failed(entered, "bee", failure);
         }

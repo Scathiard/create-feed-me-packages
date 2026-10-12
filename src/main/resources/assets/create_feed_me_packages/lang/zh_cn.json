@@ -108,6 +108,7 @@
   "message.create_feed_me_packages.collect": "已收 %s 件",
   "message.create_feed_me_packages.collect_above_maximum": "已收 %s 件；其中 %s 件超过退货上限，将按退货设置处理",
   "message.create_feed_me_packages.maid_package_no_filter": "女仆的缓存没有匹配这批内容物的过滤，包裹未拆。",
+  "message.create_feed_me_packages.bee_return_full": "运输蜂已飞回女仆，但她的物品栏与缓存都放不下，蜂将按原生规则返回蜂港。",
   "gui.create_feed_me_packages.controls.batch": "单次补货量下限",
   "gui.create_feed_me_packages.controls.limit": "在途数量上限",
   "gui.create_feed_me_packages.controls.lower": "低于此数量时补货",

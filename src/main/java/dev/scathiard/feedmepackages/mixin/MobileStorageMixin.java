@@ -12,12 +12,29 @@ import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /** Only supplies the context used by Mobile's own writer; ordinary carriers keep native decoding. */
 @Pseudo
 @Mixin(targets = "de.theidler.create_mobile_packages.robo.VirtualRobo", remap = false)
 public abstract class MobileStorageMixin {
+    /**
+     * The maid a bee must return to rides in the robo's <b>own</b> tag (user 2026-10-13, plan B): the parcel seal is
+     * gone once the cargo is delivered, and this way the record needs no side table, no cleanup rule and survives a
+     * restart with the entity it belongs to.
+     */
+    @Inject(method = "serializeNBT", at = @At("RETURN"), remap = false)
+    private void fmp$writeMaidReturn(CallbackInfoReturnable<CompoundTag> cir) {
+        dev.scathiard.feedmepackages.compat.maid.MaidReturn.writeReturn(this, cir.getReturnValue());
+    }
+
+    @Inject(method = "deserializeNBT", at = @At("RETURN"), remap = false)
+    private static void fmp$readMaidReturn(ServerLevel level, CompoundTag roboTag, CallbackInfoReturnable<Object> cir) {
+        dev.scathiard.feedmepackages.compat.maid.MaidReturn.readReturn(cir.getReturnValue(), roboTag);
+    }
+
     @Redirect(method = "deserializeNBT", at = @At(value = "INVOKE",
             target = "Lcom/mojang/serialization/Codec;parse(Lcom/mojang/serialization/DynamicOps;Ljava/lang/Object;)Lcom/mojang/serialization/DataResult;"), remap = false)
     private static <T> DataResult<?> fmp$registryContext(Codec<?> codec, DynamicOps<T> ops, T input,

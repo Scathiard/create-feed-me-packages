@@ -904,9 +904,16 @@ public final class LogisticsPanel {
         String address = snapshot.address();
         var maid = maidPanel() ? MaidMenus.target(screen.getMenu()) : null;
         String caption = maid == null ? address : tr("maid_cache", maid.getName()).getString();
-        int textWidth = copy.width() - 2;
+        // Address-row level (user 2026-10-13, final): read-only and right-aligned, and the only place it is drawn -
+        // the footer badge of the previous iteration was withdrawn. The address shortens instead of overlapping it.
+        String level = snapshot.level() > 0 ? LogisticsPanel.tr("level", snapshot.level()).getString() : "";
+        int levelWidth = level.isEmpty() ? 0 : LogisticsPanel.MC.font.width(level) + 4;
+        int textWidth = copy.width() - 2 - levelWidth;
         String displayed = LogisticsPanel.MC.font.width(caption) <= textWidth ? caption : LogisticsPanel.MC.font.plainSubstrByWidth(caption, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026";
         LogisticsPanel.text(g, displayed, copy.x() + 1, copy.y() + 3, copy.contains(mouseX, mouseY) ? -9419222 : 0xFF000000);
+        if (!level.isEmpty())
+            LogisticsPanel.text(g, level, copy.x() + copy.width() - levelWidth + 4, copy.y() + 3,
+                    copy.contains(mouseX, mouseY) ? -9419222 : 0xFF000000);
         if (copy.contains(mouseX, mouseY)) {
             tooltip = maid == null ? List.of(tr("address"), Component.literal(address))
                     : List.of(tr("maid_cache", maid.getName()), tr("address"), Component.literal(address));
@@ -952,13 +959,6 @@ public final class LogisticsPanel {
             g.fill(rail.x(), rail.y() + offset, rail.x() + rail.width(), rail.y() + offset + thumb, -4152474);
         }
         if (!layout.compact()) {
-            // The cache level is the panel's own badge, not part of the copyable address: it sits in the free
-            // left half of the bottom band - clearly apart from the copyable ID above and the buttons right.
-            if (snapshot.level() > 0) {
-                PanelLayout.Rect badge = layout.footerLabel();
-                LogisticsPanel.text(g, LogisticsPanel.tr("level", snapshot.level()).getString(),
-                        badge.x(), badge.y() + 3, 0xFF000000);
-            }
             LogisticsPanel.renderTransferButton(g);
             LogisticsPanel.renderFoldButton(g);
         }

@@ -14,6 +14,7 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.*;
 import net.minecraft.network.chat.Component;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -70,6 +71,12 @@ public final class MaidTests {
             tests.add(test("bee_pickup_return", h -> pickupReturn(h, true)));
             tests.add(test("bee_direct_flight", h -> flight(h, true, false)));
             tests.add(test("bee_swapped_in_flight", h -> flight(h, true, true)));
+            // Transport bee return to its maid (plan B, user 2026-10-13).
+            tests.add(test("bee_return_home", MaidTests::beeReturnHome));
+            tests.add(test("bee_return_unreachable", MaidTests::beeReturnUnreachable));
+            tests.add(test("bee_return_tag_roundtrip", MaidTests::beeReturnTagRoundtrip));
+            tests.add(test("bee_return_no_record_native", MaidTests::beeReturnNoRecordLeavesNative));
+            tests.add(test("bee_return_item_guard", MaidTests::beeReturnItemGuard));
         }
         return tests;
     }
@@ -103,6 +110,117 @@ public final class MaidTests {
         return new Fixture(owner, maid, CacheLedger.get(h.getLevel().getServer()), access.handle(), pendant,
                 ItemVariantKey.of(item, maid.registryAccess()));
     }
+    // ---------------------------------------------------------------------------------------------------
+    // Transport bee return to its maid (plan B, user 2026-10-13). The mobile classes are runtime-only inputs,
+    // so they are reached reflectively here exactly like the production seam does.
+    // ---------------------------------------------------------------------------------------------------
+    private static final String BEE_MANAGER = "de.theidler.create_mobile_packages.robo.RoboManager";
+    private static final String BEE_ROBO = "de.theidler.create_mobile_packages.robo.VirtualRobo";
+
+    private static Object beeManager(GameTestHelper h) throws ReflectiveOperationException {
+        return Class.forName(BEE_MANAGER).getMethod("get", ServerLevel.class).invoke(null, h.getLevel());
+    }
+    /** A real native robo, created the same way a dispatch creates one, and returned as its live object. */
+    private static Object beeRobo(GameTestHelper h, Object manager, ItemStack cargo, BlockPos spawn) throws ReflectiveOperationException {
+        UUID id = (UUID) Class.forName(BEE_MANAGER)
+                .getMethod("newRobo", ServerLevel.class, ItemStack.class, BlockPos.class, UUID.class, float.class, BlockPos.class, boolean.class)
+                .invoke(manager, h.getLevel(), cargo, spawn, UUID.randomUUID(), 0f, null, false);
+        return Class.forName(BEE_MANAGER).getMethod("get", UUID.class).invoke(manager, id);
+    }
+    private static UUID beeId(Object robo) throws ReflectiveOperationException {
+        return (UUID) robo.getClass().getMethod("getId").invoke(robo);
+    }
+    private static boolean beePresent(Object manager, UUID id) throws ReflectiveOperationException {
+        return Class.forName(BEE_MANAGER).getMethod("get", UUID.class).invoke(manager, id) != null;
+    }
+    /** Park the bee exactly where the arrival test needs it: her eye level, i.e. position + 2. */
+    private static void beeParkAt(Object robo, TamableAnimal maid) throws ReflectiveOperationException {
+        robo.getClass().getMethod("setPos", Vec3.class).invoke(robo, maid.position().add(0, 2, 0));
+    }
+    private static net.minecraft.world.item.Item beeItem() throws ReflectiveOperationException {
+        Object entry = Class.forName("de.theidler.create_mobile_packages.index.CMPItems").getField("ROBO_BEE").get(null);
+        return (net.minecraft.world.item.Item) entry.getClass().getMethod("get").invoke(entry);
+    }
+
+    /** a + f: the bee comes home, the carrier lands in her own inventory, the bee is removed, and twice is once. */
+    private static void beeReturnHome(GameTestHelper h) throws ReflectiveOperationException {
+        var f = setup(h, new ItemStack(Items.STONE), 0);
+        h.assertTrue(MaidCouriers.beeReady(), "Native transport bee endpoint unavailable");
+        var manager = beeManager(h);
+        var robo = beeRobo(h, manager, ItemStack.EMPTY, f.maid.blockPosition());
+        h.assertTrue(robo != null, "Native robo was not created");
+        beeParkAt(robo, f.maid);
+        var id = beeId(robo);
+        MaidReturn.register(id, f.maid.getUUID());
+        h.assertTrue(MaidCouriers.beeTarget(robo), "An empty bee with a return record must target its maid");
+        var before = count(MaidCompatibility.inventory(f.maid), new ItemStack(beeItem()));
+        MaidCouriers.beeArrive(robo);
+        h.assertTrue(count(MaidCompatibility.inventory(f.maid), new ItemStack(beeItem())) == before + 1,
+                "The returning bee did not hand its item to the maid's inventory");
+        h.assertTrue(!beePresent(manager, id), "The returned bee was not removed");
+        MaidCouriers.beeArrive(robo);   // f: the hook is a HEAD injection, so a second call must not hand it over again
+        h.assertTrue(count(MaidCompatibility.inventory(f.maid), new ItemStack(beeItem())) == before + 1,
+                "A repeated arrival handed the carrier over twice");
+        h.succeed();
+    }
+
+    /** b: unreachable maid (death here; dimension/unload are not producible in this fixture) => native chain owns it. */
+    private static void beeReturnUnreachable(GameTestHelper h) throws ReflectiveOperationException {
+        var f = setup(h, new ItemStack(Items.STONE), 0);
+        h.assertTrue(MaidCouriers.beeReady(), "Native transport bee endpoint unavailable");
+        var manager = beeManager(h);
+        var robo = beeRobo(h, manager, ItemStack.EMPTY, f.maid.blockPosition());
+        beeParkAt(robo, f.maid);
+        MaidReturn.register(beeId(robo), f.maid.getUUID());
+        h.assertTrue(MaidReturn.reachable(f.maid, h.getLevel()), "A live in-level maid must be reachable");
+        h.assertTrue(MaidCouriers.beeTarget(robo), "A reachable maid must become the target");
+        f.maid.kill();
+        h.assertTrue(!MaidReturn.reachable(f.maid, h.getLevel()), "A dead maid must not be reachable");
+        h.assertTrue(MaidReturn.find(h.getLevel(), f.maid.getUUID()) == null, "A dead maid must not be found");
+        h.assertTrue(!MaidCouriers.beeTarget(robo), "An unreachable maid must not be targeted - the native chain takes over");
+        h.assertTrue(MaidReturn.maid(beeId(robo)) != null, "The return record must not expire while she is away");
+        h.succeed();
+    }
+
+    /** c: the record rides in the robo's own tag, so a save/reload keeps the same maid. */
+    private static void beeReturnTagRoundtrip(GameTestHelper h) throws ReflectiveOperationException {
+        var f = setup(h, new ItemStack(Items.STONE), 0);
+        var manager = beeManager(h);
+        var robo = beeRobo(h, manager, ItemStack.EMPTY, f.maid.blockPosition());
+        var id = beeId(robo);
+        MaidReturn.register(id, f.maid.getUUID());
+        var tag = (CompoundTag) robo.getClass().getMethod("serializeNBT").invoke(robo);
+        h.assertTrue(tag.hasUUID(MaidReturn.TAG), "The robo tag did not carry the FMP return key");
+        h.assertTrue(f.maid.getUUID().equals(tag.getUUID(MaidReturn.TAG)), "The robo tag names the wrong maid");
+        MaidReturn.forget(id);
+        h.assertTrue(MaidReturn.maid(id) == null, "forget did not clear the record");
+        var restored = Class.forName(BEE_ROBO).getMethod("deserializeNBT", ServerLevel.class, CompoundTag.class)
+                .invoke(null, h.getLevel(), tag);
+        h.assertTrue(f.maid.getUUID().equals(MaidReturn.maid(beeId(restored))),
+                "A reload did not restore the return record for the same maid");
+        h.succeed();
+    }
+
+    /** d: a bee without an FMP record keeps exactly the native target chain (ports own the return leg). */
+    private static void beeReturnNoRecordLeavesNative(GameTestHelper h) throws ReflectiveOperationException {
+        var f = setup(h, new ItemStack(Items.STONE), 0);
+        h.assertTrue(MaidCouriers.beeReady(), "Native transport bee endpoint unavailable");
+        var manager = beeManager(h);
+        var robo = beeRobo(h, manager, ItemStack.EMPTY, f.maid.blockPosition());
+        beeParkAt(robo, f.maid);
+        h.assertTrue(!MaidCouriers.beeTarget(robo), "A bee without an FMP record must stay on the native chain");
+        h.succeed();
+    }
+
+    /** e: the loss guard itself - a return may never end without a carrier item to hand over. */
+    private static void beeReturnItemGuard(GameTestHelper h) {
+        h.assertTrue(!ReturnDecision.mayEnd(true, true, false), "A return must not end without a resolvable carrier item");
+        h.assertTrue(!ReturnDecision.mayEnd(true, false, true), "A return must not end while the maid is unreachable");
+        h.assertTrue(!ReturnDecision.mayEnd(false, true, true), "A bee without a record is not ours to end");
+        h.assertTrue(ReturnDecision.mayEnd(true, true, true), "All three conditions must allow the return to end");
+        h.succeed();
+    }
+
     private static net.minecraft.world.inventory.AbstractContainerMenu panelMenu(ServerPlayer player, TamableAnimal maid, int id) throws ReflectiveOperationException {
         return (net.minecraft.world.inventory.AbstractContainerMenu)Class.forName(
                 "com.github.tartaricacid.touhoulittlemaid.compat.curios.menu.CuriosContainer")

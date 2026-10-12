@@ -158,6 +158,17 @@ public final class MaidCompatibility {
         } catch (ReflectiveOperationException broken) { throw failure(broken); }
         SupplyService.tick(MaidAccess.endpoint(maid));
     }
+    /** Give one stack back to the maid's own inventory; false when it did not fit entirely. */
+    public static boolean insertInto(LivingEntity maid, ItemStack stack) {
+        if (!ready || !isMaid(maid) || stack.isEmpty()) return false;
+        try {
+            var available = (IItemHandlerModifiable) availableInventory.invoke(maid, true);
+            ItemStack rest = stack.copy();
+            for (int slot = 0; slot < available.getSlots() && !rest.isEmpty(); slot++)
+                rest = available.insertItem(slot, rest, false);
+            return rest.isEmpty();
+        } catch (ReflectiveOperationException broken) { throw failure(broken); }
+    }
     static RuntimeException failure(ReflectiveOperationException problem) {
         Throwable cause = problem instanceof InvocationTargetException wrapped ? wrapped.getCause() : problem;
         if (cause instanceof Error error) throw error;

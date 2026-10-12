@@ -30,7 +30,10 @@ public final class MaidCouriers {
                          Method position, Method dimension, Field entity, Field targetPosition, Field targetDimension) {}
     private record Bee(Class<?> targetType, Method level, Method address, Method box, Method network,
                        Method getTarget, Field target, Method position, Method setBox, Method invalidate,
-                       Method members, Method inRange, Method portNetwork, Method sendDrone) {}
+                       Method members, Method inRange, Method portNetwork, Method sendDrone,
+                       Method id, Method setRemoved) {}
+    /** The native bee carrier item, handed back to the maid when her bee comes home. */
+    private static ItemStack beeItem = ItemStack.EMPTY;
     public static void initialize() {
         if (initialized) return; initialized = true;
         if (ModList.get().isLoaded("cmpackagecouriers")) try {
@@ -50,14 +53,20 @@ public final class MaidCouriers {
             var send = port.getDeclaredMethod("sendDrone", ItemStack.class, int.class); send.setAccessible(true);
             // Load the delivery controller too, so all required mixin ports have been applied before enabling.
             Class.forName(root + "entities.robo_entity.RoboBeeBehaviorController");
-            if (dev.scathiard.feedmepackages.mixin.OptionalMixins.maidBeeCompatible())
+            if (dev.scathiard.feedmepackages.mixin.OptionalMixins.maidBeeCompatible()) {
                 bee = new Bee(Class.forName(root + "robo.RoboTarget"), robo.getMethod("getServerLevel"),
                         robo.getMethod("getTargetAddress"), robo.getMethod("getItemStack"), robo.getMethod("getLogisticsNetworkId"),
                         robo.getMethod("getTarget"), field(robo, "target"), robo.getMethod("getCurrentPos"),
                         robo.getMethod("setItemStack", ItemStack.class), robo.getMethod("invalidateTarget"),
                         Class.forName(root + "network_settings.NetworkHelper").getMethod("getPlayerUUIDs", UUID.class),
                         Class.forName(root + "CMPHelper").getMethod("isWithinRange", Level.class, BlockPos.class, BlockPos.class),
-                        port.getMethod("getLogisticsNetworkId"), send);
+                        port.getMethod("getLogisticsNetworkId"), send,
+                        robo.getMethod("getId"), robo.getMethod("setRemoved", ServerLevel.class));
+                // The bee item is what a returning bee hands back; read reflectively, the index class is not ours.
+                Object entry = Class.forName(root + "index.CMPItems").getField("ROBO_BEE").get(null);
+                Object item = entry.getClass().getMethod("get").invoke(entry);
+                beeItem = new ItemStack((net.minecraft.world.item.Item) item);
+            }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
             FeedMePackages.LOGGER.warn("FMP direct maid bee delivery disabled: native endpoint unavailable", incompatible);
         }
@@ -126,27 +135,41 @@ public final class MaidCouriers {
     public static boolean beeTarget(Object robo) {
         if (bee == null) return false;
         try {
-            var maid = beeDestination(robo, false); if (maid == null) return false;
-            Object old = bee.getTarget.invoke(robo);
-            if (old != null && Proxy.isProxyClass(old.getClass()) && Proxy.getInvocationHandler(old) instanceof MaidTarget target
-                    && target.maid == maid) return true;
-            Object target = Proxy.newProxyInstance(bee.targetType.getClassLoader(), new Class<?>[]{bee.targetType}, new MaidTarget(maid));
-            bee.target.set(robo, target); return true;
+            var maid = beeDestination(robo, false);
+            if (maid != null) return setTarget(robo, new MaidTarget(maid, false));
+            // Return leg (user 2026-10-13, plan B): the cargo is gone and this bee was sent by a maid. She becomes
+            // the target exactly like a player target would; while she is dead / recalled / in another dimension /
+            // in an unloaded chunk this returns false and the NATIVE chain picks the fallback on its own.
+            if (!((ItemStack) bee.box.invoke(robo)).isEmpty()) return false;
+            var back = MaidReturn.maid((UUID) bee.id.invoke(robo));
+            if (back == null) return false;
+            var home = MaidReturn.find((ServerLevel) bee.level.invoke(robo), back);
+            return home != null && setTarget(robo, new MaidTarget(home, true));
         } catch (ReflectiveOperationException broken) { throw MaidCompatibility.failure(broken); }
     }
+    private static boolean setTarget(Object robo, MaidTarget wanted) throws ReflectiveOperationException {
+        Object old = bee.getTarget.invoke(robo);
+        if (old != null && Proxy.isProxyClass(old.getClass()) && Proxy.getInvocationHandler(old) instanceof MaidTarget target
+                && target.maid == wanted.maid && target.returnLeg == wanted.returnLeg) return true;
+        Object target = Proxy.newProxyInstance(bee.targetType.getClassLoader(), new Class<?>[]{bee.targetType}, wanted);
+        bee.target.set(robo, target); return true;
+    }
     private static final class MaidTarget implements InvocationHandler {
-        final LivingEntity maid; int eta;
-        MaidTarget(LivingEntity maid) { this.maid = maid; }
+        final LivingEntity maid; final boolean returnLeg; int eta;
+        MaidTarget(LivingEntity maid, boolean returnLeg) { this.maid = maid; this.returnLeg = returnLeg; }
         public Object invoke(Object proxy, Method method, Object[] args) throws ReflectiveOperationException {
             return switch (method.getName()) {
                 case "getTargetPos" -> maid.position();
                 case "asPlayer", "asBeePortBlockEntity", "asBlockPos" -> null;
-                case "isValid" -> beeDestination(args[0], false) == maid;
+                // The delivery leg still proves itself with the seal; the return leg only needs her to be reachable.
+                case "isValid" -> returnLeg
+                        ? MaidReturn.reachable(maid, (ServerLevel) bee.level.invoke(args[0]))
+                        : beeDestination(args[0], false) == maid;
                 case "setETA" -> { eta = (int) args[0]; yield null; }
                 case "getETA" -> eta;
                 case "equals" -> proxy == args[0];
                 case "hashCode" -> System.identityHashCode(proxy);
-                case "toString" -> "FMP maid target " + maid.getUUID();
+                case "toString" -> (returnLeg ? "FMP maid return target " : "FMP maid target ") + maid.getUUID();
                 default -> throw new UnsupportedOperationException(method.toString());
             };
         }
@@ -165,12 +188,45 @@ public final class MaidCouriers {
     public static void beeArrive(Object robo) {
         if (bee == null) return;
         try {
-            var maid = beeDestination(robo, true);
-            if (maid == null || maid.position().add(0, 2, 0).distanceToSqr((Vec3) bee.position.invoke(robo)) > 2.25) return;
             var box = (ItemStack) bee.box.invoke(robo);
-            if (!ReceiveService.receive(MaidAccess.endpoint(maid), box)) return;
-            bee.setBox.invoke(robo, ItemStack.EMPTY); bee.invalidate.invoke(robo);
-            // Continue the original delivery method: empty cargo selects the native return/home-port path.
+            if (!box.isEmpty()) {
+                var maid = beeDestination(robo, true);
+                if (maid == null || maid.position().add(0, 2, 0).distanceToSqr((Vec3) bee.position.invoke(robo)) > 2.25) return;
+                if (!ReceiveService.receive(MaidAccess.endpoint(maid), box)) return;
+                bee.setBox.invoke(robo, ItemStack.EMPTY); bee.invalidate.invoke(robo);
+                // Continue the original delivery method: an empty cargo now selects the return leg below, or the
+                // native return/home-port path when this bee carries no FMP return record.
+                return;
+            }
+            // Return leg (plan B): cargo gone, this bee was sent by a maid, and it is standing at her.
+            UUID id = (UUID) bee.id.invoke(robo);
+            UUID back = MaidReturn.maid(id);
+            var level = (ServerLevel) bee.level.invoke(robo);
+            var maid = MaidReturn.find(level, back);
+            if (maid != null && maid.position().add(0, 2, 0).distanceToSqr((Vec3) bee.position.invoke(robo)) > 2.25) return;
+            // ③ Item protection (user 2026-10-13): ending a return removes the bee, so it is only allowed when the
+            // native carrier item was resolved. Otherwise no remove and no forget - the native chain disposes of it.
+            if (!ReturnDecision.mayEnd(back != null, maid != null, !beeItem.isEmpty())) return;
+            // Claim the record before handing anything over: the delivery hook is a HEAD injection, so if the native
+            // side re-enters us the second call finds no record and returns and the carrier cannot be given twice.
+            // Nothing is lost either - a hand-over that does not fit puts the record straight back.
+            MaidReturn.forget(id);
+            // The bee item goes home: her inventory first, her cache second. If neither takes it, the bee is NOT
+            // removed - the native chain still has to bring it to a port - and her owner is told why.
+            if (!handBack(maid, beeItem)) { MaidReturn.register(id, back); notifyOwner(maid); return; }
+            bee.setRemoved.invoke(robo, level);
         } catch (ReflectiveOperationException broken) { throw MaidCompatibility.failure(broken); }
+    }
+    private static boolean handBack(LivingEntity maid, ItemStack stack) {
+        if (stack.isEmpty()) return false; // Never report a hand-over that moved nothing.
+        return MaidCompatibility.insertInto(maid, stack)
+                || ReceiveService.receive(MaidAccess.endpoint(maid), stack.copy());
+    }
+    /** Visible notice for the owner: her bee came home but neither her inventory nor her cache took it. */
+    private static void notifyOwner(LivingEntity maid) {
+        if (!(maid instanceof TamableAnimal pet) || pet.getOwnerUUID() == null || maid.getServer() == null) return;
+        var player = maid.getServer().getPlayerList().getPlayer(pet.getOwnerUUID());
+        if (player != null) player.displayClientMessage(
+                net.minecraft.network.chat.Component.translatable("message.create_feed_me_packages.bee_return_full"), true);
     }
 }

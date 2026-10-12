@@ -108,6 +108,7 @@
   "message.create_feed_me_packages.collect": "Collected %s",
   "message.create_feed_me_packages.collect_above_maximum": "Collected %s; %s of them are above the return limit and will be handled by your return settings",
   "message.create_feed_me_packages.maid_package_no_filter": "Her cache has no filter for this package, so it was not opened.",
+  "message.create_feed_me_packages.bee_return_full": "The transport bee reached the maid, but neither her inventory nor her cache took it; it returns to a bee port by native rules.",
   "gui.create_feed_me_packages.controls.batch": "Minimum items per request",
   "gui.create_feed_me_packages.controls.limit": "Pending item limit",
   "gui.create_feed_me_packages.controls.lower": "Replenish below this amount",
