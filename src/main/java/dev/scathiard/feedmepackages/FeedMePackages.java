@@ -62,6 +62,9 @@ public final class FeedMePackages {
             dev.scathiard.feedmepackages.compat.wand.WandMaterials.initialize();
             dev.scathiard.feedmepackages.compat.sophisticated.SophisticatedAccess.initialize();
             dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.initialize();
+            // Create Phantom 1.0.2 compat (T2-b step 1): read-only shape gate, exactly one stable log line.
+            // Nothing is injected and no behaviour changes here; the verdict only decides whether later mixins apply.
+            dev.scathiard.feedmepackages.compat.maid.phantom.v102.Phantom102Gate.logOnce();
             ICurioItem behavior = new ICurioItem() {
                 @Override public boolean canEquip(SlotContext context, ItemStack stack) {
                     return dev.scathiard.feedmepackages.service.AccessGate.canEquip(context, stack);
