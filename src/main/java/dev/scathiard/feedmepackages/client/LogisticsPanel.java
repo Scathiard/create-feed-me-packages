@@ -104,6 +104,10 @@ public final class LogisticsPanel {
     private static AbstractContainerScreen<?> screen;
     private static UUID window;
     private static PanelPackets.Snapshot snapshot;
+    /** The player's own cache level, pushed by the server (see {@code PanelNetwork.tickLevel}): lets the
+     *  pendant tooltip state the level even when no panel session exists. */
+    private static UUID selfCache;
+    private static int selfLevel;
     private static PanelLayout layout;
     private static final Map<String, ItemStack> ICONS;
     private static final Map<String, net.neoforged.neoforge.fluids.FluidStack> FLUID_ICONS = new HashMap<>();
@@ -216,6 +220,7 @@ public final class LogisticsPanel {
         }
         PanelNetwork.receiveOnClient(LogisticsPanel::receive);
         PanelNetwork.receiveCursorOnClient(LogisticsPanel::receiveCursor);
+        PanelNetwork.receiveLevelOnClient(LogisticsPanel::receiveLevel);
         IEventBus bus = NeoForge.EVENT_BUS;
         bus.addListener((ScreenEvent.Opening event) -> {
             boolean bl = retainTransition = window != null && (event.getNewScreen() == screen || isRecipeOverlay(event.getNewScreen()));
@@ -236,10 +241,10 @@ public final class LogisticsPanel {
         // The level is already synced in every snapshot, so the pendant tooltip can state it without
         // touching item components or the save format; only the worn pendant and a live snapshot count.
         bus.addListener((net.neoforged.neoforge.event.entity.player.ItemTooltipEvent event) -> {
-            if (snapshot == null || snapshot.level() <= 0) return;
             if (!(event.getItemStack().getItem() instanceof PendantItem)) return;
             if (!LogisticsPanel.wornPendant(event.getItemStack())) return;
-            event.getToolTip().add(LogisticsPanel.tr("level", snapshot.level()));
+            int level = LogisticsPanel.wornLevel(event.getItemStack());
+            if (level > 0) event.getToolTip().add(LogisticsPanel.tr("level", level));
         });
         bus.addListener((ScreenEvent.Render.Pre event) -> {
             if (LogisticsPanel.current(event.getScreen())) {
@@ -459,6 +464,12 @@ public final class LogisticsPanel {
         return snapshot != null && snapshot.status() != AccessGate.Status.NOT_WORN && layout != null;
     }
 
+    /**
+     * True while this panel owns the open screen: the conflict context of {@code ClientBootstrap.PANEL_FOLD},
+     * so the fold key is only ever "active" where it can actually act (and never collides with GUI bindings).
+     */
+    public static boolean panelOnScreen() { return screen != null && window != null; }
+
     private static boolean active() {
         return snapshot != null && snapshot.status() == AccessGate.Status.ACTIVE && snapshot.session() != null;
     }
@@ -471,6 +482,21 @@ public final class LogisticsPanel {
         return inventory.findCurios(new String[]{"necklace"}).stream().anyMatch(found ->
                 !found.slotContext().cosmetic() && found.stack().getItem() instanceof PendantItem
                         && ItemStack.isSameItemSameComponents(found.stack(), stack));
+    }
+
+    /**
+     * The level the server pushed for the player's own cache, for the stack whose cache identity matches. Read
+     * from the small {@code SelfLevel} sync, not from a panel snapshot, so hovering works with no panel open.
+     */
+    private static int wornLevel(ItemStack stack) {
+        UUID cache = stack.get(dev.scathiard.feedmepackages.registry.FmpRegistries.IDENTITY.get());
+        return cache != null && cache.equals(selfCache) ? selfLevel : 0;
+    }
+
+    /** Server push: the player's own cache level (or 0 when the cache is gone). */
+    private static void receiveLevel(PanelPackets.SelfLevel packet) {
+        selfCache = packet.level() > 0 ? packet.cache() : null;
+        selfLevel = packet.level();
     }
 
     /** Read-only state for the JEI transfer handler, which must not invent its own panel bookkeeping. */
@@ -878,15 +904,9 @@ public final class LogisticsPanel {
         String address = snapshot.address();
         var maid = maidPanel() ? MaidMenus.target(screen.getMenu()) : null;
         String caption = maid == null ? address : tr("maid_cache", maid.getName()).getString();
-        // The level already travels in every snapshot and its lang key existed unused: draw it in the
-        // address row and shorten the caption instead of overlapping it.
-        String level = snapshot.level() > 0 ? LogisticsPanel.tr("level", snapshot.level()).getString() : "";
-        int levelWidth = level.isEmpty() ? 0 : LogisticsPanel.MC.font.width(level) + 4;
-        int textWidth = copy.width() - 2 - levelWidth;
+        int textWidth = copy.width() - 2;
         String displayed = LogisticsPanel.MC.font.width(caption) <= textWidth ? caption : LogisticsPanel.MC.font.plainSubstrByWidth(caption, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026";
         LogisticsPanel.text(g, displayed, copy.x() + 1, copy.y() + 3, copy.contains(mouseX, mouseY) ? -9419222 : 0xFF000000);
-        if (!level.isEmpty())
-            LogisticsPanel.text(g, level, copy.x() + copy.width() - levelWidth + 4, copy.y() + 3, copy.contains(mouseX, mouseY) ? -9419222 : 0xFF000000);
         if (copy.contains(mouseX, mouseY)) {
             tooltip = maid == null ? List.of(tr("address"), Component.literal(address))
                     : List.of(tr("maid_cache", maid.getName()), tr("address"), Component.literal(address));
@@ -932,6 +952,13 @@ public final class LogisticsPanel {
             g.fill(rail.x(), rail.y() + offset, rail.x() + rail.width(), rail.y() + offset + thumb, -4152474);
         }
         if (!layout.compact()) {
+            // The cache level is the panel's own badge, not part of the copyable address: it sits in the free
+            // left half of the bottom band - clearly apart from the copyable ID above and the buttons right.
+            if (snapshot.level() > 0) {
+                PanelLayout.Rect badge = layout.footerLabel();
+                LogisticsPanel.text(g, LogisticsPanel.tr("level", snapshot.level()).getString(),
+                        badge.x(), badge.y() + 3, 0xFF000000);
+            }
             LogisticsPanel.renderTransferButton(g);
             LogisticsPanel.renderFoldButton(g);
         }

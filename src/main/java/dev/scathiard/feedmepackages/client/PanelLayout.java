@@ -89,6 +89,17 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
     }
 
     /**
+     * The free left half of the bottom border band, left of the button row: where the panel draws its own
+     * badge (the cache level, user 2026-10-13 "一眼能看到"). {@code BUTTON} tall so a label can sit on the
+     * same line as the buttons without touching them; empty while hidden or compact (no button band then).
+     */
+    public Rect footerLabel() {
+        if (hidden || compact) return new Rect(bounds.x(), bounds.y(), 0, 0);
+        int left = bounds.x() + SIDE;
+        return new Rect(left, buttonY(), Math.max(0, transferButton().x() - 2 - left), BUTTON);
+    }
+
+    /**
      * The fold-away button: the <b>right</b> of the two 13x13 squares, its right edge two pixels left of the
      * panel's right black line and its bottom edge two rows above the bottom black line (user 09-20: "上移 1px、
      * 左移 2px") - i.e. the bottom-right corner inside the border band.

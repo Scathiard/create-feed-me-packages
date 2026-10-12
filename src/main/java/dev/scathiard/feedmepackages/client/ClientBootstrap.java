@@ -15,13 +15,30 @@ public final class ClientBootstrap {
     public static final net.minecraft.client.KeyMapping PALLET_SELECT = new net.minecraft.client.KeyMapping(
             "key.create_feed_me_packages.pallet_select", net.neoforged.neoforge.client.settings.KeyConflictContext.IN_GAME,
             com.mojang.blaze3d.platform.InputConstants.Type.MOUSE, 2, "key.categories.create_feed_me_packages");
-    /** Grid / spiral switch; unbound by default so it cannot collide with {@link #PANEL_FOLD} (both GUI, Tab). */
+    /**
+     * Display-mode switch (grid / spiral). Default {@code Tab} (user 2026-10-13). It deliberately shares that
+     * key with {@link #PANEL_FOLD}: the two live on different screens, and the fold key declares its own
+     * conflict context ({@link #PANEL_CONTEXT}) so the controls page shows no duplicate marker.
+     */
     public static final net.minecraft.client.KeyMapping PALLET_MODE = new net.minecraft.client.KeyMapping(
             "key.create_feed_me_packages.pallet_mode", net.neoforged.neoforge.client.settings.KeyConflictContext.GUI,
-            com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM, org.lwjgl.glfw.GLFW.GLFW_KEY_UNKNOWN, "key.categories.create_feed_me_packages");
+            com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM, org.lwjgl.glfw.GLFW.GLFW_KEY_TAB, "key.categories.create_feed_me_packages");
+    /**
+     * Conflict context of the panel's own keys: active only while the logistics panel owns the open screen, and
+     * never conflicting with {@code GUI} / {@code IN_GAME} bindings. NeoForge's {@code KeyMapping.same()} consults
+     * {@code conflicts(...)}, so {@code Tab} can be both "switch display mode" (pallet) and "fold / unfold panel"
+     * without the controls page flagging a duplicate.
+     */
+    public static final net.neoforged.neoforge.client.settings.IKeyConflictContext PANEL_CONTEXT =
+            new net.neoforged.neoforge.client.settings.IKeyConflictContext() {
+                @Override public boolean isActive() { return LogisticsPanel.panelOnScreen(); }
+                @Override public boolean conflicts(net.neoforged.neoforge.client.settings.IKeyConflictContext other) {
+                    return other == this;
+                }
+            };
     /** R-002: fold / unfold the logistics panel; rebindable and shown in the controls page. */
     public static final net.minecraft.client.KeyMapping PANEL_FOLD = new net.minecraft.client.KeyMapping(
-            "key.create_feed_me_packages.panel_fold", net.neoforged.neoforge.client.settings.KeyConflictContext.GUI,
+            "key.create_feed_me_packages.panel_fold", PANEL_CONTEXT,
             com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM, org.lwjgl.glfw.GLFW.GLFW_KEY_TAB, "key.categories.create_feed_me_packages");
     /**
      * R-002: the "one-key collect" key. Unbound by default; when bound it reuses the panel transfer

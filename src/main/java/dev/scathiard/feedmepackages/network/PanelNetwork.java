@@ -21,6 +21,26 @@ public final class PanelNetwork {
     public static void receiveOnClient(Consumer<PanelPackets.Snapshot> receiver) { clientReceiver = Objects.requireNonNull(receiver); }
     private static Consumer<PanelPackets.CursorUpdate> cursorReceiver = packet -> {};
     public static void receiveCursorOnClient(Consumer<PanelPackets.CursorUpdate> receiver) { cursorReceiver = Objects.requireNonNull(receiver); }
+    private static Consumer<PanelPackets.SelfLevel> levelReceiver = packet -> {};
+    public static void receiveLevelOnClient(Consumer<PanelPackets.SelfLevel> receiver) { levelReceiver = Objects.requireNonNull(receiver); }
+    private record SentLevel(UUID cache, int level) {}
+    private static final Map<ServerPlayer, SentLevel> LEVELS = new WeakHashMap<>();
+    /**
+     * Pushes the player's own cache level when it changes (wear, unwear, upgrade), at most once a second. The
+     * pendant tooltip needs it while no panel is open; nothing about the item itself is synced or saved.
+     */
+    public static void tickLevel(ServerPlayer player) {
+        if (player.tickCount % 20 != 0) return;
+        var access = AccessGate.resolve(player);
+        UUID cache = access.active() ? access.handle().cacheId() : null;
+        var record = cache == null ? null : dev.scathiard.feedmepackages.storage.CacheLedger.get(player.getServer()).find(cache);
+        int level = record == null ? 0 : record.state().level();
+        var sent = LEVELS.get(player);
+        if (sent != null && Objects.equals(sent.cache(), cache) && sent.level() == level) return;
+        LEVELS.put(player, new SentLevel(cache, level));
+        net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(player,
+                new PanelPackets.SelfLevel(cache == null ? new UUID(0L, 0L) : cache, level));
+    }
     private static final Map<ServerPlayer, Window> WINDOWS = new WeakHashMap<>();
     private static final Map<ServerPlayer, Budget> BUDGETS = new WeakHashMap<>();
     private static final class Window {
@@ -39,7 +59,7 @@ public final class PanelNetwork {
         }
     }
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("9-converged-maid-pickup");
+        var registrar = event.registrar("10-converged-level-sync");
         registrar.playToServer(PanelPackets.Query.TYPE, PanelPackets.Query.CODEC, (packet, context) -> {
             var reply = query((ServerPlayer) context.player(), packet); if (reply != null) context.reply(reply);
         });
@@ -51,8 +71,9 @@ public final class PanelNetwork {
             var reply=settings((ServerPlayer)context.player(),packet);if(reply!=null)context.reply(reply);
         });
         registrar.playToClient(PanelPackets.CursorUpdate.TYPE, PanelPackets.CursorUpdate.CODEC, (packet, context) -> cursorReceiver.accept(packet));
+        registrar.playToClient(PanelPackets.SelfLevel.TYPE, PanelPackets.SelfLevel.CODEC, (packet, context) -> levelReceiver.accept(packet));
     }
-    public static void forget(ServerPlayer player) { var window = WINDOWS.remove(player); if (window != null) window.closeFeedback(); BUDGETS.remove(player); CacheActions.close(player); }
+    public static void forget(ServerPlayer player) { LEVELS.remove(player); var window = WINDOWS.remove(player); if (window != null) window.closeFeedback(); BUDGETS.remove(player); CacheActions.close(player); }
     public static PanelPackets.Snapshot settings(ServerPlayer player,PanelPackets.SettingsBatch packet) {
         var window=WINDOWS.get(player);
         if(window==null || !window.id.equals(packet.window()) || window.menu!=player.containerMenu.containerId)return null;

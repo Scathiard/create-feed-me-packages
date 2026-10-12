@@ -102,6 +102,19 @@ public final class PanelPackets {
         @Override public Type<CursorUpdate> type() { return TYPE; }
     }
     public record TerminalView(int slot, boolean personal, boolean disabled, String network) {}
+
+    /**
+     * The player's own cache level, pushed whenever it changes (wear / unwear / upgrade) so the pendant tooltip
+     * can state it while no panel is open (user 2026-10-13). {@code cache} says which pendant it describes; no
+     * item component, item identity or save format is involved, and {@code level == 0} means "no cache".
+     */
+    public record SelfLevel(UUID cache, int level) implements CustomPacketPayload {
+        public static final Type<SelfLevel> TYPE = PanelPackets.type("self_level");
+        public static final StreamCodec<RegistryFriendlyByteBuf, SelfLevel> CODEC = StreamCodec.of(
+                (b, s) -> { b.writeUUID(s.cache); b.writeVarInt(s.level); },
+                b -> new SelfLevel(b.readUUID(), b.readVarInt()));
+        @Override public Type<SelfLevel> type() { return TYPE; }
+    }
     public record FluidPreviewView(int slot, String template, int amount, int sequence) {
         public static final FluidPreviewView NONE = new FluidPreviewView(-1, "", 0, 0);
         public FluidPreviewView {

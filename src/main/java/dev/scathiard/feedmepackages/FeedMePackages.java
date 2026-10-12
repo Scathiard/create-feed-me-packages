@@ -80,6 +80,7 @@ public final class FeedMePackages {
             ReturnService.tick(player);
             MaterialHints.tick(player);
             dev.scathiard.feedmepackages.network.CompatibilityStatus.tick(player);
+            dev.scathiard.feedmepackages.network.PanelNetwork.tickLevel(player);
         }
     }
 }
