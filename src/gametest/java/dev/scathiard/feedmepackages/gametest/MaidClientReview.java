@@ -175,6 +175,26 @@ final class MaidClientReview {
                 MC.options.guiScale().set(3);MC.resizeDisplay();next(); }
             case 33 -> {
                 assertNoNativeOverlap();assertPanelBounds();TemplateClientReview.capture("maid-panel-scale3");
+                MC.options.guiScale().set(1);MC.resizeDisplay();next();
+            }
+            case 34 -> {
+                require(!TemplateClientReview.snapshot().maidPickup(),"Maid pickup default not off");
+                var r=TemplateClientReview.hostLayout().maidPickupButton();
+                TemplateClientReview.click(r.x()+6,r.y()+6);next();
+            }
+            case 35 -> {
+                require(TemplateClientReview.snapshot().maidPickup(),"Native toggle click did not sync on");
+                server(p->require(dev.scathiard.feedmepackages.compat.maid.MaidPickup.enabled(maid(p)),"Toggle changed only the client"));
+                TemplateClientReview.capture("maid-pickup-toggle-on");
+                var r=TemplateClientReview.hostLayout().maidPickupButton();TemplateClientReview.click(r.x()+6,r.y()+6);next();
+            }
+            case 36 -> {
+                require(!TemplateClientReview.snapshot().maidPickup(),"Native toggle click did not sync off");
+                server(p->require(!dev.scathiard.feedmepackages.compat.maid.MaidPickup.enabled(maid(p)),"Toggle off changed only the client"));
+                next();
+            }
+            case 37 -> {
+                FeedMePackages.LOGGER.info("FMP_MAID_PICKUP_CLIENT_PASSED defaultOff=true nativeClicks=true serverState=true snapshotRoundtrip=true");
                 FeedMePackages.LOGGER.info("FMP_MAID_CLIENT_PASSED nativeEntityInteraction=true nativeCuriosButton=true mouseEquip=true mouseUnequip=true legacyItemRejectedIntact=true unwornPanel=true partialPlacement=true depositFilter=true nativeWheel=true closePreview=true playerCacheIsolated=true browserTemplate={} guiScales=1,2,3",browserTemplate!=null);
                 return true;
             }

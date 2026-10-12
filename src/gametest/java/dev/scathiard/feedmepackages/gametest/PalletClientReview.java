@@ -27,14 +27,21 @@ public final class PalletClientReview {
     private static CompletableFuture<Void> work;
     private static UUID cache;
     private static List<Item> blocks;
+    private static boolean highlightPending, highlightVerified;
+    private static RuntimeException renderFailure;
     private static BlockPos placed, broken;
     private static final Minecraft MC = Minecraft.getInstance();
     public static boolean tick() throws ReflectiveOperationException {
         ticks++;
+        if (renderFailure != null) throw renderFailure;
         if (work != null) { if (!work.isDone()) return false; work.join(); work = null; }
         if (ticks - changed < 12 && stage != 3 && stage != 17 && stage != 20 && stage != 26) return false;
         switch (stage) {
-            case 0 -> { server(PalletClientReview::setup); next(); }
+            case 0 -> {
+                net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.bus.api.EventPriority.LOWEST,
+                        false, net.neoforged.neoforge.client.event.ScreenEvent.Render.Post.class, PalletClientReview::rendered);
+                server(PalletClientReview::setup); next();
+            }
             case 1 -> {
                 if (!ClientMaterials.active() || PalletClient.candidates().size() != 34 || !Objects.equals(cache, ClientMaterials.cacheId())) return false;
                 MC.setScreen(null); MC.mouseHandler.grabMouse(); org.lwjgl.glfw.GLFW.glfwFocusWindow(MC.getWindow().getWindow());
@@ -59,14 +66,29 @@ public final class PalletClientReview {
             case 5 -> {
                 server(p -> require(PalletService.choice(p).key().stack(p.registryAccess(), 1).is(blocks.get(33)),
                         "Repeated forward and reverse head-tail wraps did not select item 33"));
-                button(2, true); next();
+                button(2, true); moves = 0; next();
             }
             case 6 -> {
-                moveGui(MC.getWindow().getGuiScaledWidth() / 2.0, MC.getWindow().getGuiScaledHeight() / 2.0);
+                if (moves++ == 0) {
+                    double cx = MC.getWindow().getGuiScaledWidth() / 2.0, cy = MC.getWindow().getGuiScaledHeight() / 2.0;
+                    moveGui(cx, cy); moveGui(cx + 1, cy);
+                    moveGui(cx + Math.cos(PalletSpiral.STEP), cy + Math.sin(PalletSpiral.STEP));
+                    requireFocus(0);
+                    moveGui(cx, cy); requireFocus(0);
+                    highlightPending = true; changed = ticks; return false;
+                }
+                if (!highlightVerified) return false;
                 button(2, false); next();
             }
             case 7 -> {
-                require(PalletClient.selected().is(blocks.get(33)), "Center cancellation changed the last choice");
+                require(PalletClient.selected().is(blocks.get(0)), "Center release canceled the new small-radius choice");
+                server(p -> require(PalletService.choice(p).key().stack(p.registryAccess(), 1).is(blocks.get(0)),
+                        "Small-radius center release did not reach the server"));
+                button(2, true);
+                moveGui(MC.getWindow().getGuiScaledWidth() / 2.0, MC.getWindow().getGuiScaledHeight() / 2.0);
+                moveSpiral(0); moveSpiral(1); requireFocus(1);
+                key(org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE); button(2, false);
+                require(MC.screen == null && PalletClient.selected().is(blocks.get(0)), "Escape failed to cancel a different candidate");
                 ClientBootstrap.PALLET_MODE.setKey(com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM.getOrCreate(org.lwjgl.glfw.GLFW.GLFW_KEY_R));
                 KeyMapping.resetMapping(); button(2, true); key(org.lwjgl.glfw.GLFW.GLFW_KEY_R); next();
             }
@@ -99,7 +121,7 @@ public final class PalletClientReview {
                 keyState(org.lwjgl.glfw.GLFW.GLFW_KEY_G, false); next();
             }
             case 14 -> {
-                require(MC.screen == null && PalletClient.selected().is(Items.STONE), "Keyboard release did not cancel at center");
+                require(MC.screen == null && PalletClient.selected().is(Items.STONE), "Keyboard release did not preserve the candidate at center");
                 ClientBootstrap.PALLET_SELECT.setKey(com.mojang.blaze3d.platform.InputConstants.Type.MOUSE.getOrCreate(4));
                 KeyMapping.resetMapping(); button(4, true); next();
             }
@@ -167,7 +189,7 @@ public final class PalletClientReview {
                         "Native mining remained blocked while holding the tool")); next();
             }
             case 28 -> {
-                FeedMePackages.LOGGER.info("FMP_PALLET_CLIENT_PASSED defaultMiddle=true defaultSpiral=true forwardSteps=69 reverseSteps=70 nativeWrap=true nativeReverse=true nativeBlur=true keyboardAndMouseRebind=true centerCancel=true gridSearch=true nativePlace=true nativeMiningWithTool=true");
+                FeedMePackages.LOGGER.info("FMP_PALLET_CLIENT_PASSED defaultMiddle=true defaultSpiral=true forwardSteps=69 reverseSteps=70 nativeWrap=true nativeReverse=true nativeBlur=true keyboardAndMouseRebind=true smallRadius=true centerRetainsChoice=true escapeCancel=true fullBrightDoubleOutline=true gridSearch=true nativePlace=true nativeMiningWithTool=true");
                 return true;
             }
         }
@@ -190,6 +212,33 @@ public final class PalletClientReview {
             p.serverLevel().setBlockAndUpdate(new BlockPos(x,3,z),Blocks.STONE.defaultBlockState());
         p.teleportTo(8.5,4,8.5);p.fallDistance=0;p.setHealth(p.getMaxHealth());
     }
+    private static void rendered(net.neoforged.neoforge.client.event.ScreenEvent.Render.Post event) {
+        if (!highlightPending || !(event.getScreen() instanceof PalletScreen)) return;
+        highlightPending = false;
+        try {
+            var method = PalletScreen.class.getDeclaredMethod("spiralLayout"); method.setAccessible(true);
+            var view = (PalletLayout.SpiralView) method.invoke(MC.screen);
+            var tile = view.tiles().stream().filter(PalletLayout.SpiralTile::current).findFirst().orElseThrow();
+            event.getGuiGraphics().flush();
+            try (var pixels = Screenshot.takeScreenshot(MC.getMainRenderTarget())) {
+                double scale = MC.getWindow().getGuiScale(), unit = tile.size() / 24;
+                double left = tile.x() - tile.size() / 2, top = tile.y() - tile.size() / 2;
+                double[][] points = {{12,-.5},{-.5,12},{24.5,12},{12,24.5},{12,.5},{.5,12},{23.5,12},{12,23.5}};
+                for (int i = 0; i < points.length; i++) {
+                    int argb = i < 4 ? 0xffffce55 : 0xfffff0b0;
+                    int expected = (argb & 0xff00ff00) | ((argb & 255) << 16) | ((argb >>> 16) & 255);
+                    int actual = pixels.getPixelRGBA((int)((left + points[i][0] * unit) * scale),
+                            (int)((top + points[i][1] * unit) * scale));
+                    require(actual == expected, "Current spiral outline is dimmed/covered at sample " + i + ": " + Integer.toHexString(actual));
+                }
+            }
+            TemplateClientReview.capture("pallet-strong-highlight-no-deadzone");
+            highlightVerified = true;
+            FeedMePackages.LOGGER.info("FMP_PALLET_HIGHLIGHT_PASSED fullBrightDoubleOutline=true samples=8");
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            renderFailure = new IllegalStateException("Pallet highlight framebuffer check failed", failure);
+        }
+    }
     private static boolean spiral() throws ReflectiveOperationException {var f=PalletScreen.class.getDeclaredField("spiral");f.setAccessible(true);return f.getBoolean(MC.screen);}
     @SuppressWarnings("unchecked") private static List<ItemStack> shown() throws ReflectiveOperationException {var f=PalletScreen.class.getDeclaredField("shown");f.setAccessible(true);return (List<ItemStack>)f.get(MC.screen);}
     private static void releaseTile(int index) throws ReflectiveOperationException {
@@ -199,7 +248,7 @@ public final class PalletClientReview {
     private static void moveSpiral(double steps) throws ReflectiveOperationException {
         var method = PalletScreen.class.getDeclaredMethod("spiralLayout"); method.setAccessible(true);
         var view = (PalletLayout.SpiralView) method.invoke(MC.screen);
-        double radius = view.deadRadius() / .35, angle = steps * PalletSpiral.STEP;
+        double radius = view.radius(), angle = steps * PalletSpiral.STEP;
         moveGui(view.centerX() + Math.cos(angle) * radius, view.centerY() + Math.sin(angle) * radius);
         if (stage == 3 && steps == Math.rint(steps) && ((int) steps) % 34 == 0) requireFocus(0);
         if (steps == 0 || Math.round(steps * 3) % 12 == 0 || steps == 33) {

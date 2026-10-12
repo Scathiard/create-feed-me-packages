@@ -45,7 +45,9 @@ public final class MaidAccess {
         if (!ledger.ordinaryEntry(id, stack.get(FmpRegistries.RETIREMENT_RECEIPT.get()))) return unavailable(AccessGate.Status.INVALID_IDENTITY);
         var handle = new CacheHandle(id, maid.getUUID(), stack.get(FmpRegistries.NETWORK.get()));
         var hold = ledger.returnEscrow(id);
-        if (hold != null) return unavailable(hold.rejected() ? AccessGate.Status.RETURN_REFUND : AccessGate.Status.RETURN_HELD);
+        if (hold != null) return new AccessGate.Result(
+                hold.rejected() ? AccessGate.Status.RETURN_REFUND : AccessGate.Status.RETURN_HELD, handle,
+                List.of(new AccessGate.Terminal(context.index(), stack, id, handle.networkId(), false)));
         dev.scathiard.feedmepackages.service.CachePolicy.synchronize(ledger,handle);
         return new AccessGate.Result(AccessGate.Status.ACTIVE, handle,
                 List.of(new AccessGate.Terminal(context.index(), stack, id, handle.networkId(), false)));

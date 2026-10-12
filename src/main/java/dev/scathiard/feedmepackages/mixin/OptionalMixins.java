@@ -86,6 +86,12 @@ public final class OptionalMixins implements IMixinConfigPlugin {
                         "(Lnet/p3pp3rf1y/sophisticatedcore/common/gui/StorageContainerMenuBase;Lnet/minecraft/world/item/crafting/RecipeHolder;Lmezz/jei/api/gui/ingredient/IRecipeSlotsView;Lnet/minecraft/world/entity/player/Player;ZZ)Lmezz/jei/api/recipe/transfer/IRecipeTransferError;");
             } catch (ClassNotFoundException | IOException unavailable) { return false; }
         }
+        if (mixinClassName.endsWith("MaidPickupMixin")) {
+            try {
+                return hasMethod(MixinService.getService().getBytecodeProvider().getClassNode(targetClassName),
+                        "pickupItem", "(Lnet/minecraft/world/entity/item/ItemEntity;Z)Z");
+            } catch (ClassNotFoundException | IOException unavailable) { return false; }
+        }
         if (mixinClassName.endsWith("MaidPaperMixin")) return inspectMaidTransport(false);
         if (mixinClassName.endsWith("MaidBeeTargetMixin") || mixinClassName.endsWith("MaidBeePortMixin")
                 || mixinClassName.endsWith("MaidBeeDeliveryMixin")) return inspectMaidTransport(true);

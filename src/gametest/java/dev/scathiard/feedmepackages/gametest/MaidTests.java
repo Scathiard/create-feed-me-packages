@@ -58,13 +58,16 @@ public final class MaidTests {
                 test("receipt_identity", MaidTests::receipt), test("native_air_and_residual", MaidTests::noFuel),
                 test("native_death", MaidTests::death), test("entity_roundtrip", MaidTests::entityRoundtrip),
                 test("network_permission", MaidTests::permission),
-                test("native_panel_access", MaidTests::panelAccess), test("native_panel_revocation", MaidTests::panelRevocation)));
+                test("native_panel_access", MaidTests::panelAccess), test("native_panel_revocation", MaidTests::panelRevocation),
+                test("pickup_native_deltas", MaidTests::pickup), test("return_rejection_and_escrow", MaidTests::returnSafety)));
         if (ModList.get().isLoaded("tacz")) tests.add(test("native_tacz_reload", MaidTests::tacz));
         if (ModList.get().isLoaded("cmpackagecouriers")) {
+            tests.add(test("paper_pickup_return", h -> pickupReturn(h, false)));
             tests.add(test("paper_direct_flight", h -> flight(h, false, false)));
             tests.add(test("paper_swapped_in_flight", h -> flight(h, false, true)));
         }
         if (ModList.get().isLoaded("create_mobile_packages")) {
+            tests.add(test("bee_pickup_return", h -> pickupReturn(h, true)));
             tests.add(test("bee_direct_flight", h -> flight(h, true, false)));
             tests.add(test("bee_swapped_in_flight", h -> flight(h, true, true)));
         }
@@ -149,15 +152,19 @@ public final class MaidTests {
             f.ledger.replace(f.handle,before.state().revision(),before.withState(edit.finish()));
             h.assertTrue(panelAction(p,CacheActions.Action.RESET_REQUEST,0,0,"")==CacheActions.Result.OK && f.record().state().pending(0)==0,
                     "Maid manual request reset failed");
-            h.assertTrue(panelAction(p,CacheActions.Action.SET_RETURN_ADDRESS,-1,0,"elsewhere")==CacheActions.Result.INVALID_REQUEST
+            h.assertTrue(panelAction(p,CacheActions.Action.SET_RETURN_ADDRESS,-1,0,"elsewhere")==CacheActions.Result.OK
                     && panelAction(p,CacheActions.Action.FILL_RECIPE,-1,0,"minecraft:bread")==CacheActions.Result.UNSUPPORTED_RECIPE,
-                    "Maid panel silently enabled returns or player recipe access");
+                    "Maid return address failed or player recipe access leaked");
+            h.assertTrue(!MaidPickup.enabled(f.maid), "Pickup must default off");
+            h.assertTrue(panelAction(p,CacheActions.Action.MAID_PICKUP,-1,1,"")==CacheActions.Result.OK && MaidPickup.enabled(f.maid), "Owner toggle failed");
+            h.assertTrue(panelAction(p,CacheActions.Action.MAID_PICKUP,-1,2,"")==CacheActions.Result.INVALID_REQUEST, "Invalid toggle accepted");
             TestPlayers.necklace(p).setStackInSlot(0,FmpRegistries.PENDANT.toStack());
             var own=AccessGate.resolve(p).handle();
             h.assertTrue(!own.cacheId().equals(f.handle.cacheId()) && CacheActions.snapshot(p).access().handle().equals(f.handle),
                     "Player necklace stole the active maid panel");
             CacheActions.close(p);p.containerMenu=p.inventoryMenu;
             h.assertTrue(CacheActions.open(p).access().handle().equals(own),"Leaving the maid page did not restore the player's own cache");
+            h.assertTrue(panelAction(p,CacheActions.Action.MAID_PICKUP,-1,0,"")==CacheActions.Result.INVALID_REQUEST && MaidPickup.enabled(f.maid), "Player page changed a maid toggle");
             CacheActions.close(p);h.succeed();
         } finally {
             CacheActions.close(p);
@@ -190,6 +197,9 @@ public final class MaidTests {
                 var result=CacheActions.execute(p,new CacheActions.Intent(view.session(),view.record().state().revision(),
                         CacheActions.Action.TAKE_INVENTORY,0,4,-1,""));
                 h.assertTrue(result!=CacheActions.Result.OK && f.stock()==8,"Stale maid command succeeded: "+condition);
+                h.assertTrue(CacheActions.execute(p,new CacheActions.Intent(view.session(),view.record().state().revision(),
+                        CacheActions.Action.MAID_PICKUP,-1,1,-1,""))!=CacheActions.Result.OK && !MaidPickup.enabled(f.maid),
+                        "Revoked menu changed maid pickup: "+condition);
                 CacheActions.close(p);
             } finally {
                 CacheActions.close(p);
@@ -204,6 +214,106 @@ public final class MaidTests {
                 .getMethod("findStackSlot", IItemHandler.class, Predicate.class, int.class)
                 .invoke(null, MaidCompatibility.inventory(f.maid), filter, limit);
     }
+    private static boolean nativePickup(Fixture f, ItemStack item, boolean simulate) throws ReflectiveOperationException {
+        var ground = new net.minecraft.world.entity.item.ItemEntity(f.maid.level(), f.maid.getX(), f.maid.getY(), f.maid.getZ(), item.copy());
+        ground.setNoPickUpDelay(); f.maid.level().addFreshEntity(ground);
+        return (boolean)f.maid.getClass().getMethod("pickupItem",net.minecraft.world.entity.item.ItemEntity.class,boolean.class).invoke(f.maid,ground,simulate);
+    }
+    private static void pickup(GameTestHelper h) throws ReflectiveOperationException {
+        var item = new ItemStack(Items.STONE); item.set(DataComponents.CUSTOM_NAME, Component.literal("Exact pickup components"));
+        var f = setup(h,item,0); var inv=MaidCompatibility.inventory(f.maid);
+        inv.setStackInSlot(0,item.copyWithCount(11)); f.maid.setItemInHand(InteractionHand.MAIN_HAND,item.copyWithCount(7));
+        h.assertTrue(nativePickup(f,item.copyWithCount(3),false) && f.stock()==0 && count(inv,item)==14,"Off switch changed native pickup");
+        MaidPickup.setEnabled(f.maid,true);
+        h.assertTrue(nativePickup(f,item.copyWithCount(5),true) && f.stock()==0 && count(inv,item)==14,"Simulated pickup changed inventory");
+        h.assertTrue(nativePickup(f,item.copyWithCount(5),false) && f.stock()==5 && count(inv,item)==14
+                && f.maid.getMainHandItem().getCount()==7,"Pickup moved old inventory/equipment or lost exact variant");
+        h.assertTrue(nativePickup(f,new ItemStack(Items.STONE,4),false) && f.stock()==5 && count(inv,new ItemStack(Items.STONE))==4,
+                "Unmatched component variant was auto-filtered or swallowed");
+        var before=f.record();var edit=before.state().edit();int capacity=before.state().capacity().groups()*64;
+        edit.insert(0,f.key,capacity-7);f.ledger.replace(f.handle,before.state().revision(),before.withState(edit.finish()));
+        h.assertTrue(nativePickup(f,item.copyWithCount(5),false) && f.stock()==capacity && count(inv,item)==17,"Partial cache acceptance lost leftovers or moved old stock");
+        h.assertTrue(nativePickup(f,item.copyWithCount(2),false) && f.stock()==capacity && count(inv,item)==19,"Full cache did not preserve native pickup");
+        for(int i=0;i<inv.getSlots();i++) inv.setStackInSlot(i,new ItemStack(Items.DIRT,64));
+        f.maid.setItemInHand(InteractionHand.MAIN_HAND,new ItemStack(Items.DIRT,64));f.maid.setItemInHand(InteractionHand.OFF_HAND,new ItemStack(Items.DIRT,64));
+        h.assertTrue(!nativePickup(f,item.copyWithCount(2),false) && f.stock()==capacity,"FMP bypassed native refusal");
+        h.succeed();
+    }
+    private static void returnSafety(GameTestHelper h) throws ReflectiveOperationException {
+        var f=setup(h,new ItemStack(Items.STONE),100);f.pendant.set(FmpRegistries.NETWORK.get(),UUID.randomUUID());
+        var carrier=BuiltInRegistries.ITEM.get(ResourceLocation.parse("cmpackagecouriers:cardboard_plane_parts"));
+        if(carrier==Items.AIR)carrier=Items.PAPER;
+        var inv=MaidCompatibility.inventory(f.maid);inv.setStackInSlot(0,new ItemStack(carrier));
+        var before=f.record();var edit=before.state().edit();edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(-1,64,1,-1));
+        f.ledger.replace(f.handle,before.state().revision(),before.withState(edit.finish()));
+        f.ledger.setReturnAddress(f.handle.cacheId(),"missing-"+UUID.randomUUID());before=f.record();
+        ReturnService.check(MaidAccess.endpoint(f.maid));
+        h.assertTrue(f.record()==before && inv.getStackInSlot(0).getCount()==1 && f.ledger.returnEscrow(f.handle.cacheId())==null,"Rejected return spent goods or carrier");
+        var handle=MaidAccess.resolve(f.maid).handle();
+        var hold=new ReturnEscrow(UUID.randomUUID(),handle,before.state().revision(),0,f.key,36,new ItemStack(carrier),0,-1,"paper","test",false,f.owner.getUUID());
+        f.ledger.beginReturn(hold,before,f.maid.registryAccess());inv.setStackInSlot(0,ItemStack.EMPTY);
+        var saved=f.ledger.save(new net.minecraft.nbt.CompoundTag(),f.maid.registryAccess());
+        var row=(net.minecraft.nbt.CompoundTag)saved.getList("return_handoffs",net.minecraft.nbt.Tag.TAG_COMPOUND).stream()
+                .map(net.minecraft.nbt.CompoundTag.class::cast).filter(t->t.getUUID("cache").equals(handle.cacheId())).findFirst().orElseThrow();
+        h.assertTrue(row.getUUID("player").equals(f.owner.getUUID()) && row.getUUID("maid").equals(f.maid.getUUID()),"Existing player column was repurposed");
+        var loaded=CacheLedger.load(saved,f.maid.registryAccess());var roundtrip=loaded.returnEscrow(handle.cacheId());
+        h.assertTrue(roundtrip!=null && roundtrip.maidSource() && roundtrip.maidOwner().equals(f.owner.getUUID())
+                && roundtrip.handle().equals(handle),"Escrow reload lost original maid/owner identity");
+        h.assertTrue(MaidAccess.resolve(f.maid).status()==AccessGate.Status.RETURN_HELD,"Uncertain maid return did not lock cache");
+        f.ledger.rejectReturn(hold);
+        for(int i=0;i<inv.getSlots();i++) inv.setStackInSlot(i,new ItemStack(Items.DIRT,64));
+        ReturnService.check(MaidAccess.endpoint(f.maid));
+        h.assertTrue(MaidAccess.resolve(f.maid).status()==AccessGate.Status.RETURN_REFUND && f.stock()==100,
+                "Full maid inventory unlocked or duplicated held carrier");
+        inv.setStackInSlot(0,ItemStack.EMPTY);
+        ReturnService.check(MaidAccess.endpoint(f.maid));
+        h.assertTrue(f.ledger.returnEscrow(handle.cacheId())==null && f.stock()==100 && inv.getStackInSlot(0).getCount()==1
+                && f.owner.getInventory().countItem(carrier)==0,"Rejected carrier did not return exactly once to the maid");
+        h.succeed();
+    }
+    private static int returnedStone(ServerPlayer target) {
+        int amount=0;
+        for(int i=0;i<target.getInventory().getContainerSize();i++) {
+            var box=target.getInventory().getItem(i);if(!PackageItem.isPackage(box))continue;
+            var contents=PackageItem.getContents(box);
+            for(int j=0;j<contents.getSlots();j++) if(contents.getStackInSlot(j).is(Items.STONE)) amount+=contents.getStackInSlot(j).getCount();
+        }
+        return amount;
+    }
+    private static void pickupReturn(GameTestHelper h,boolean bee) throws ReflectiveOperationException {
+        var f=setup(h,new ItemStack(Items.STONE),0);var target=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());
+        f.maid.setPos(h.absoluteVec(new Vec3(1,1.2,1)));target.setPos(h.absoluteVec(new Vec3(4,1.2,4)));h.getLevel().addNewPlayer(target);
+        UUID network=UUID.randomUUID();
+        if(bee){
+            var pos=new BlockPos(1,1,3);var block=BuiltInRegistries.BLOCK.get(ResourceLocation.parse("create_mobile_packages:bee_port"));
+            h.setBlock(pos,block.defaultBlockState());block.setPlacedBy(h.getLevel(),h.absolutePos(pos),h.getBlockState(pos),f.owner,new ItemStack(block));
+            var port=h.getBlockEntity(pos);network=(UUID)port.getClass().getMethod("getLogisticsNetworkId").invoke(port);
+            var join=Class.forName("de.theidler.create_mobile_packages.network_settings.AddPlayerToNetworkPackage");
+            join.getMethod("handle",ServerPlayer.class).invoke(join.getConstructor(UUID.class,UUID.class).newInstance(target.getUUID(),network),target);
+        } else {
+            var tx=new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse("cmpackagecouriers:location_transmitter")));
+            tx.getItem().getClass().getMethod("setEnabled",ItemStack.class,boolean.class).invoke(null,tx,true);
+            tx.getItem().inventoryTick(tx,h.getLevel(),target,0,false);
+        }
+        f.pendant.set(FmpRegistries.NETWORK.get(),network);
+        var carrier=new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse(bee?"create_mobile_packages:robo_bee":"cmpackagecouriers:cardboard_plane_parts")));
+        var before=f.record();var edit=before.state().edit();edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(-1,64,1,-1));
+        if(bee){var key=ItemVariantKey.of(carrier,f.maid.registryAccess());edit.filter(1,key);edit.insert(1,key,1);}
+        else MaidCompatibility.inventory(f.maid).setStackInSlot(0,carrier.copy());
+        f.ledger.replace(f.handle,before.state().revision(),before.withState(edit.finish()));
+        MaidPickup.setEnabled(f.maid,true);
+        nativePickup(f,new ItemStack(Items.STONE,60),false);nativePickup(f,new ItemStack(Items.STONE,40),false);
+        h.assertTrue(f.stock()==100,"Real pickups did not reach source cache");
+        f.ledger.setReturnAddress(f.handle.cacheId(),SupplyService.address(target));
+        h.startSequence().thenIdle(6).thenExecute(()->ReturnService.check(MaidAccess.endpoint(f.maid)))
+                .thenWaitUntil(()->h.assertTrue(f.stock()==64 && returnedStone(target)==36,"Native maid return: source="+f.stock()+" target="+returnedStone(target)+" carrier="+(bee?f.record().state().cells().get(1).amount():count(MaidCompatibility.inventory(f.maid),carrier))+" state="+MaidAccess.resolve(f.maid).status()))
+                .thenExecute(()->{
+                    h.assertTrue(f.ledger.returnEscrow(f.handle.cacheId())==null && f.owner.getInventory().countItem(carrier.getItem())==0
+                            && (bee?f.record().state().cells().get(1).amount()==0:count(MaidCompatibility.inventory(f.maid),carrier)==0),"Maid return carrier accounting changed owner inventory");
+                    FeedMePackages.LOGGER.info("FMP_MAID_PICKUP_RETURN_PASSED transport={} nativePickup=100 source=64 destination=36 ownerOffline=true carrierSource={}",bee?"bee":"paper",bee?"cache":"backpack");
+                }).thenSucceed();
+    }
+
     private static void shortage(GameTestHelper h) throws ReflectiveOperationException {
         ItemStack bread = new ItemStack(Items.BREAD); bread.set(DataComponents.CUSTOM_NAME, Component.literal("Exact maid food"));
         var f = setup(h, bread, 12); var inv = MaidCompatibility.inventory(f.maid);
@@ -357,6 +467,7 @@ public final class MaidTests {
     }
     private static void entityRoundtrip(GameTestHelper h) {
         var f = setup(h, new ItemStack(Items.BREAD), 10); var saved = new net.minecraft.nbt.CompoundTag();
+        MaidPickup.setEnabled(f.maid, true);
         h.assertTrue(f.maid.save(saved), "Native maid save rejected a live entity");
         String address = MaidAccess.address(f.maid); f.maid.remove(Entity.RemovalReason.UNLOADED_TO_CHUNK);
         h.assertTrue(MaidAccess.find(h.getLevel().getServer(), address) == null && f.stock() == 10, "Unloaded maid remained addressable");
@@ -365,7 +476,7 @@ public final class MaidTests {
             h.assertTrue(restored != null && h.getLevel().addFreshEntity(restored), "Native entity could not load saved data");
             var access = MaidAccess.resolve(restored);
             h.assertTrue(access.active() && access.handle().cacheId().equals(f.handle.cacheId()) && f.stock() == 10
-                    && MaidAccess.find(h.getLevel().getServer(), address) == restored, "Native Curios/entity roundtrip changed the cache or address");
+                    && MaidAccess.find(h.getLevel().getServer(), address) == restored && MaidPickup.enabled(restored), "Native entity roundtrip changed cache, address or pickup toggle");
             h.succeed();
         });
     }

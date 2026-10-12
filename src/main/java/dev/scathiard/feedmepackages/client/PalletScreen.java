@@ -87,7 +87,7 @@ public final class PalletScreen extends Screen {
         pointerX = x; pointerY = y;
         if (!spiral) { focus = gridTarget(x, y); return; }
         var view = spiralLayout();
-        navigation.move(x - view.centerX(), y - view.centerY(), view.deadRadius());
+        navigation.move(x - view.centerX(), y - view.centerY());
         int selected = navigation.selected();
         focus = selected >= 0 && inStock(shown.get(selected)) ? shown.get(selected) : ItemStack.EMPTY;
     }
@@ -108,18 +108,15 @@ public final class PalletScreen extends Screen {
         g.drawCenteredString(font, title, width / 2, 12, 0xffffffff);
         if (spiral) {
             var view = spiralLayout();
+            PalletLayout.SpiralTile highlighted = null;
             for (var tile : view.tiles()) {
                 var item = shown.get(tile.index());
                 if (!inStock(item)) continue;
-                g.pose().pushPose();
-                g.pose().translate(tile.x() - tile.size() / 2, tile.y() - tile.size() / 2, 0);
-                float scale = (float) (tile.size() / 24);
-                g.pose().scale(scale, scale, 1);
-                g.setColor(tile.opacity(), tile.opacity(), tile.opacity(), tile.opacity());
-                drawTile(g, item, 0, 0, tile.current() && !focus.isEmpty() && ItemStack.isSameItemSameComponents(focus, item));
-                g.setColor(1, 1, 1, 1);
-                g.pose().popPose();
+                if (tile.current() && !focus.isEmpty() && ItemStack.isSameItemSameComponents(focus, item)) highlighted = tile;
+                else drawSpiralTile(g, tile, item, false);
             }
+            // Draw the full-bright current occurrence last, above the surrounding spiral.
+            if (highlighted != null) drawSpiralTile(g, highlighted, focus, true);
             g.fill((int) view.centerX() - 1, (int) view.centerY() - 1, (int) view.centerX() + 1, (int) view.centerY() + 1, 0xffb6a58b);
             if (!focus.isEmpty()) g.drawCenteredString(font, focus.getHoverName(), width / 2, height - 42, 0xffffffff);
         } else {
@@ -136,6 +133,17 @@ public final class PalletScreen extends Screen {
         g.drawCenteredString(font, label, width / 2, height - 22, 0xffeeeeee);
         if (count == 0) g.drawCenteredString(font, Component.translatable("gui.create_feed_me_packages.pallet.empty"), width / 2, height / 2 + 12, 0xffcccccc);
     }
+    private void drawSpiralTile(GuiGraphics g, PalletLayout.SpiralTile tile, ItemStack item, boolean current) {
+        g.pose().pushPose();
+        g.pose().translate(tile.x() - tile.size() / 2, tile.y() - tile.size() / 2, current ? 200 : 0);
+        float scale = (float) (tile.size() / 24);
+        g.pose().scale(scale, scale, 1);
+        float brightness = current ? 1 : tile.opacity() * .6f;
+        g.setColor(brightness, brightness, brightness, current ? 1 : tile.opacity());
+        drawTile(g, item, 0, 0, current);
+        g.setColor(1, 1, 1, 1);
+        g.pose().popPose();
+    }
     private void drawTile(GuiGraphics g, ItemStack item, int x, int y) {
         drawTile(g, item, x, y, !focus.isEmpty() && ItemStack.isSameItemSameComponents(focus, item));
     }
@@ -143,6 +151,11 @@ public final class PalletScreen extends Screen {
         int textureX = current ? 24 : PalletClient.selected(item) ? 48 : 0;
         g.blit(SLOTS, x, y, textureX, 0, 24, 24, 72, 24);
         g.renderItem(item, x + 4, y + 4);
+        if (current) {
+            g.renderOutline(x - 2, y - 2, 28, 28, 0xff352618);
+            g.renderOutline(x - 1, y - 1, 26, 26, 0xffffce55);
+            g.renderOutline(x, y, 24, 24, 0xfffff0b0);
+        }
     }
     private void confirm(double x, double y) {
         refresh(); point(x, y);

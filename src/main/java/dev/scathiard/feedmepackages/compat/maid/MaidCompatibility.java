@@ -55,6 +55,10 @@ public final class MaidCompatibility {
             NeoForge.EVENT_BUS.addListener((EntityTickEvent.Post e) -> {
                 if (e.getEntity() instanceof LivingEntity maid && !maid.level().isClientSide && isMaid(maid)) tick(maid);
             });
+            NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent e) -> {
+                if (!e.getLevel().isClientSide() && e.getEntity() instanceof LivingEntity maid && isMaid(maid))
+                    dev.scathiard.feedmepackages.logistics.ReturnService.forget(maid);
+            });
             ready = true;
             MaidCouriers.initialize();
             FeedMePackages.LOGGER.info("FMP maid native shortage source registered");
@@ -128,6 +132,7 @@ public final class MaidCompatibility {
         } finally { TRANSFERRING.remove(access.handle().cacheId()); }
     }
     public static void tick(LivingEntity maid) {
+        if (maid.tickCount % 40 == 0) dev.scathiard.feedmepackages.logistics.ReturnService.check(MaidAccess.endpoint(maid));
         var access = MaidAccess.resolve(maid); if (!access.active()) return;
         MaidCouriers.refresh(maid);
         try {

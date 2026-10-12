@@ -474,10 +474,11 @@ tasks.withType(ProcessResources).configureEach {
     filteringCharset = 'UTF-8'
 }
 
+def resourceModVersion = project.mod_version.toString()
 tasks.named('processResources', ProcessResources).configure {
-    inputs.property('mod_version', project.mod_version)
+    inputs.property('mod_version', resourceModVersion)
     filesMatching('META-INF/neoforge.mods.toml') {
-        expand(mod_version: project.mod_version)
+        expand(mod_version: resourceModVersion)
     }
 }
 

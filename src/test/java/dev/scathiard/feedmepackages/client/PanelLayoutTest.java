@@ -62,51 +62,66 @@ class PanelLayoutTest {
     @Test void spiralContinuesAcrossTurnsAndReversesWithoutPaging() {
         var spiral = new dev.scathiard.feedmepackages.domain.PalletSpiral(100, 0);
         double step = dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
-        spiral.move(100, 0, 15);
+        spiral.move(100, 0);
         assertEquals(0, spiral.selected());
         for (int i = 1; i <= 48; i++) {
-            spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100, 15);
+            spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100);
             assertEquals(i, spiral.selected(), "clockwise item " + i);
         }
         for (int i = 47; i >= 0; i--) {
-            spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100, 15);
+            spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100);
             assertEquals(i, spiral.selected(), "counterclockwise item " + i);
         }
     }
     @Test void spiralIgnoresRadialMovementAndCenterCrossingWhileWrapping() {
         var spiral = new dev.scathiard.feedmepackages.domain.PalletSpiral(40, 18);
-        spiral.move(100, 0, 15);
-        spiral.move(45, 0, 15);
+        spiral.move(100, 0);
+        spiral.move(45, 0);
         assertEquals(18, spiral.selected());
-        spiral.move(-100, 0, 15);
+        spiral.move(-100, 0);
         assertEquals(18, spiral.selected(), "crossing the center cannot add half a turn");
-        spiral.move(0, 0, 15);
-        assertEquals(-1, spiral.selected(), "center release cancels");
-        spiral.move(0, 100, 15);
+        spiral.move(0, 0);
+        assertEquals(18, spiral.selected(), "center preserves the current candidate");
+        spiral.move(0, 100);
         assertEquals(18, spiral.selected(), "leaving center only reanchors");
         spiral.reset(3, 2);
-        spiral.move(100, 0, 15);
-        spiral.move(0, 100, 15);
+        spiral.move(100, 0);
+        spiral.move(0, 100);
         assertEquals(0, spiral.selected());
         double angle = Math.PI / 2 - dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
-        spiral.move(Math.cos(angle) * 100, Math.sin(angle) * 100, 15);
+        spiral.move(Math.cos(angle) * 100, Math.sin(angle) * 100);
         assertEquals(2, spiral.selected(), "reversing across the cyclic seam responds immediately");
         spiral.reset(0, 0);
-        spiral.move(100, 0, 15);
+        spiral.move(100, 0);
         assertEquals(-1, spiral.selected());
+    }
+    @Test void spiralHasNoInactiveRadiusAndKeepsTheChoiceAtTheExactCenter() {
+        double step = dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        for (double radius : new double[]{.01, .25, 1, 4, 10}) {
+            var spiral = new dev.scathiard.feedmepackages.domain.PalletSpiral(34, 0);
+            spiral.move(radius, 0);
+            for (int i = 1; i <= 40; i++) {
+                spiral.move(Math.cos(i * step) * radius, Math.sin(i * step) * radius);
+                assertEquals(i % 34, spiral.selected(), "small radius=" + radius);
+            }
+            spiral.move(0, 0);
+            assertEquals(6, spiral.selected(), "center release must not cancel the new choice");
+            spiral.move(-radius, 0);
+            assertEquals(6, spiral.selected(), "leaving the exact center reanchors without adding steps");
+        }
     }
     @Test void spiralLoopsBothDirectionsAndKeepsItsPhaseBounded() {
         double step = dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
         for (int count : new int[]{1,2,3,16,34,128}) {
             var spiral = new dev.scathiard.feedmepackages.domain.PalletSpiral(count, 0);
-            spiral.move(100, 0, 15);
+            spiral.move(100, 0);
             for (int i = 1; i <= count * 3 + 7; i++) {
-                spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100, 15);
+                spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100);
                 assertEquals(i % count, spiral.selected(), "forward count=" + count + " step=" + i);
                 assertTrue(spiral.position() >= 0 && spiral.position() < count);
             }
             for (int i = count * 3 + 6; i >= -count * 2; i--) {
-                spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100, 15);
+                spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100);
                 assertEquals(Math.floorMod(i, count), spiral.selected(), "reverse count=" + count + " step=" + i);
                 assertTrue(spiral.position() >= 0 && spiral.position() < count);
             }

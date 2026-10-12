@@ -913,6 +913,12 @@ public final class LogisticsPanel {
      * client-owned cursor), so the button stays live.
      */
     private static void renderTransferButton(GuiGraphics g) {
+        if (maidPanel()) {
+            var r = layout.maidPickupButton();
+            iconButton(g, r, BUTTON_TEXTURE, snapshot.maidPickup() ? "maid_pickup_on" : "maid_pickup_off", active());
+            if (r.width() > 0) mark(g, new PanelLayout.Rect(r.x() + 9, r.y() + 2, 3, 3),
+                    snapshot.maidPickup() ? 0xff76ed77 : 0xff696969);
+        }
         LogisticsPanel.iconButton(g, layout.transferButton(), BUTTON_TEXTURE, "collect_button",
                 LogisticsPanel.collectEnabled());
     }
@@ -1167,10 +1173,6 @@ public final class LogisticsPanel {
         int w = r.width();
         int h = r.height();
         // Background and hook were drawn once by frame(); only live text goes here.
-        if (maidPanel()) {
-            if (r.contains(mouseX, mouseY)) tooltip = List.of(tr("maid_no_return"));
-            return;
-        }
         String value = returnEditing ? returnBuffer : (snapshot.returnAddress() == null ? "" : snapshot.returnAddress());
         int textWidth = Math.max(0, w - 12);
         boolean bl = placeholder = value.isEmpty() && !returnEditing;
@@ -1447,7 +1449,6 @@ public final class LogisticsPanel {
             return true;
         }
         if (LogisticsPanel.active() && inputLayout.returnAddressContains(x, y)) {
-            if (maidPanel()) return true;
             returnEditing = true;
             returnBuffer = snapshot.returnAddress() == null ? "" : snapshot.returnAddress();
             return true;
@@ -1467,6 +1468,13 @@ public final class LogisticsPanel {
         if (inputLayout.foldButton().contains(x, y)) {
             LogisticsPanel.playButtonClick();
             LogisticsPanel.toggleHidden();
+            return true;
+        }
+        if (maidPanel() && inputLayout.maidPickupButton().contains(x, y)) {
+            if (active()) {
+                playButtonClick();
+                send(CacheActions.Action.MAID_PICKUP, -1, snapshot.maidPickup() ? 0 : 1, -1, "");
+            }
             return true;
         }
         if (inputLayout.transferButton().contains(x, y)) {

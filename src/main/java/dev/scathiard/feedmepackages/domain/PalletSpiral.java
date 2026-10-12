@@ -1,6 +1,6 @@
 package dev.scathiard.feedmepackages.domain;
 
-/** Continuous angular selection. Pointer radius never chooses an item or resets a completed turn. */
+/** Continuous angular selection with no inactive radius. Only an undefined center direction reanchors. */
 public final class PalletSpiral {
     public static final int PER_TURN = 16;
     public static final double STEP = Math.PI * 2 / PER_TURN;
@@ -18,23 +18,20 @@ public final class PalletSpiral {
     }
     public double position() { return position; }
     public double phase() { return phase; }
-    public int selected() { return tracking && size > 0 ? (int) Math.floorMod(Math.round(position), (long) size) : -1; }
-    public void cancel() { tracking = false; }
+    public int selected() { return size > 0 ? (int) Math.floorMod(Math.round(position), (long) size) : -1; }
 
-    public void move(double x, double y, double deadRadius) {
-        if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(deadRadius) || deadRadius < 0)
-            throw new IllegalArgumentException("Invalid spiral pointer");
-        if (size == 0 || Math.hypot(x, y) <= deadRadius) {
+    public void move(double x, double y) {
+        if (!Double.isFinite(x) || !Double.isFinite(y)) throw new IllegalArgumentException("Invalid spiral pointer");
+        if (size == 0 || x == 0 && y == 0) {
             tracking = false;
-            return;
+            return; // There is no direction at the exact origin, but the current choice remains valid.
         }
         double angle = Math.atan2(y, x);
-        if (tracking && !crossesCenter(x, y, deadRadius)) {
+        if (tracking && !crossesCenter(x, y)) {
             double delta = angle - Math.atan2(lastY, lastX);
             delta = Math.atan2(Math.sin(delta), Math.cos(delta));
             position = wrap(position + delta / STEP, size);
         }
-        // Keep the cyclic phase bounded; crossing the list seam preserves pointer angle and reversal.
         phase = angle - position * STEP;
         lastX = x;
         lastY = y;
@@ -45,14 +42,14 @@ public final class PalletSpiral {
         if (size == 0) return 0;
         double result = value % size;
         double wrapped = result < 0 ? result + size : result;
-        // A tiny negative remainder can round back up to size when added to a large modulus.
         return wrapped >= size ? 0 : wrapped;
     }
 
-    private boolean crossesCenter(double x, double y, double radius) {
-        double dx = x - lastX, dy = y - lastY, length = dx * dx + dy * dy;
-        if (length == 0) return false;
-        double t = Math.clamp(-(lastX * dx + lastY * dy) / length, 0, 1);
-        return Math.hypot(lastX + t * dx, lastY + t * dy) <= radius;
+    private boolean crossesCenter(double x, double y) {
+        double before = Math.hypot(lastX, lastY), after = Math.hypot(x, y);
+        double ax = lastX / before, ay = lastY / before, bx = x / after, by = y / after;
+        // Only opposite collinear samples cross the origin. This tolerance is floating-point precision,
+        // not a spatial dead zone: arbitrarily small circular gestures still advance normally.
+        return ax * bx + ay * by < 0 && Math.abs(ax * by - ay * bx) <= 8 * Math.ulp(1.0);
     }
 }

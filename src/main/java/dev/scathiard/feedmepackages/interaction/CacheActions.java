@@ -22,7 +22,7 @@ public final class CacheActions {
     private CacheActions() {}
     /** Opt-in panel drop: the server resolves the exact variant across all pages. */
     public static final int AUTO_DEPOSIT = -2;
-    public enum Action { DEPOSIT, TAKE_CURSOR, TAKE_INVENTORY, SET_GHOST, CLEAR_FILTER, THRESHOLDS, RESET_REQUEST, PREFERENCE, TERMINAL_ENABLED, CLEAR_NETWORK, TAKE_RESIDUAL, FILL_RECIPE, SET_RETURN_ADDRESS, RELEASE_PREVIEW, CREATIVE_BEGIN, CREATIVE_END, COLLECT_MATCHING, SUPPLY_SETTINGS, SET_FLUID_GHOST, TAKE_FLUID, PLACE_FLUID, DEPOSIT_FLUID, RELEASE_FLUID }
+    public enum Action { DEPOSIT, TAKE_CURSOR, TAKE_INVENTORY, SET_GHOST, CLEAR_FILTER, THRESHOLDS, RESET_REQUEST, PREFERENCE, TERMINAL_ENABLED, CLEAR_NETWORK, TAKE_RESIDUAL, FILL_RECIPE, SET_RETURN_ADDRESS, RELEASE_PREVIEW, CREATIVE_BEGIN, CREATIVE_END, COLLECT_MATCHING, SUPPLY_SETTINGS, SET_FLUID_GHOST, TAKE_FLUID, PLACE_FLUID, DEPOSIT_FLUID, RELEASE_FLUID, MAID_PICKUP }
     public enum Result { OK, STALE, NOT_ACTIVE, INVALID_ITEM, DUPLICATE_FILTER, FILTER_OCCUPIED, NO_SPACE, INVALID_REQUEST, MISSING_MATERIAL, UNSUPPORTED_RECIPE, TOO_COMPLEX, READ_ONLY, DENIED }
     public record Intent(UUID session, long revision, Action action, int slot, int first, int second, String template) {
         public Intent {
@@ -176,6 +176,12 @@ public final class CacheActions {
         if (CraftingReservations.operating(access.handle().cacheId()) || FluidActions.operating(access.handle().cacheId())) return Result.STALE;
         var ledger = CacheLedger.get(player.getServer()); var before = ledger.find(access.handle().cacheId());
         if (before.state().revision() != intent.revision()) return Result.STALE;
+        if (intent.action() == Action.MAID_PICKUP) {
+            var maid = dev.scathiard.feedmepackages.compat.maid.MaidMenus.target(player.containerMenu);
+            if (maid == null || intent.first() < 0 || intent.first() > 1) return Result.INVALID_REQUEST;
+            dev.scathiard.feedmepackages.compat.maid.MaidPickup.setEnabled(maid, intent.first() == 1);
+            return Result.OK;
+        }
         if (intent.action() == Action.FILL_RECIPE) return PanelAccess.maid(player) ? Result.UNSUPPORTED_RECIPE : recipe(player, intent);
         // The one-key collect is a cache-level action too: it needs no cell, so it must bypass the per-cell
         // slot validation below (exactly like the return address and the recipe fill).
@@ -183,7 +189,6 @@ public final class CacheActions {
         // The return address is a cache-level preference, not a cell action: it uses no slot, so it
         // must bypass the per-cell slot validation below. Setting it marks the ledger dirty (saved).
         if (intent.action() == Action.SET_RETURN_ADDRESS) {
-            if (PanelAccess.maid(player)) return Result.INVALID_REQUEST;
             if (intent.template().length() > 128) return Result.INVALID_REQUEST;
             if (intent.template().equals(ledger.returnAddress(access.handle().cacheId()))) return Result.OK;
             ledger.setReturnAddress(access.handle().cacheId(), intent.template());

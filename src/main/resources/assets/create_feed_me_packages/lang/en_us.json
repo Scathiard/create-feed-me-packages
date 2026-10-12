@@ -196,5 +196,7 @@
   "gui.create_feed_me_packages.controls.fluid_reserved": "Not used for fluids",
   "gui.create_feed_me_packages.controls.fluid_step": "Scroll: ±8 buckets",
   "gui.create_feed_me_packages.result.read_only": "Capacity reduced: extraction only",
-  "gui.create_feed_me_packages.result.denied": "Storage denied for this material"
+  "gui.create_feed_me_packages.result.denied": "Storage denied for this material",
+  "gui.create_feed_me_packages.maid_pickup_on": "Store picked-up items: on",
+  "gui.create_feed_me_packages.maid_pickup_off": "Store picked-up items: off"
 }

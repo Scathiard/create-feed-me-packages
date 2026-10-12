@@ -15,15 +15,22 @@ import java.util.UUID;
  * An inventory carrier is held here; a cache carrier still belongs to its original cell. */
 public record ReturnEscrow(UUID id, CacheHandle handle, long revision, int slot, MaterialVariant variant,
                            int amount, ItemStack carrier, int inventorySlot, int cacheSlot,
-                           String transport, String address, boolean rejected) {
+                           String transport, String address, boolean rejected, UUID maidOwner) {
+    public ReturnEscrow(UUID id, CacheHandle handle, long revision, int slot, MaterialVariant variant,
+                        int amount, ItemStack carrier, int inventorySlot, int cacheSlot,
+                        String transport, String address, boolean rejected) {
+        this(id, handle, revision, slot, variant, amount, carrier, inventorySlot, cacheSlot, transport, address, rejected, null);
+    }
+    public boolean maidSource() { return maidOwner != null; }
     public ReturnEscrow {
         Objects.requireNonNull(id); Objects.requireNonNull(handle); Objects.requireNonNull(variant);
         Objects.requireNonNull(carrier); Objects.requireNonNull(transport); Objects.requireNonNull(address);
         if (!(variant instanceof ItemVariantKey || variant instanceof FluidVariantKey)
                 || revision < 0 || slot < 0 || amount < 1
                 || (variant instanceof ItemVariantKey item && amount > 9L * item.stackSize())
-                || carrier.isEmpty() || carrier.getCount() != 1 || inventorySlot < -1 || inventorySlot > 40 || cacheSlot < -1
+                || carrier.isEmpty() || carrier.getCount() != 1 || inventorySlot < -1 || maidOwner == null && inventorySlot > 40 || cacheSlot < -1
                 || (inventorySlot >= 0) == (cacheSlot >= 0) || !Set.of("paper", "bee", "phantom").contains(transport)
+                || maidOwner != null && transport.equals("phantom")
                 || address.isEmpty() || address.length() > 256)
             throw new IllegalArgumentException("Invalid return escrow");
         carrier = carrier.copy();
@@ -34,7 +41,7 @@ public record ReturnEscrow(UUID id, CacheHandle handle, long revision, int slot,
         return variant instanceof FluidVariantKey key ? key.encoded() : ((ItemVariantKey) variant).encoded();
     }
     public ReturnEscrow asRejected() {
-        return new ReturnEscrow(id, handle, revision, slot, variant, amount, carrier, inventorySlot, cacheSlot, transport, address, true);
+        return new ReturnEscrow(id, handle, revision, slot, variant, amount, carrier, inventorySlot, cacheSlot, transport, address, true, maidOwner);
     }
     /** Also used while loading: an orphan or changed source cannot unlock as empty stock. */
     public CacheRecord settled(CacheRecord before, HolderLookup.Provider registries) {
@@ -61,7 +68,8 @@ public record ReturnEscrow(UUID id, CacheHandle handle, long revision, int slot,
     }
     CompoundTag save(HolderLookup.Provider registries) {
         var tag = new CompoundTag(); tag.putInt("version", 2); tag.putUUID("id", id);
-        tag.putUUID("cache", handle.cacheId()); tag.putUUID("player", handle.playerId());
+        tag.putUUID("cache", handle.cacheId()); tag.putUUID("player", maidSource() ? maidOwner : handle.playerId());
+        if (maidSource()) tag.putUUID("maid", handle.playerId());
         if (handle.networkId() != null) tag.putUUID("network", handle.networkId());
         tag.putLong("revision", revision); tag.putInt("slot", slot);
         // Existing item rows are unchanged. Fluid identity has its own additional column, never an item template.
@@ -73,12 +81,13 @@ public record ReturnEscrow(UUID id, CacheHandle handle, long revision, int slot,
     }
     static ReturnEscrow load(CompoundTag tag, HolderLookup.Provider registries) {
         var allowed = Set.of("version", "id", "cache", "player", "network", "revision", "slot", "variant", "fluid_variant", "amount",
-                "carrier", "inventory_slot", "cache_slot", "transport", "address", "rejected");
+                "carrier", "inventory_slot", "cache_slot", "transport", "address", "rejected", "maid");
         if (!allowed.containsAll(tag.getAllKeys())) throw new IllegalArgumentException("Unknown return escrow fields");
         require(tag, "version", Tag.TAG_INT);
         if (tag.getInt("version") != 2) throw new IllegalArgumentException("Unknown return escrow version");
         for (String key : Set.of("id", "cache", "player")) require(tag, key, Tag.TAG_INT_ARRAY);
         if (tag.contains("network")) require(tag, "network", Tag.TAG_INT_ARRAY);
+        if (tag.contains("maid")) require(tag, "maid", Tag.TAG_INT_ARRAY);
         for (String key : Set.of("slot", "amount", "inventory_slot", "cache_slot")) require(tag, key, Tag.TAG_INT);
         if (tag.contains("fluid_variant") == tag.contains("variant"))
             throw new IllegalArgumentException("Return escrow must name exactly one cargo kind");
@@ -88,13 +97,13 @@ public record ReturnEscrow(UUID id, CacheHandle handle, long revision, int slot,
         if (tag.getByte("rejected") != 0 && tag.getByte("rejected") != 1) throw new IllegalArgumentException("Invalid rejection state");
         var carrier = ItemStack.parse(registries, tag.getCompound("carrier")).orElseThrow();
         ItemVariantKey.of(carrier, registries);
-        return new ReturnEscrow(tag.getUUID("id"), new CacheHandle(tag.getUUID("cache"), tag.getUUID("player"),
+        return new ReturnEscrow(tag.getUUID("id"), new CacheHandle(tag.getUUID("cache"), tag.getUUID(tag.contains("maid") ? "maid" : "player"),
                 tag.contains("network") ? tag.getUUID("network") : null), tag.getLong("revision"), tag.getInt("slot"),
                 tag.contains("fluid_variant") ? FluidVariantKey.decode(tag.getString("fluid_variant"), registries)
                         : ItemVariantKey.decode(tag.getString("variant"), registries),
                 tag.getInt("amount"),
                 carrier, tag.getInt("inventory_slot"), tag.getInt("cache_slot"), tag.getString("transport"), tag.getString("address"),
-                tag.getBoolean("rejected"));
+                tag.getBoolean("rejected"), tag.contains("maid") ? tag.getUUID("player") : null);
     }
     private static void require(CompoundTag tag, String key, int type) {
         if (!tag.contains(key, type)) throw new IllegalArgumentException("Missing or mistyped return escrow field: " + key);

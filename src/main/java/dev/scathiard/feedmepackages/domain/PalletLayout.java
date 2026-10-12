@@ -11,7 +11,7 @@ public final class PalletLayout {
     }
     public record View(List<Tile> tiles, int first, int step, int maximum) {}
     public record SpiralTile(int index, double x, double y, double size, float opacity, boolean current) {}
-    public record SpiralView(List<SpiralTile> tiles, double centerX, double centerY, double deadRadius) {}
+    public record SpiralView(List<SpiralTile> tiles, double centerX, double centerY, double radius) {}
 
     public static View grid(int size, int offset, int width, int height) {
         validate(size, width, height);
@@ -31,11 +31,10 @@ public final class PalletLayout {
         double outer = Math.max(12, Math.min(cx - 16, cy - 34));
         double radius = Math.min(92, outer / 1.85);
         double baseSize = Math.min(24, radius * PalletSpiral.STEP * .86);
-        double dead = Math.max(6, radius * .35);
         double pointerAngle = Math.IEEEremainder(phase + position * PalletSpiral.STEP, Math.PI * 2);
         position = PalletSpiral.wrap(position, size);
         var tiles = new ArrayList<SpiralTile>();
-        if (size == 0) return new SpiralView(List.of(), cx, cy, dead);
+        if (size == 0) return new SpiralView(List.of(), cx, cy, radius);
         // A finite window over a cyclic stream: visible copies keep both ends connected while
         // inventory identity remains the original index. Only the nearest occurrence is current.
         long from = (long) Math.floor(position) - PalletSpiral.PER_TURN;
@@ -52,7 +51,7 @@ public final class PalletLayout {
                     y - side / 2 < 26 || y + side / 2 > height - 26) continue;
             tiles.add(new SpiralTile((int) Math.floorMod(i, (long) size), x, y, side, opacity, i == Math.round(position)));
         }
-        return new SpiralView(List.copyOf(tiles), cx, cy, dead);
+        return new SpiralView(List.copyOf(tiles), cx, cy, radius);
     }
     private static void validate(int size, int width, int height) {
         if (size < 0 || width < 0 || height < 0) throw new IllegalArgumentException("Invalid pallet viewport");

@@ -38,6 +38,7 @@
     "JeiServerResultEditMixin",
     "SophisticatedRefillMixin",
     "SophisticatedSourcesMixin",
+    "MaidPickupMixin",
     "MaidPaperMixin",
     "MaidBeeTargetMixin",
     "MaidBeePortMixin",
