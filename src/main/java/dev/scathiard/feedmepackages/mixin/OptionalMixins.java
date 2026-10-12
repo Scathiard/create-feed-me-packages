@@ -18,6 +18,13 @@ public final class OptionalMixins implements IMixinConfigPlugin {
     private static Boolean maidPaperReady, maidBeeReady;
     public static boolean maidPaperCompatible() { return Boolean.TRUE.equals(maidPaperReady); }
     public static boolean maidBeeCompatible() { return Boolean.TRUE.equals(maidBeeReady); }
+    /**
+     * Create Phantom 1.0.2 settlement boundary. Decided from bytecode at bootstrap (like the maid gates above), so
+     * a shape mismatch means the Mixin is <b>not applied at all</b> - never "applied with require=0". Stays false
+     * until the phantom target is actually probed, i.e. fails closed.
+     */
+    private static Boolean phantom102Ready;
+    public static boolean phantom102Compatible() { return Boolean.TRUE.equals(phantom102Ready); }
     public static boolean factoryCompatible() { return factoryReady; }
     private static Boolean effortlessReady;
     public static boolean effortlessCompatible() { return Boolean.TRUE.equals(effortlessReady); }
@@ -42,6 +49,11 @@ public final class OptionalMixins implements IMixinConfigPlugin {
     @Override public void onLoad(String mixinPackage) {}
     @Override public String getRefMapperConfig() { return null; }
     @Override public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (mixinClassName.endsWith("Phantom102SettlementMixin")) {
+            // Shape mismatch => this Mixin is not applied at all (no require=0, no behaviour change).
+            phantom102Ready = phantom102SettlementTarget(targetClassName);
+            return phantom102Ready;
+        }
         if (mixinClassName.endsWith("JeiServerEditMixin") || mixinClassName.endsWith("JeiServerResultEditMixin")) {
             try {
                 var node = MixinService.getService().getBytecodeProvider().getClassNode(targetClassName);
@@ -428,6 +440,23 @@ public final class OptionalMixins implements IMixinConfigPlugin {
         String arguments = "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)";
         return hasCall(target, "<init>", arguments + "V", "parse")
                 && hasCall(target, "save", arguments + "Lnet/minecraft/nbt/CompoundTag;", "encodeStart");
+    }
+    /**
+     * Create Phantom 1.0.2 settlement boundary (T2-b step 2). Measured shape only: the injection point
+     * {@code canReceivePackageTarget} must exist with its exact descriptor and must still resolve real players
+     * through {@code PlayerList}. Any mismatch returns false, so the Mixin is never applied - the player branch
+     * stays byte-identical.
+     */
+    private static boolean phantom102SettlementTarget(String targetClassName) {
+        if (!targetClassName.equals("com.yision.phantom.logistics.courier.AirCourierDispatchService")) return false;
+        String descriptor = "(Lnet/minecraft/server/level/ServerLevel;Lcom/yision/phantom/logistics/courier/AirCourierTarget;Lnet/minecraft/world/item/ItemStack;)Z";
+        try {
+            var node = MixinService.getService().getBytecodeProvider().getClassNode(targetClassName);
+            return hasMethod(node, "canReceivePackageTarget", descriptor)
+                    && calls(node, "canReceivePackageTarget", descriptor,
+                            "net/minecraft/server/players/PlayerList", "getPlayer",
+                            "(Ljava/util/UUID;)Lnet/minecraft/server/level/ServerPlayer;") >= 1;
+        } catch (ClassNotFoundException | IOException unavailable) { return false; }
     }
     private static boolean hasCall(ClassNode target, String name, String descriptor, String invocation) {
         for (var method : target.methods) {
