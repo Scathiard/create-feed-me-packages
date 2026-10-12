@@ -30,7 +30,7 @@ public final class PalletLayout {
         double cx = width / 2.0, cy = height / 2.0;
         double outer = Math.max(12, Math.min(cx - 16, cy - 34));
         double radius = Math.min(92, outer / 1.85);
-        double baseSize = Math.min(24, radius * PalletSpiral.STEP * .86);
+        double baseSize = Math.min(24, radius * PalletSpiral.VISUAL_STEP * .86);
         double pointerAngle = Math.IEEEremainder(phase + position * PalletSpiral.STEP, Math.PI * 2);
         position = PalletSpiral.wrap(position, size);
         var tiles = new ArrayList<SpiralTile>();

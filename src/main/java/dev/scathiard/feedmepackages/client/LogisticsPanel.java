@@ -233,6 +233,14 @@ public final class LogisticsPanel {
             }
         });
         bus.addListener((net.neoforged.neoforge.client.event.ClientTickEvent.Post event) -> LogisticsPanel.tick());
+        // The level is already synced in every snapshot, so the pendant tooltip can state it without
+        // touching item components or the save format; only the worn pendant and a live snapshot count.
+        bus.addListener((net.neoforged.neoforge.event.entity.player.ItemTooltipEvent event) -> {
+            if (snapshot == null || snapshot.level() <= 0) return;
+            if (!(event.getItemStack().getItem() instanceof PendantItem)) return;
+            if (!LogisticsPanel.wornPendant(event.getItemStack())) return;
+            event.getToolTip().add(LogisticsPanel.tr("level", snapshot.level()));
+        });
         bus.addListener((ScreenEvent.Render.Pre event) -> {
             if (LogisticsPanel.current(event.getScreen())) {
                 LogisticsPanel.updateLayout();
@@ -423,6 +431,13 @@ public final class LogisticsPanel {
 
     private static boolean maidPanel() { return screen != null && MaidMenus.supports(screen.getMenu()); }
 
+    /** A carried Create package addressed to the maid whose page is open. */
+    private static boolean maidPackageCarried() {
+        if (!maidPanel() || LogisticsPanel.MC.player == null) return false;
+        return dev.scathiard.feedmepackages.compat.maid.MaidPackageHandover.addressedTo(
+                LogisticsPanel.MC.player.containerMenu.getCarried(), MaidMenus.target(screen.getMenu()));
+    }
+
     /** Native maid pages have a left tab strip; reserve it as part of the host, not as free cache space. */
     private static int panelAnchorX() {
         int anchor = screen.getGuiLeft();
@@ -446,6 +461,16 @@ public final class LogisticsPanel {
 
     private static boolean active() {
         return snapshot != null && snapshot.status() == AccessGate.Status.ACTIVE && snapshot.session() != null;
+    }
+
+    /** True only for the pendant the player actually wears: a spare in the bag must not borrow its level. */
+    private static boolean wornPendant(ItemStack stack) {
+        if (stack.isEmpty() || LogisticsPanel.MC.player == null) return false;
+        ICuriosItemHandler inventory = CuriosApi.getCuriosInventory((LivingEntity)LogisticsPanel.MC.player).orElse(null);
+        if (inventory == null) return false;
+        return inventory.findCurios(new String[]{"necklace"}).stream().anyMatch(found ->
+                !found.slotContext().cosmetic() && found.stack().getItem() instanceof PendantItem
+                        && ItemStack.isSameItemSameComponents(found.stack(), stack));
     }
 
     /** Read-only state for the JEI transfer handler, which must not invent its own panel bookkeeping. */
@@ -853,9 +878,15 @@ public final class LogisticsPanel {
         String address = snapshot.address();
         var maid = maidPanel() ? MaidMenus.target(screen.getMenu()) : null;
         String caption = maid == null ? address : tr("maid_cache", maid.getName()).getString();
-        int textWidth = copy.width() - 2;
+        // The level already travels in every snapshot and its lang key existed unused: draw it in the
+        // address row and shorten the caption instead of overlapping it.
+        String level = snapshot.level() > 0 ? LogisticsPanel.tr("level", snapshot.level()).getString() : "";
+        int levelWidth = level.isEmpty() ? 0 : LogisticsPanel.MC.font.width(level) + 4;
+        int textWidth = copy.width() - 2 - levelWidth;
         String displayed = LogisticsPanel.MC.font.width(caption) <= textWidth ? caption : LogisticsPanel.MC.font.plainSubstrByWidth(caption, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026";
         LogisticsPanel.text(g, displayed, copy.x() + 1, copy.y() + 3, copy.contains(mouseX, mouseY) ? -9419222 : 0xFF000000);
+        if (!level.isEmpty())
+            LogisticsPanel.text(g, level, copy.x() + copy.width() - levelWidth + 4, copy.y() + 3, copy.contains(mouseX, mouseY) ? -9419222 : 0xFF000000);
         if (copy.contains(mouseX, mouseY)) {
             tooltip = maid == null ? List.of(tr("address"), Component.literal(address))
                     : List.of(tr("maid_cache", maid.getName()), tr("address"), Component.literal(address));
@@ -1555,6 +1586,11 @@ public final class LogisticsPanel {
      * doing nothing.
      */
     private static void depositAt(int aimed, int button) {
+        if (LogisticsPanel.maidPackageCarried()) {
+            // Her page: the handover unpacks the package into her cache; the server keeps the verdict.
+            LogisticsPanel.send(CacheActions.Action.DEPOSIT, aimed, button == 1 ? 1 : 0, -1, "");
+            return;
+        }
         if (aimed >= 0 && (Screen.hasAltDown() || snapshot.cells().get(aimed).fluid())) {
             send(CacheActions.Action.DEPOSIT_FLUID,aimed,0,0,""); return;
         }
@@ -1683,6 +1719,25 @@ public final class LogisticsPanel {
 
     private static boolean key(int key, int scan, int modifiers) {
         if (templateTarget >= 0 && key == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) { templateTarget = -1; return true; }
+        // R-002: folding is a rebindable key as well as the two small buttons, but it must never steal
+        // the keyboard while the return-address box owns it.
+        if (!returnEditing && LogisticsPanel.visible() && ClientBootstrap.PANEL_FOLD.isActiveAndMatches(
+                com.mojang.blaze3d.platform.InputConstants.getKey(key, scan))) {
+            LogisticsPanel.toggleHidden();
+            return true;
+        }
+        if (ClientBootstrap.PALLET_COLLECT.isActiveAndMatches(
+                com.mojang.blaze3d.platform.InputConstants.getKey(key, scan))) {
+            // R-002: the one-key collect key reuses the transfer button's action verbatim, with the same
+            // guards: only while the expanded panel actually shows the button, and never while the
+            // return-address box owns the keyboard. Disabled (greyed) presses stay silent, like the button.
+            if (LogisticsPanel.visible() && !returnEditing && !layout.hidden() && !layout.compact()
+                    && LogisticsPanel.collectEnabled()) {
+                LogisticsPanel.playButtonClick();
+                LogisticsPanel.send(CacheActions.Action.COLLECT_MATCHING, -1, 0, -1, "");
+            }
+            return true;
+        }
         if (ClientBootstrap.SELECT_TEMPLATE.matches(key, scan)) {
             if (templateTarget >= 0) { templateTarget = -1; return true; }
             return beginTemplate(TemplateBrowsers.cursorX(), TemplateBrowsers.cursorY());

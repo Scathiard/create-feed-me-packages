@@ -86,11 +86,17 @@ class PanelLayoutTest {
         assertEquals(18, spiral.selected(), "leaving center only reanchors");
         spiral.reset(3, 2);
         spiral.move(100, 0);
-        spiral.move(0, 100);
-        assertEquals(0, spiral.selected());
-        double angle = Math.PI / 2 - dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
-        spiral.move(Math.cos(angle) * 100, Math.sin(angle) * 100);
-        assertEquals(2, spiral.selected(), "reversing across the cyclic seam responds immediately");
+        // Re-baselined 2026-10-13 for the six-per-turn spiral: a quarter turn is no longer a whole
+        // number of candidates, so the gesture snaps to the nearest whole step on purpose.
+        double quarterSteps = Math.round((Math.PI / 2) / dev.scathiard.feedmepackages.domain.PalletSpiral.STEP);
+        double forward = quarterSteps * dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        spiral.move(Math.cos(forward) * 100, Math.sin(forward) * 100);
+        int wrapped = (int) Math.floorMod(2L + (long) quarterSteps, 3L);
+        assertEquals(wrapped, spiral.selected(), "a quarter turn advances whole candidate steps");
+        double back = forward - dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        spiral.move(Math.cos(back) * 100, Math.sin(back) * 100);
+        assertEquals((int) Math.floorMod(wrapped - 1L, 3L), spiral.selected(),
+                "reversing across the cyclic seam responds immediately");
         spiral.reset(0, 0);
         spiral.move(100, 0);
         assertEquals(-1, spiral.selected());
@@ -126,6 +132,35 @@ class PanelLayoutTest {
                 assertTrue(spiral.position() >= 0 && spiral.position() < count);
             }
         }
+    }
+    @Test void spiralTurnOfSixKeepsTheOriginalPerAngleAppearance() {
+        assertEquals(6, dev.scathiard.feedmepackages.domain.PalletSpiral.PER_TURN);
+        assertEquals(16, dev.scathiard.feedmepackages.domain.PalletSpiral.VISUAL_PER_TURN);
+        assertEquals(Math.PI / 3, dev.scathiard.feedmepackages.domain.PalletSpiral.STEP, 1e-12);
+        assertEquals(Math.PI / 8, dev.scathiard.feedmepackages.domain.PalletSpiral.VISUAL_STEP, 1e-12);
+        var view = dev.scathiard.feedmepackages.domain.PalletLayout.spiral(64, 0, 0, 854, 480);
+        double radius = view.radius();
+        double base = Math.min(24, radius * dev.scathiard.feedmepackages.domain.PalletSpiral.VISUAL_STEP * .86);
+        assertTrue(view.tiles().size() > 3, "the ring still shows candidates");
+        var angles = new ArrayList<Double>();
+        for (var tile : view.tiles()) {
+            double dx = tile.x() - view.centerX(), dy = tile.y() - view.centerY();
+            double r = Math.hypot(dx, dy), scale = r / radius;
+            // Icon size and distance fade keep the 22.5-degree rhythm, not the 60-degree turn.
+            assertEquals(base * scale, tile.size(), 1e-9, "icon size must not follow the smaller turn");
+            double relative = Math.abs(Math.log(scale)) * dev.scathiard.feedmepackages.domain.PalletSpiral.PER_TURN / Math.log(1.7);
+            double expected = Math.max(0, 1 - relative / (scale > 1
+                    ? dev.scathiard.feedmepackages.domain.PalletSpiral.PER_TURN
+                    : dev.scathiard.feedmepackages.domain.PalletSpiral.PER_TURN * 1.5));
+            assertEquals(expected, tile.opacity(), 1e-6, "opacity must keep the per-angle falloff");
+            angles.add(Math.atan2(dy, dx));
+        }
+        // Candidates sit only on the six positions of a turn: any finer ring would leave a remainder.
+        // The same angle repeats at a different radius (multi-turn continuation), so count positions,
+        // not pairs.
+        for (double angle : angles)
+            assertEquals(0.0, Math.IEEEremainder(angle, Math.PI / 3), 1e-9,
+                    "exactly six candidate positions per turn");
     }
     @Test void spiralDrawsAcrossTheHeadTailSeamAndRepeatsWithoutAnEmptyEnd() {
         double step = dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
@@ -824,10 +859,11 @@ class PanelLayoutTest {
 
     /**
      * The three buttons click with the <b>vanilla</b> sound and nothing else does: one {@code UI_BUTTON_CLICK} play
-     * per button press path, each positioned after that button accepted the press (so the disabled collect stays
-     * silent), at the vanilla pitch, with no custom sound file and no custom values anywhere. Read from the shipped
-     * source and from the compiled class the jar carries. Whether it is actually audible is the user's to confirm -
-     * this pins the code shape.
+     * per press path (the three buttons plus the R-002 one-key-collect key, which reuses the collect button's
+     * action), each positioned after that button accepted the press (so the disabled collect stays silent), at the
+     * vanilla pitch, with no custom sound file and no custom values anywhere. Read from the shipped source and from
+     * the compiled class the jar carries. Whether it is actually audible is the user's to confirm - this pins the
+     * code shape.
      */
     @Test void theThreeButtonsClickWithTheVanillaSoundAndDisabledStaysSilent() throws Exception {
         var source = java.nio.file.Path.of("src/main/java/dev/scathiard/feedmepackages/client/LogisticsPanel.java");
@@ -838,8 +874,11 @@ class PanelLayoutTest {
                 "the click must be the vanilla UI_BUTTON_CLICK at the vanilla pitch 1.0F");
         assertEquals(1, occurrences(code, "private static void playButtonClick()"),
                 "there must be exactly one click helper");
-        assertEquals(3, occurrences(code, "LogisticsPanel.playButtonClick();"),
-                "exactly the three buttons may click (collect, fold, hidden entry)");
+        // Re-baselined 2026-10-13: the R-002 one-key-collect KEY is a fourth press path for the collect
+        // button's own action and must click exactly like that button; the other two buttons are unchanged.
+        // Nothing else in the panel clicks.
+        assertEquals(4, occurrences(code, "LogisticsPanel.playButtonClick();"),
+                "the three buttons plus the one-key-collect key may click (collect, fold, hidden entry, key)");
         int entryBranch = code.indexOf("if (layout.hidden()) {");
         int foldBranch = code.indexOf("if (inputLayout.foldButton().contains(x, y)) {");
         int transferBranch = code.indexOf("if (inputLayout.transferButton().contains(x, y)) {");
@@ -863,10 +902,25 @@ class PanelLayoutTest {
                 "a disabled button must return before it can click");
         assertTrue(transfer.substring(disabled, play).indexOf("playButtonClick") < 0,
                 "the disabled branch must be silent");
-        // Everything after the button branches (address bar, scrollbar, slider, cells) stays silent.
-        assertTrue(code.lastIndexOf("LogisticsPanel.playButtonClick();")
-                        < code.indexOf("if (inputLayout.address().contains(x, y)) {", transferBranch),
+        // Everything after the button branches (address bar, scrollbar, slider, cells) stays silent. Scoped to
+        // the press dispatcher: the key handler below is a deliberate fourth click path (see above).
+        int pressStart = code.indexOf("private static boolean press(double x, double y, int button) {");
+        assertTrue(pressStart > 0, "the press dispatcher must exist");
+        String pressBody = code.substring(pressStart,
+                code.indexOf("\n    }", code.indexOf("int px = layout.bounds().x();", pressStart)));
+        assertTrue(pressBody.lastIndexOf("LogisticsPanel.playButtonClick();")
+                        < pressBody.indexOf("if (inputLayout.address().contains(x, y)) {"),
                 "no other interaction may click: address, scrollbar, slider and cells stay silent");
+        // The one-key-collect key reuses the button's action, so it must also reuse its sound and its
+        // silence-when-disabled rule.
+        int keyStart = code.indexOf("private static boolean key(int key, int scan, int modifiers) {");
+        assertTrue(keyStart > 0, "the key handler must exist");
+        String keyBody = code.substring(keyStart, code.indexOf("\n    }", keyStart));
+        assertEquals(1, occurrences(keyBody, "LogisticsPanel.playButtonClick();"),
+                "the one-key-collect key clicks exactly once, like its button");
+        assertTrue(keyBody.indexOf("LogisticsPanel.collectEnabled()")
+                        < keyBody.indexOf("LogisticsPanel.playButtonClick();"),
+                "the key must stay silent while the collect is disabled, exactly like the greyed-out button");
         // The compiled class the jar carries references the vanilla click, and no custom sound ships.
         try (var in = PanelLayoutTest.class
                 .getResourceAsStream("/dev/scathiard/feedmepackages/client/LogisticsPanel.class")) {

@@ -2,8 +2,17 @@ package dev.scathiard.feedmepackages.domain;
 
 /** Continuous angular selection with no inactive radius. Only an undefined center direction reanchors. */
 public final class PalletSpiral {
-    public static final int PER_TURN = 16;
+    /** Candidates per full turn (user 2026-10-13: six). */
+    public static final int PER_TURN = 6;
+    /**
+     * Angular rhythm of the visual falloff, deliberately independent of {@link #PER_TURN}: icon size,
+     * distance fade and opacity decay keep the original 22.5-degree rhythm, so changing how many
+     * candidates sit on one turn does not change how a single candidate looks. The other layout
+     * quantities are already angle-invariant: they divide by PER_TURN while one step is 2*pi/PER_TURN.
+     */
+    public static final int VISUAL_PER_TURN = 16;
     public static final double STEP = Math.PI * 2 / PER_TURN;
+    public static final double VISUAL_STEP = Math.PI * 2 / VISUAL_PER_TURN;
     private int size;
     private double position, phase, lastX, lastY;
     private boolean tracking;

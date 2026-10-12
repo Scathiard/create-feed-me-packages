@@ -195,6 +195,18 @@ public final class CacheActions {
             return Result.OK;
         }
         var carried = creativeCursor == null ? player.containerMenu.getCarried() : creativeCursor;
+        // A package addressed to the maid whose page is open is handed over by unpacking it into HER cache,
+        // so this must precede the per-cell slot validation (a package has no cell of its own).
+        if (intent.action() == Action.DEPOSIT && PanelAccess.maid(player)
+                && com.simibubi.create.content.logistics.box.PackageItem.isPackage(carried)) {
+            var maid = dev.scathiard.feedmepackages.compat.maid.MaidMenus.target(player.containerMenu);
+            if (maid != null && dev.scathiard.feedmepackages.compat.maid.MaidPackageHandover.addressedTo(carried, maid)) {
+                // The handover reports its own reason when nothing matches (and then keeps the package).
+                dev.scathiard.feedmepackages.compat.maid.MaidPackageHandover.deliver(player, maid, carried);
+                return Result.OK;
+            }
+            return Result.INVALID_ITEM;
+        }
         int slot = intent.slot();
         if (intent.action() == Action.DEPOSIT && intent.second() == AUTO_DEPOSIT) {
             if (slot < -1 || slot >= before.state().cells().size()) return Result.INVALID_REQUEST;

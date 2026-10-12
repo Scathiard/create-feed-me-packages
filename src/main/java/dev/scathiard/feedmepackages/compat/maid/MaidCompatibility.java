@@ -59,6 +59,11 @@ public final class MaidCompatibility {
                 if (!e.getLevel().isClientSide() && e.getEntity() instanceof LivingEntity maid && isMaid(maid))
                     dev.scathiard.feedmepackages.logistics.ReturnService.forget(maid);
             });
+            // Handing a package back to its maid (user 2026-10-13): server side, owner's own maid, and only
+            // when the held stack is a package addressed to her - every other interaction stays native.
+            NeoForge.EVENT_BUS.addListener(EventPriority.HIGHEST, false,
+                    net.neoforged.neoforge.event.entity.player.PlayerInteractEvent.EntityInteract.class,
+                    MaidCompatibility::handover);
             ready = true;
             MaidCouriers.initialize();
             FeedMePackages.LOGGER.info("FMP maid native shortage source registered");
@@ -69,6 +74,16 @@ public final class MaidCompatibility {
     }
     private static <E extends Event> void register(Class<E> event) {
         NeoForge.EVENT_BUS.addListener(EventPriority.LOWEST, false, event, MaidCompatibility::request);
+    }
+    /** Right-click my own maid while holding a package addressed to her: unpack it into her cache. */
+    private static void handover(net.neoforged.neoforge.event.entity.player.PlayerInteractEvent.EntityInteract event) {
+        if (event.getLevel().isClientSide()
+                || !(event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player)) return;
+        if (!(event.getTarget() instanceof net.minecraft.world.entity.TamableAnimal pet) || !isMaid(pet)
+                || !pet.isOwnedBy(player) || pet.level() != player.level()) return;
+        ItemStack held = event.getItemStack();
+        if (!MaidPackageHandover.addressedTo(held, pet)) return;
+        if (MaidPackageHandover.deliver(player, pet, held) > 0) event.setCanceled(true);
     }
     private static void request(Event event) {
         try {
