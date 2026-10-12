@@ -5,52 +5,11 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * The panel arrangement of a cache level: the fixed (column, row) coordinate of every cell index
- * (origin (0, 0) at the panel's top-left corner).
- *
- * <p><b>Two requirements, both from the user.</b> (1) "升级的时候，原本缓存里放好的物品位置会错位" —
- * growing a level must never move a cell that already existed, so <b>a cell index keeps its (column, row)
- * for good</b>. (2) "面板排列变了那不行，要遵从我原来的面板设计" — the panel must keep the 0.2.2 layout, so
- * this table is built such that at every level the set of occupied coordinates is exactly the set 0.2.2's own
- * algorithm produced: {@code columns = max(2, ceil(count / 6))}, at most 6 rows per column, filled row-major.
- *
- * <p><b>A fixed table, not a formula.</b> A formula that re-derives the columns from the cell count re-numbers
- * the cells on every upgrade; that is exactly what used to move 7/9, 13/16, 20/24 and 25/30 of the old cells.
- * Here the coordinate of an index is decided once, when the index is first handed out, and never recomputed.
- * The levels' occupied sets are nested (9 ⊂ 16 ⊂ 24 ⊂ 30 ⊂ 36), so the first {@code slots(N)} coordinates of
- * the table are exactly level N's 0.2.2 layout — both requirements hold at the same time.
- *
- * <p>Level 1's index → position mapping is cell-for-cell identical to 0.2.2's. From level 2 on the <i>set</i>
- * of occupied positions is identical (same columns, same rows, same panel box) but the index → position order
- * differs: 0.2.2 renumbered the cells at every level, and a stable order cannot also be that per-level order.
- * The consequence for a save made under 0.2.2 is one single repaint in the new order; nothing moves afterwards.
- *
- * <p><b>Reused semantics, one convention.</b> This is the same fixed-coordinate semantics the 0.3 plugin grid
- * already uses — {@code plugin/PluginGrid} on the archived branch {@code wip/0.3-archived}: a frozen table
- * (there, the literal {@code COLUMN[]} / {@code ROW[]} arrays), a {@code Coordinate(int column, int row)}
- * record with the origin at the top-left, "coordinates are assigned once and for all, and growing simply makes
- * more of the table visible", and the box derived from the coordinates themselves ({@code columns(total)} /
- * {@code rows(total)} = the extremes + 1). One semantics, two tables, because they describe two different
- * inventories (15 plugin slots vs 36 cache cells), and each table's growth follows its own specification.
- * See also {@code docs/proposals/2026-09-12-0.3-D组插件框架实现方案.md} §2.2.
- *
- * <p><b>The coordinate convention for new cells.</b> There is exactly one table, <b>no reserved region and no
- * segmentation</b>. Growing a shipped level never moves and never recomputes anything. Past level 5 the
- * coordinates continue to the <b>right</b>: whole new columns, each holding at most {@link #MAX_ROWS} cells
- * filled top-down, starting at the column after the current last one ({@link #withExtraSlots(int)}); holes
- * inside a level's own 0.2.2 outline stay empty. The panel box is recomputed from the table's extremes, so
- * width, row count, slider and hit testing all follow the coordinates as their single source.
- *
- * <p><b>Nothing about the stored data changes.</b> The ledger keeps a positional list whose length must equal
- * {@link CacheLevel#slots()} and {@code CacheEdit.upgrade()} still only appends empty cells at the end, so an
- * index still means exactly "the Nth cell": no migration, no re-ordering, {@code SCHEMA} untouched.
- *
- * <p>Shipped table (per level: cells, columns, rows = the 0.2.2 panel box):
- * <pre>
- *   L1  9 cells in 2 columns (5/4) x 5 rows    L2 16 cells in 3 columns (6/5/5) x 6 rows
- *   L3 24 cells in 4 columns (6/6/6/6) x 6     L4 30 cells in 5 columns (6x5)   x 6
- *   L5 36 cells in 6 columns (6x6) x 6
- * </pre>
+ * Shared mapping for drawing, hit testing and actions. The default five levels retain the original
+ * cell coordinates when growing. A configured viewport may scroll or narrow the visible columns;
+ * its local positions always map back to immutable ledger indexes through {@link #storageSlot(int)}.
+ * Neither layout nor scrolling reorders the saved inventory. {@link #window(int,int,int)} is the
+ * bounded display entry point; the canonical helpers retain the established default geometry.
  */
 public final class CacheGrid {
     /** Most rows a column may hold; 0.2.2's panel bound ({@code PanelLayout.MAX_ROWS}). */
@@ -67,9 +26,11 @@ public final class CacheGrid {
     private final int[] cellOfSlot;
     /** Cell index at a packed coordinate, or -1 when that position carries no cell. */
     private final int[] slotOfCell;
+    private int[] storageSlots;
 
     private CacheGrid(int count, int[] cellOfSlot, int columns, int rows) {
         this.count = count;
+        this.storageSlots = java.util.stream.IntStream.range(0,count).toArray();
         this.cellOfSlot = cellOfSlot;
         this.columns = Math.max(MIN_COLUMNS, columns);
         this.rows = Math.max(1, rows);
@@ -83,7 +44,7 @@ public final class CacheGrid {
         return new CacheGrid(count, cellOfSlot, zeroTwoTwoColumns(count), zeroTwoTwoRows(count));
     }
 
-    /** Box of an arrangement built from explicit coordinates (future plugin columns). */
+    /** Box of an arrangement built from explicit coordinates. */
     private static CacheGrid ofCoordinates(int count, int[] cellOfSlot) {
         int columns = MIN_COLUMNS;
         int rows = 1;
@@ -166,10 +127,7 @@ public final class CacheGrid {
         return forCount(limits.slots());
     }
 
-    /**
-     * Defensive fallback for a cell count that is not one of the shipped levels (no shipped state has one):
-     * 0.2.2's flowing row-major arrangement, kept so an unexpected count still renders every cell.
-     */
+    /** Canonical fallback for a non-default count; live configurable panels use window(). */
     private static CacheGrid flowing(int count) {
         count = Math.max(0, count);
         int columns = zeroTwoTwoColumns(count);
@@ -182,13 +140,13 @@ public final class CacheGrid {
     public int rows() { return rows; }
     public int columns() { return columns; }
 
-    /** Row of a cell index; every level that still contains the index answers the same row. */
+    /** Local row in this arrangement; convert local indexes with storageSlot for ledger actions. */
     public int row(int slot) {
         require(slot);
         return rowOf(cellOfSlot[slot]);
     }
 
-    /** Column of a cell index; every level that still contains the index answers the same column. */
+    /** Local column in this arrangement; it is not a ledger index. */
     public int column(int slot) {
         require(slot);
         return columnOf(cellOfSlot[slot]);
@@ -200,14 +158,7 @@ public final class CacheGrid {
         return slotOfCell[packed(column, row)];
     }
 
-    /**
-     * This arrangement plus {@code extra} slot coordinates for future plugin cells. Existing indexes are
-     * copied verbatim (never moved); the new coordinates are whole new columns to the right of the level's own
-     * layout, each filled top-down with at most {@link #MAX_ROWS} cells — the captain's convention "未来插件格
-     * 继续加新列（列 6、列 7…）". Holes inside a level's own 0.2.2 outline stay empty, and there is no reserved
-     * region: a future slot simply takes the next coordinate of the table. The panel box follows the
-     * coordinates, so it grows with the table.
-     */
+    /** Append canonical columns without moving existing coordinates; separate from viewport paging. */
     public CacheGrid withExtraSlots(int extra) {
         if (extra <= 0) return this;
         int[] grown = Arrays.copyOf(cellOfSlot, count + extra);
@@ -217,6 +168,38 @@ public final class CacheGrid {
                 grown[next++] = packed(column, row);
         return ofCoordinates(grown.length, grown);
     }
+
+    /** Page mapping reused from the reference scroll repair; storage IDs never depend on the visible row. */
+    private static int naturalColumns(int total) {
+        if(total>36)return CacheViewport.COLUMNS;
+        int columns=2;var base=forLevel(5);
+        for(int slot=0;slot<Math.max(0,total);slot++)columns=Math.max(columns,base.column(slot)+1);
+        return columns;
+    }
+    public static int columnsFor(int total,int limit){return Math.min(naturalColumns(total),Math.clamp(limit,2,6));}
+    public static int rowsFor(int total,int limit){
+        int columns=columnsFor(total,limit);
+        if(total>36 || columns<naturalColumns(total))return Math.max(1,Math.ceilDiv(Math.max(0,total),columns));
+        int rows=1;var base=forLevel(5);for(int slot=0;slot<Math.max(0,total);slot++)rows=Math.max(rows,base.row(slot)+1);return rows;
+    }
+    public static CacheGrid window(int total,int requestedFirst,int limit){
+        int columns=columnsFor(total,limit), first=CacheViewport.first(total,requestedFirst,limit)/columns;
+        int rows=Math.min(MAX_ROWS,rowsFor(total,limit)-first);var slots=new ArrayList<Integer>();var coordinates=new ArrayList<Integer>();
+        var base=forLevel(5);
+        for(int slot=0;slot<total;slot++){
+            int row,column;
+            if(columns<naturalColumns(total)){row=slot/columns;column=slot%columns;}
+            else if(slot<36){row=base.row(slot);column=base.column(slot);}
+            else{row=MAX_ROWS+(slot-36)/6;column=(slot-36)%6;}
+            if(row<first || row>=first+rows)continue;
+            slots.add(slot);coordinates.add(packed(column,row-first));
+        }
+        var grid=new CacheGrid(slots.size(),coordinates.stream().mapToInt(Integer::intValue).toArray(),columns,Math.max(1,rows));
+        grid.storageSlots=slots.stream().mapToInt(Integer::intValue).toArray();return grid;
+    }
+    public int storageSlot(int local){require(local);return storageSlots[local];}
+    public int localSlot(int storage){for(int i=0;i<storageSlots.length;i++)if(storageSlots[i]==storage)return i;return -1;}
+    public List<Integer> storageSlots(){return java.util.Arrays.stream(storageSlots).boxed().toList();}
 
     private void require(int slot) {
         if (slot < 0 || slot >= count) throw new IndexOutOfBoundsException("slot " + slot + " of " + count);

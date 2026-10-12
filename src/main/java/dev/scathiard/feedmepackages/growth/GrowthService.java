@@ -1,6 +1,5 @@
 package dev.scathiard.feedmepackages.growth;
 
-import dev.scathiard.feedmepackages.domain.CacheMerge;
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
 import dev.scathiard.feedmepackages.item.*;
@@ -21,7 +20,7 @@ import java.util.*;
 public final class GrowthService {
     private GrowthService() {}
     private static final Map<SmithingMenu, Preview> PREVIEWS = new WeakHashMap<>();
-    private record Proof(CacheRecord source, UUID personalId, CacheRecord personal) {}
+    private record Proof(CacheRecord source) {}
     private record Preview(List<ItemStack> inputs, Proof proof, ResourceLocation recipe) {}
     private record Prepared(CacheLedger.Mutation mutation, ItemStack result) {}
     private static final class Rejected extends IllegalArgumentException {
@@ -55,48 +54,31 @@ public final class GrowthService {
         return true;
     }
     private static Proof proof(ServerPlayer player, ItemStack base) {
-        var ledger = CacheLedger.get(player.getServer()); UUID source = base.get(FmpRegistries.IDENTITY.get()); UUID personal = ledger.personal(player.getUUID());
-        return new Proof(source == null ? null : ledger.find(source), personal, personal == null ? null : ledger.find(personal));
+        var ledger = CacheLedger.get(player.getServer()); UUID source = base.get(FmpRegistries.IDENTITY.get());
+        return new Proof(source == null ? null : ledger.find(source));
     }
 
     private static Prepared prepare(ServerPlayer player, PendantSmithingRecipe recipe, SmithingRecipeInput input) {
         var ledger = CacheLedger.get(player.getServer()); ItemStack base = input.base();
         if (!ledger.problem().isEmpty()) throw new Rejected("storage_locked");
-        if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(base.get(FmpRegistries.IDENTITY.get()))
-                || dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(ledger.personal(player.getUUID()))) throw new Rejected("stale");
+        if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(base.get(FmpRegistries.IDENTITY.get()))) throw new Rejected("stale");
         if (!(base.getItem() instanceof PendantItem pendant) || base.getCount() != 1 || base.getOrDefault(FmpRegistries.PREVIEW.get(), false)
                 || !(input.addition().getItem() instanceof SupplyLinkItem link) || link.targetLevel() != recipe.targetLevel()
                 || !input.template().is(FmpRegistries.ASSEMBLY_TEMPLATE.get())) throw new Rejected("invalid_input");
         ItemStack result = recipe.display(input); result.remove(FmpRegistries.PREVIEW.get());
         CacheLedger.Mutation mutation;
-        try {
-            if (recipe.targetLevel() == 0) {
-                if (pendant.personal()) throw new Rejected("invalid_input");
-                var source = ledger.ordinaryForManufacturing(base.get(FmpRegistries.IDENTITY.get()));
-                var plan = PrivateCacheMerge.simulate(ledger, player.registryAccess(), player.getUUID(), source);
-                mutation = ledger.prepareOwnership(plan.source(), plan.target(), plan.replacement(), plan.sourceRoutes());
-                result.remove(FmpRegistries.IDENTITY.get()); result.set(FmpRegistries.OWNER.get(), player.getUUID());
-                result.set(FmpRegistries.OWNER_NAME.get(), player.getGameProfile().getName());
-            } else if (!pendant.personal()) {
-                var source = ledger.ordinaryForManufacturing(base.get(FmpRegistries.IDENTITY.get()));
-                if (source.state().level() + 1 != recipe.targetLevel()) throw new Rejected("wrong_level");
-                mutation = ledger.prepareOrdinaryUpgrade(source, recipe.targetLevel());
-                result.set(FmpRegistries.IDENTITY.get(), mutation.result().state().id()); result.remove(FmpRegistries.OWNER.get());
-            } else {
-                // Owner-locked personal upgrade: only the owner may forge it, and the personal cache upgrades directly.
-                var owner = base.get(FmpRegistries.OWNER.get());
-                if (owner == null || !owner.equals(player.getUUID())) throw new Rejected("not_owner");
-                UUID personal = ledger.personal(player.getUUID());
-                if (personal == null || ledger.find(personal).state().level() + 1 != recipe.targetLevel()) throw new Rejected("wrong_level");
-                mutation = ledger.preparePersonalUpgrade(new CacheHandle(personal, player.getUUID(), null), recipe.targetLevel());
-                result.remove(FmpRegistries.IDENTITY.get()); result.set(FmpRegistries.OWNER.get(), owner);
-            }
-        } catch (CacheMerge.Rejected failure) {
-            throw new Rejected(failure.reason() == CacheMerge.Reason.CONFIGURATION_CONFLICT ? "configuration_conflict" : "merge_full");
-        } catch (PrivateCacheMerge.Rejected failure) {
-            throw new Rejected(failure.reason() == PrivateCacheMerge.Reason.INVALID_RESIDUAL ? "invalid_residual" : "merge_full");
+        {
+            if (recipe.targetLevel() < 2 || recipe.targetLevel() > 5 || base.has(FmpRegistries.IDENTITY.get())
+                    && !ledger.ordinaryEntry(base.get(FmpRegistries.IDENTITY.get()), base.get(FmpRegistries.RETIREMENT_RECEIPT.get())))
+                throw new Rejected("invalid_input");
+            var source = ledger.ordinaryForManufacturing(base.get(FmpRegistries.IDENTITY.get()));
+            if (source.state().level() + 1 != recipe.targetLevel()) throw new Rejected("wrong_level");
+            mutation = ledger.prepareOrdinaryUpgrade(source, recipe.targetLevel());
+            result.set(FmpRegistries.IDENTITY.get(), mutation.result().state().id());
+            result.remove(FmpRegistries.OWNER.get()); result.remove(FmpRegistries.OWNER_NAME.get());
+
         }
-        if (!(result.getItem() instanceof PendantItem output) || output.personal() != (pendant.personal() || recipe.targetLevel() == 0))
+        if (!(result.getItem() instanceof PendantItem output) || !result.is(FmpRegistries.PENDANT.get()))
             throw new Rejected("invalid_input");
         return new Prepared(mutation, result);
     }

@@ -37,7 +37,7 @@ public final class MaterialTransaction {
     static Optional<MaterialTransaction> prepare(ServerPlayer player) { return open(player, true); }
     private static Optional<MaterialTransaction> open(ServerPlayer player, boolean preparation) {
         var access = AccessGate.resolve(player);
-        return access.active() && !player.isSpectator() && player.getInventory().items.size() == 36
+        return access.active() && !dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId()) && !player.isSpectator() && player.getInventory().items.size() == 36
                 ? Optional.of(new MaterialTransaction(player, access.handle(), preparation)) : Optional.empty();
     }
     public CacheHandle handle() { return handle; }
@@ -120,7 +120,8 @@ public final class MaterialTransaction {
         return true;
     }
     public boolean valid() {
-        if (committed || !player.getServer().isSameThread() || player.isSpectator()) return false;
+        if (committed || !player.getServer().isSameThread() || player.isSpectator()
+                || dev.scathiard.feedmepackages.interaction.FluidActions.operating(handle.cacheId())) return false;
         var access = AccessGate.resolve(player); var current = ledger.find(handle.cacheId());
         if (!access.active() || !handle.equals(access.handle()) || current == null
                 || current.state().revision() != revision() || CraftingReservations.epoch() != reservationEpoch) return false;
@@ -132,16 +133,27 @@ public final class MaterialTransaction {
         if (!valid()) return false;
         var next = edit.finish();
         if (!next.equals(original.state())) ledger.replace(handle, revision(), original.withState(next));
-        for (int i = 0; i < 36; i++) player.getInventory().items.set(i, inventory.get(i).copy());
+        publishInventoryChanges(player, inventory);
         committed = true; player.getInventory().setChanged(); return true;
     }
     boolean commitPreparation(net.minecraft.world.inventory.AbstractContainerMenu menu, List<ItemStack> display) {
         if (!preparation || !valid()) return false;
-        for (int i = 0; i < 36; i++) player.getInventory().items.set(i, preparationInventory.get(i).copy());
+        publishInventoryChanges(player, preparationInventory);
         CraftingReservations.install(player, menu, handle, allocations, display);
         committed = true; player.getInventory().setChanged(); return true;
     }
     private void ensurePlanning() { if (committed) throw new IllegalStateException("Material plan already committed"); }
+    /** Publish an already validated, synchronous simulation without restacking unrelated/native objects. */
+    static void publishInventoryChanges(ServerPlayer player, List<ItemStack> after) {
+        var live = player.getInventory().items;
+        if (after.size() != 36 || live.size() != 36) throw new IllegalArgumentException("Expected ordinary player inventory");
+        for (int i = 0; i < 36; i++) {
+            var current = live.get(i); var next = after.get(i);
+            if (ItemStack.matches(current, next)) continue;
+            if (!current.isEmpty() && !next.isEmpty() && ItemStack.isSameItemSameComponents(current, next)) current.setCount(next.getCount());
+            else live.set(i, next.isEmpty() ? ItemStack.EMPTY : next.copy());
+        }
+    }
     public static List<ItemStack> copyInventory(ServerPlayer player) { return copies(player.getInventory().items); }
     public static List<ItemStack> copies(List<ItemStack> stacks) {
         var result = new ArrayList<ItemStack>(stacks.size()); for (var stack : stacks) result.add(stack.copy()); return result;

@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * vanilla recipe book. These assertions read the shipped resources and the compiled plugin, so either layer
  * coming back fails the build.
  */
+// Ordinary 0.3 restores guarded native sources, not the removed handler takeover.
 class JeiIntegrationIsApiOnlyTest {
     private static String resource(String path) {
         try (InputStream in = JeiIntegrationIsApiOnlyTest.class.getResourceAsStream(path)) {
@@ -46,34 +47,26 @@ class JeiIntegrationIsApiOnlyTest {
     @Test void theModCarriesOnlyItsOwnMixinConfigs() {
         String toml = resource("/META-INF/neoforge.mods.toml");
         assertNotNull(toml, "neoforge.mods.toml must be on the classpath");
-        assertEquals(List.of("create_feed_me_packages.mixins.json", "fmp_fxntstorage_compat.mixins.json"),
-                matches(toml, "config\\s*=\\s*\"([^\"]+)\""), "our own mixins plus the optional Create: Storage compat");
+        assertEquals(List.of("create_feed_me_packages.mixins.json"),
+                matches(toml, "config\\s*=\\s*\"([^\"]+)\""), "one guarded configuration; the superseded source wrapper must not also load");
         assertFalse(toml.contains("mezz.jei"), "no mixin config may point at JEI");
         assertFalse(toml.contains("fmp_jei_takeover"), "the takeover config was removed by user decision");
     }
 
-    @Test void theCreateStorageCompatIsSoftAndNeverTouchesJei() {
-        String compat = resource("/fmp_fxntstorage_compat.mixins.json");
-        assertNotNull(compat, "the Create: Storage compat config must ship");
-        assertEquals(List.of("dev.scathiard.feedmepackages.compat.fxntstorage.mixin"),
-                matches(compat, "\"package\"\\s*:\\s*\"([^\"]+)\""), "helpers must live outside the mixin package");
-        assertTrue(compat.contains("\"required\": false"), "a soft config: with their mod absent it must not hard-fail");
-        assertTrue(compat.contains("\"defaultRequire\": 0"), "every injector must be allowed to miss");
-        assertFalse(compat.contains("mezz.jei"), "the compat layer must not touch JEI at all");
-        // F-6: two mixins, three injection points (server: two Inventory arguments; client: one getInventory call).
-        assertTrue(compat.contains("TransferRecipePacketMixin") && compat.contains("JeiCraftingTransferHandlerMixin"));
-        assertFalse(compat.contains("ServerPayloadHandlerMixin"), "the 1.1.x shape is not supported and must not be claimed");
-        for (String mixin : List.of("TransferRecipePacketMixin", "JeiCraftingTransferHandlerMixin")) {
-            String bytes = classBytes("/dev/scathiard/feedmepackages/compat/fxntstorage/mixin/" + mixin + ".class");
-            assertNotNull(bytes, mixin + " must be compiled");
-            assertTrue(bytes.contains("Pseudo"), mixin + " must be @Pseudo so an absent target is harmless");
-            assertTrue(bytes.contains("net.fxnt.fxntstorage"), mixin + " must locate them BY NAME only");
+    @Test void createStorageUsesOneGuardedNativeSourceAdapter() {
+        String config = resource("/create_feed_me_packages.mixins.json");
+        assertNotNull(config);
+        assertTrue(config.contains("dev.scathiard.feedmepackages.mixin.OptionalMixins"));
+        assertTrue(config.contains("FxntTransferMixin") && config.contains("FxntJeiMixin"));
+        assertFalse(resource("/META-INF/neoforge.mods.toml").contains("fmp_fxntstorage_compat"),
+                "Old eager wrapper and transactional native sources cannot be active together");
+        for (String mixin : List.of("FxntTransferMixin", "FxntJeiMixin")) {
+            String bytes = classBytes("/dev/scathiard/feedmepackages/mixin/" + mixin + ".class");
+            assertNotNull(bytes);
+            assertTrue(bytes.contains("Pseudo"));
+            assertTrue(bytes.contains("net.fxnt.fxntstorage"));
         }
-        // ...and nothing of theirs may be on our classpath at all (no compile-time dependency).
-        assertNull(resource("/net/fxnt/fxntstorage/backpack/main/IBackpackContainer.class"), "no third-party classes may be shipped");
-        // The old handler-based seam is gone, so the two seams cannot fight.
-        assertNull(resource("/dev/scathiard/feedmepackages/compat/fxntstorage/CachePresentingHandler.class"), "the old ItemStackHandler seam must be gone");
-        assertNull(resource("/dev/scathiard/feedmepackages/compat/fxntstorage/SideSelect.class"), "the dist-based side selection must be gone");
+        assertNull(resource("/net/fxnt/fxntstorage/backpack/main/IBackpackContainer.class"));
     }
     @Test void theRemovedTakeoverLayerStaysGone() {
         assertNull(resource("/fmp_jei_takeover.mixins.json"), "the JEI takeover config must not ship");

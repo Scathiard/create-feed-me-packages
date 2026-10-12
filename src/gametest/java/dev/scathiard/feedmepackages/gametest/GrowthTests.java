@@ -14,6 +14,7 @@ import dev.scathiard.feedmepackages.logistics.ParcelSeal;
 import dev.scathiard.feedmepackages.logistics.SupplyService;
 import dev.scathiard.feedmepackages.registry.FmpRegistries;
 import dev.scathiard.feedmepackages.service.AccessGate;
+import dev.scathiard.feedmepackages.service.PrivateCacheMerge;
 import dev.scathiard.feedmepackages.storage.*;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
@@ -51,7 +52,7 @@ public final class GrowthTests {
 
     @GameTest(template = "empty")
     public static void manufacturingAndOtherPlayerPreviewsDoNotMaterializeUnusedStock(GameTestHelper helper) {
-        for (int target : new int[]{2, 0}) {
+        for (int target : new int[]{2}) {
             var smith = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
             ConsumptionTests.seed(smith, 0, new ItemStack(Items.STONE), 16);
             var source = AccessGate.resolve(smith).handle().cacheId();
@@ -67,11 +68,11 @@ public final class GrowthTests {
                             dev.scathiard.feedmepackages.interaction.CacheActions.Action.TAKE_CURSOR, 0, 8, -1, ""));
             helper.assertTrue(result == dev.scathiard.feedmepackages.interaction.CacheActions.Result.OK, "Manufacturing fixture could not reserve a cursor");
             TestPlayers.necklace(smith).setStackInSlot(0, ItemStack.EMPTY);
-            var menu = open(helper, smith, pendant, (target == 0 ? FmpRegistries.PRIVATE_LINK : FmpRegistries.upgradeLink(target)).toStack());
+            var menu = open(helper, smith, pendant, FmpRegistries.upgradeLink(target).toStack());
             menu.createResult(); menu.clicked(3, 0, ClickType.PICKUP, smith);
             helper.assertTrue(!menu.getCarried().isEmpty() && !menu.getCarried().getOrDefault(FmpRegistries.PREVIEW.get(), false), "Manufacturing could not commit");
             other.closeContainer();
-            var ledger = CacheLedger.get(smith.getServer()); var id = target == 0 ? ledger.personal(smith.getUUID()) : source;
+            var ledger = CacheLedger.get(smith.getServer()); var id = source;
             helper.assertTrue(id != null && ledger.find(id).state().cells().getFirst().amount() == 16
                             && other.getInventory().items.stream().noneMatch(s -> s.is(Items.STONE) || s.is(Items.STONE_BUTTON))
                             && other.containerMenu.getCarried().isEmpty()
@@ -146,59 +147,59 @@ public final class GrowthTests {
     }
 
     @GameTest(template = "empty")
-    public static void personalPendantIsOwnerLockedAndDegradesForOthers(GameTestHelper helper) {
-        var a = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); var ledger = CacheLedger.get(a.getServer()); var aHandle = AccessGate.resolve(a).handle();
-        var aPendant = TestPlayers.necklace(a).getStackInSlot(0); TestPlayers.necklace(a).setStackInSlot(0, ItemStack.EMPTY);
-        UUID network = UUID.randomUUID(); aPendant.set(FmpRegistries.NETWORK.get(), network);
-        var menu = open(helper, a, aPendant, FmpRegistries.PRIVATE_LINK.toStack()); menu.clicked(3, 0, ClickType.PICKUP, a);
-        var personal = menu.getCarried(); menu.setCarried(ItemStack.EMPTY); close(a, menu);
-        helper.assertTrue(personal.is(FmpRegistries.PERSONAL_PENDANT.get()) && a.getUUID().equals(personal.get(FmpRegistries.OWNER.get())), "Personalization did not lock the pendant to its owner");
-        // The owner wears it and reaches their own personal cache.
-        TestPlayers.necklace(a).setStackInSlot(0, personal.copy()); var aAccess = AccessGate.resolve(a);
-        helper.assertTrue(aAccess.active() && aAccess.handle().cacheId().equals(aHandle.cacheId()), "Owner could not use their personal cache");
-        // The owner forges an upgrade directly; the personal cache advances one level with no capacity grant.
+    public static void retiredStockBecomesTransferableWithItsOrdinaryPendant(GameTestHelper helper) {
+        var a = TestPlayers.create(helper, FmpRegistries.PERSONAL_PENDANT.toStack());
+        var ledger = CacheLedger.get(a.getServer()); var id = LegacyOwnership.on(ledger).personalOrCreate(a.getUUID());
+        var old = TestPlayers.necklace(a).getStackInSlot(0); old.set(FmpRegistries.OWNER.get(), a.getUUID());
+        UUID network = UUID.randomUUID(); old.set(FmpRegistries.NETWORK.get(), network);
+        LegacyRetirement.transfer(a, FoundationTests.simulatedCheckpoints());
+        var ordinary = TestPlayers.necklace(a).getStackInSlot(0);
+        helper.assertTrue(ordinary.is(FmpRegistries.PENDANT.get()) && !ordinary.has(FmpRegistries.OWNER.get())
+                && network.equals(ordinary.get(FmpRegistries.NETWORK.get())), "Retirement retained personal ownership or lost binding");
         TestPlayers.necklace(a).setStackInSlot(0, ItemStack.EMPTY);
-        var up = open(helper, a, personal.copy(), FmpRegistries.upgradeLink(2).toStack()); up.clicked(3, 0, ClickType.PICKUP, a);
-        var upgraded = up.getCarried(); up.setCarried(ItemStack.EMPTY); close(a, up);
-        helper.assertTrue(ledger.find(aHandle.cacheId()).state().level() == 2, "Owner direct upgrade was blocked");
-        // A different player equips the pendant: it degrades to a fresh ordinary pendant and cannot reach the owner's cache.
-        var b = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); TestPlayers.necklace(b).setStackInSlot(0, upgraded.copy());
-        var bAccess = AccessGate.resolve(b);
-        helper.assertTrue(bAccess.active() && !bAccess.handle().cacheId().equals(aHandle.cacheId()), "Non-owner gained access to the owner cache");
-        helper.assertTrue(TestPlayers.necklace(b).getStackInSlot(0).is(FmpRegistries.PENDANT.get()), "Non-owner personal pendant did not degrade to ordinary");
+        var b = TestPlayers.create(helper, ordinary);
+        helper.assertTrue(AccessGate.resolve(b).active() && AccessGate.resolve(b).handle().cacheId().equals(id)
+                && !AccessGate.resolve(a).active() && ledger.personal(a.getUUID()) == null,
+                "Retired stock did not follow the transferred ordinary pendant");
         helper.succeed();
     }
 
     @GameTest(template = "empty")
-    public static void ownerlessPersonalPendantIsClaimedByItsFirstWearer(GameTestHelper helper) {
+    public static void ownerlessLegacyKeyCannotCreateANewPersonalCache(GameTestHelper helper) {
         var player = TestPlayers.create(helper, FmpRegistries.PERSONAL_PENDANT.toStack()); var ledger = CacheLedger.get(player.getServer());
+        helper.assertTrue(!AccessGate.resolve(player).active(), "Legacy key still granted active access");
+        LegacyRetirement.transfer(player, FoundationTests.simulatedCheckpoints());
         var access = AccessGate.resolve(player);
         helper.assertTrue(access.active() && access.handle().playerId().equals(player.getUUID())
-                && ledger.personal(player.getUUID()) != null, "Ownerless pendant was not claimed by its first wearer");
+                && ledger.personal(player.getUUID()) == null && access.handle().cacheId() != null,
+                "Ownerless legacy key created a new personal cache");
         var pendant = TestPlayers.necklace(player).getStackInSlot(0);
-        helper.assertTrue(player.getUUID().equals(pendant.get(FmpRegistries.OWNER.get())), "Wearing did not record the claiming owner");
-        helper.assertTrue(AccessGate.resolve(player).active() && AccessGate.resolve(player).handle().cacheId().equals(access.handle().cacheId()),
-                "Claimed pendant lost its personal cache");
+        helper.assertTrue(pendant.is(FmpRegistries.PENDANT.get()) && !pendant.has(FmpRegistries.OWNER.get())
+                && ledger.find(access.handle().cacheId()).state().cells().stream().allMatch(c -> c.amount() == 0),
+                "An ownerless key was not replaced with an empty ordinary pendant");
         helper.succeed();
     }
 
     @GameTest(template = "empty")
-    public static void nativePersonalizationPreservesBindingOrdersAndItsActualResidual(GameTestHelper helper) {
+    public static void retiredPersonalizationRecipeRefusesWithoutChangingBindingOrdersOrResidual(GameTestHelper helper) {
         var f = ReceiveTests.setup(helper, ReceiveTests.FULL - 8); helper.assertTrue(ReceiveService.receive(f.player(), f.box(32)), "Private smithing fixture failed");
-        UUID target = f.ledger().personalOrCreate(f.player().getUUID()); var pendant = TestPlayers.necklace(f.player()).getStackInSlot(0); UUID network = UUID.randomUUID();
+        UUID target = LegacyOwnership.on(f.ledger()).personalOrCreate(f.player().getUUID()); var pendant = TestPlayers.necklace(f.player()).getStackInSlot(0); UUID network = UUID.randomUUID();
         pendant.set(FmpRegistries.NETWORK.get(), network); TestPlayers.necklace(f.player()).setStackInSlot(0, ItemStack.EMPTY);
         var menu = open(helper, f.player(), pendant, FmpRegistries.PRIVATE_LINK.toStack()); var before = saved(f.player()); menu.createResult();
-        helper.assertTrue(before.equals(saved(f.player())), "Personalization preview moved ownership"); menu.clicked(3, 0, ClickType.PICKUP, f.player());
-        var actual = menu.getCarried(); var record = f.ledger().find(target);
-        helper.assertTrue(actual.is(FmpRegistries.PERSONAL_PENDANT.get()) && !actual.has(FmpRegistries.IDENTITY.get()) && network.equals(actual.get(FmpRegistries.NETWORK.get())), "Personalization result retained old authority or lost binding");
+        helper.assertTrue(before.equals(saved(f.player())) && menu.getSlot(3).getItem().isEmpty(), "Retired recipe still produced a preview");
+        menu.clicked(3, 0, ClickType.PICKUP, f.player());
+        var record = f.ledger().find(f.handle().cacheId());
+        helper.assertTrue(menu.getCarried().isEmpty() && before.equals(saved(f.player()))
+                && menu.getSlot(1).getItem() == pendant && network.equals(pendant.get(FmpRegistries.NETWORK.get()))
+                && menu.getSlot(2).getItem().is(FmpRegistries.PRIVATE_LINK.get()), "Retired recipe consumed inputs or moved ownership");
         int remaining = 0; var contents = PackageItem.getContents(record.residual(f.key())); for (int slot = 0; slot < contents.getSlots(); slot++) remaining += contents.getStackInSlot(slot).getCount();
-        helper.assertTrue(f.ledger().find(f.handle().cacheId()) == null && record.state().cells().getFirst().amount() == ReceiveTests.FULL && record.state().pending(0) == 32
-                && remaining == 24, "Smithing only committed part of personalization"); helper.succeed();
+        helper.assertTrue(record.state().cells().getFirst().amount() == ReceiveTests.FULL && record.state().pending(0) == 32
+                && remaining == 24, "Refused recipe changed stock, pending or residual"); helper.succeed();
     }
 
     @GameTest(template = "empty")
     public static void failedMergeAndClosingSmithingPreserveAllInputs(GameTestHelper helper) {
-        var f = ReceiveTests.setup(helper, 1); UUID target = f.ledger().personalOrCreate(f.player().getUUID()); var original = f.ledger().find(target); var edit = original.state().edit();
+        var f = ReceiveTests.setup(helper, 1); UUID target = LegacyOwnership.on(f.ledger()).personalOrCreate(f.player().getUUID()); var original = f.ledger().find(target); var edit = original.state().edit();
         edit.filter(0, f.key()); edit.thresholds(0, 2, -1); edit.insert(0, f.key(), Integer.MAX_VALUE);
         f.ledger().replace(new CacheHandle(target, f.player().getUUID(), null), original.state().revision(), original.withState(edit.finish()));
         var pendant = TestPlayers.necklace(f.player()).getStackInSlot(0); TestPlayers.necklace(f.player()).setStackInSlot(0, ItemStack.EMPTY);
@@ -214,19 +215,18 @@ public final class GrowthTests {
     }
 
     @GameTest(template = "empty")
-    public static void firstPersonalizationThenOwnerUpgradesStayOrdered(GameTestHelper helper) {
-        var player = TestPlayers.create(helper, ItemStack.EMPTY); var ledger = CacheLedger.get(player.getServer());
-        var before = saved(player); var menu = open(helper, player, FmpRegistries.PENDANT.toStack(), FmpRegistries.PRIVATE_LINK.toStack());
-        helper.assertTrue(before.equals(saved(player)) && ledger.personal(player.getUUID()) == null, "Fresh private preview registered an owner or a cache");
-        menu.clicked(3, 0, ClickType.PICKUP, player); var pendant = menu.getCarried(); var id = ledger.personal(player.getUUID());
-        helper.assertTrue(pendant.is(FmpRegistries.PERSONAL_PENDANT.get()) && id != null && ledger.find(id).state().level() == 1
-                && player.getUUID().equals(pendant.get(FmpRegistries.OWNER.get())), "Fresh private manufacturing did not lock its owner");
-        menu.setCarried(ItemStack.EMPTY); close(player, menu);
-        menu = open(helper, player, pendant, FmpRegistries.upgradeLink(3).toStack()); before = saved(player);
+    public static void retiredCacheUpgradesStillRequireEachOrdinaryLevel(GameTestHelper helper) {
+        var player = TestPlayers.create(helper, FmpRegistries.PERSONAL_PENDANT.toStack()); var ledger = CacheLedger.get(player.getServer());
+        var id = LegacyOwnership.on(ledger).personalOrCreate(player.getUUID());
+        LegacyRetirement.transfer(player, FoundationTests.simulatedCheckpoints());
+        var pendant = TestPlayers.necklace(player).getStackInSlot(0); TestPlayers.necklace(player).setStackInSlot(0, ItemStack.EMPTY);
+        var menu = open(helper, player, pendant, FmpRegistries.upgradeLink(3).toStack()); var before = saved(player);
         helper.assertTrue(menu.getSlot(3).getItem().isEmpty(), "Owner upgrade skipped the required single-step chain");
         menu.clicked(3, 0, ClickType.PICKUP, player); helper.assertTrue(before.equals(saved(player)), "Wrong-level click advanced the cache");
         menu.getSlot(2).set(FmpRegistries.upgradeLink(2).toStack()); menu.clicked(3, 8, ClickType.SWAP, player);
-        helper.assertTrue(player.getInventory().getItem(8).is(FmpRegistries.PERSONAL_PENDANT.get()) && ledger.find(id).state().level() == 2,
+        helper.assertTrue(player.getInventory().getItem(8).is(FmpRegistries.PENDANT.get())
+                && ledger.ordinaryEntry(id, player.getInventory().getItem(8).get(FmpRegistries.RETIREMENT_RECEIPT.get()))
+                && ledger.find(id).state().level() == 2,
                 "Owner hotbar upgrade was blocked");
         pendant = player.getInventory().removeItemNoUpdate(8); close(player, menu);
         menu = open(helper, player, pendant, FmpRegistries.upgradeLink(2).toStack());
@@ -250,7 +250,7 @@ public final class GrowthTests {
     }
 
     @GameTest(template = "empty")
-    public static void ownerLockedPersonalManufacturingSurvivesAnotherJvm(GameTestHelper helper) {
+    public static void retiredOrdinaryUpgradeAndRevokedCopiesSurviveAnotherJvm(GameTestHelper helper) {
         var server = helper.getLevel().getServer(); var ledger = CacheLedger.get(server);
         var probe = server.overworld().getDataStorage().computeIfAbsent(new SavedData.Factory<>(GrowthProbe::new, GrowthProbe::load), "fmp_reference_manufacturing_probe");
         boolean prior = !probe.data.isEmpty();
@@ -260,7 +260,8 @@ public final class GrowthTests {
             var priorPlayer = TestPlayers.create(helper, probe.data.getUUID("player"), ItemStack.EMPTY);
             helper.assertTrue(server.getPlayerList().load(priorPlayer).isPresent(), "Manufactured pendant player file could not be loaded");
             var pendant = TestPlayers.necklace(priorPlayer).getStackInSlot(0);
-            helper.assertTrue(pendant.is(FmpRegistries.PERSONAL_PENDANT.get()) && probe.data.getUUID("owner").equals(pendant.get(FmpRegistries.OWNER.get())), "Personal pendant owner did not survive JVM");
+            helper.assertTrue(pendant.is(FmpRegistries.PENDANT.get()) && pendant.has(FmpRegistries.RETIREMENT_RECEIPT.get())
+                    && !pendant.has(FmpRegistries.OWNER.get()), "Retired ordinary credential did not survive JVM");
             var handle = AccessGate.resolve(priorPlayer).handle();
             helper.assertTrue(handle.cacheId().equals(probe.data.getUUID("target")) && handle.playerId().equals(priorPlayer.getUUID()), "Personal ownership did not survive JVM");
             helper.assertTrue(ledger.find(handle.cacheId()).state().level() == 2, "Owner direct upgrade did not survive JVM");
@@ -269,7 +270,7 @@ public final class GrowthTests {
             TestPlayers.necklace(priorPlayer).setStackInSlot(0, priorPlayer.getInventory().getItem(13));
             helper.assertTrue(!AccessGate.resolve(priorPlayer).active(), "Revoked saved ordinary copy regained access");
         }
-        // A fresh player each pass leaves a replayable owner-lock fixture.
+        // Construct a historical ownership record, then exercise the new retirement and ordinary upgrade.
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
         var handle = AccessGate.resolve(player).handle(); var original = ledger.find(handle.cacheId()); var edit = original.state().edit();
         var key = ItemVariantKey.of(new ItemStack(Items.STONE), player.registryAccess()); UUID order = UUID.randomUUID();
@@ -279,11 +280,15 @@ public final class GrowthTests {
         ParcelAuthentication.apply(ledger, player.registryAccess(), box, new ParcelSeal(UUID.randomUUID(), handle.cacheId(), player.getUUID(), order,
                 key.encoded(), ledger.find(handle.cacheId()).state().cells().getFirst().filterRevision(), address, false, ""));
         var ordinary = TestPlayers.necklace(player).getStackInSlot(0); var revokedCopy = ordinary.copy(); TestPlayers.necklace(player).setStackInSlot(0, ItemStack.EMPTY);
-        var menu = open(helper, player, ordinary, FmpRegistries.PRIVATE_LINK.toStack()); menu.clicked(3, 0, ClickType.PICKUP, player);
-        var pendant = menu.getCarried(); menu.setCarried(ItemStack.EMPTY); close(player, menu);
+        var oldPlan = PrivateCacheMerge.simulate(ledger, player.registryAccess(), player.getUUID(), handle.cacheId());
+        LegacyOwnership.on(ledger).prepareOwnership(oldPlan.source(), oldPlan.target(), oldPlan.replacement(), oldPlan.sourceRoutes()).commit();
         var target = ledger.personal(player.getUUID());
-        helper.assertTrue(player.getUUID().equals(pendant.get(FmpRegistries.OWNER.get())) && target != null, "Personalization did not lock the owner");
-        menu = open(helper, player, pendant, FmpRegistries.upgradeLink(2).toStack()); menu.clicked(3, 0, ClickType.PICKUP, player);
+        var oldKey = FmpRegistries.PERSONAL_PENDANT.toStack(); oldKey.set(FmpRegistries.OWNER.get(), player.getUUID());
+        TestPlayers.necklace(player).setStackInSlot(0, oldKey);
+        LegacyRetirement.transfer(player, FoundationTests.simulatedCheckpoints());
+        var pendant = TestPlayers.necklace(player).getStackInSlot(0); TestPlayers.necklace(player).setStackInSlot(0, ItemStack.EMPTY);
+        helper.assertTrue(target != null && ledger.personal(player.getUUID()) == null, "Retirement did not finish");
+        var menu = open(helper, player, pendant, FmpRegistries.upgradeLink(2).toStack()); menu.clicked(3, 0, ClickType.PICKUP, player);
         pendant = menu.getCarried(); menu.setCarried(ItemStack.EMPTY); close(player, menu); TestPlayers.necklace(player).setStackInSlot(0, pendant);
         helper.assertTrue(ledger.find(target).state().level() == 2, "Owner personal cache did not reach level 2");
         player.getInventory().setItem(12, box); player.getInventory().setItem(13, revokedCopy);
@@ -291,7 +296,7 @@ public final class GrowthTests {
         var next = new CompoundTag(); next.putUUID("writer", PROCESS); next.putUUID("player", player.getUUID()); next.putUUID("owner", player.getUUID());
         next.putUUID("source", handle.cacheId()); next.putUUID("target", target); next.putInt("schema", CacheLedger.SCHEMA);
         probe.data = next; probe.setDirty();
-        FeedMePackages.LOGGER.info("FMP_MANUFACTURING_PERSISTENCE {} schema={} owner-lock/level-2/late-parcel/revoked/player-files", prior ? "PRIOR_JVM_PASSED" : "FIRST_WRITE", CacheLedger.SCHEMA);
+        FeedMePackages.LOGGER.info("FMP_MANUFACTURING_PERSISTENCE {} schema={} retirement/level-2/late-parcel/revoked/player-files", prior ? "PRIOR_JVM_PASSED" : "FIRST_WRITE", CacheLedger.SCHEMA);
         helper.succeed();
     }
 
@@ -306,14 +311,17 @@ public final class GrowthTests {
         var level = helper.getLevel(); var manager = level.getRecipeManager();
         long count = manager.getRecipes().stream().filter(holder -> holder.id().getNamespace().equals(FeedMePackages.MOD_ID)
                 && List.of("crafting/", "mechanical_crafting/", "sequenced_assembly/", "smithing/").stream().anyMatch(holder.id().getPath()::startsWith)).count();
-        helper.assertTrue(count == 20, "A generated manufacturing recipe was missing or duplicated: " + count);
-        for (int target : new int[] {0, 2, 3, 4, 5}) {
-            var output = target == 0 ? FmpRegistries.PRIVATE_LINK : FmpRegistries.upgradeLink(target);
-            var id = ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "sequenced_assembly/" + (target == 0 ? "private_link" : "upgrade_link_" + target));
+        helper.assertTrue(count == 14, "Expected ordinary recipes only: " + count);
+        for (String path : List.of("sequenced_assembly/private_link", "smithing/personalize", "smithing/personal_supply_chain_pendant_to_2",
+                "smithing/personal_supply_chain_pendant_to_3", "smithing/personal_supply_chain_pendant_to_4", "smithing/personal_supply_chain_pendant_to_5"))
+            helper.assertTrue(manager.byKey(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, path)).isEmpty(), "Retired recipe still loaded: " + path);
+        for (int target : new int[] {2, 3, 4, 5}) {
+            var output = FmpRegistries.upgradeLink(target);
+            var id = ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "sequenced_assembly/upgrade_link_" + target);
             var sequence = (SequencedAssemblyRecipe)manager.byKey(id).orElseThrow().value(); helper.assertTrue(sequence.getLoops() == 1, "Growth cost was replaced with repeated sequence loops");
             boolean success = false, scrap = false;
             for (int attempt = 0; attempt < 80; attempt++) {
-                ItemStack part = target == 0 ? new ItemStack(Items.ENDER_PEARL) : FmpRegistries.LINK_FRAMES.get(target - 2).toStack(); level.random.setSeed(attempt * 7919L + target);
+                ItemStack part = FmpRegistries.LINK_FRAMES.get(target - 2).toStack(); level.random.setSeed(attempt * 7919L + target);
                 for (int step = 0; step < sequence.getSequence().size(); step++) {
                     part = nativeStep(helper, part, sequence.getSequence().get(step).getRecipe());
                     if (step < sequence.getSequence().size() - 1)
@@ -323,7 +331,6 @@ public final class GrowthTests {
                 helper.assertTrue(!part.has(FmpRegistries.IDENTITY.get()) && !part.has(FmpRegistries.OWNER.get()), "Probabilistic intermediate gained cache authority");
             }
             helper.assertTrue(success && scrap, "Create sequence did not exercise both configured success and scrap");
-            if (target == 0) continue;
             var smith = (PendantSmithingRecipe)manager.byKey(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "smithing/supply_chain_pendant_to_" + target)).orElseThrow().value();
             var input = new SmithingRecipeInput(FmpRegistries.ASSEMBLY_TEMPLATE.toStack(), FmpRegistries.PENDANT.toStack(), FmpRegistries.upgradeLink(target).toStack());
             helper.assertTrue(smith.matches(input, level) && smith.assemble(input, level.registryAccess()).isEmpty(), "Generic recipe execution created an uncommitted pendant");

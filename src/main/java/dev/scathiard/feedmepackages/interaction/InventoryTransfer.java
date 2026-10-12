@@ -66,4 +66,22 @@ public final class InventoryTransfer {
     }
 
     private static List<ItemStack> copies(List<ItemStack> stacks) { return stacks.stream().map(ItemStack::copy).toList(); }
+    public static Plan insertAll(Inventory inventory, List<ItemStack> offers, java.util.Set<Integer> reservedSlots) {
+        if (inventory.items.size() < SLOTS) throw new IllegalArgumentException("Invalid inventory");
+        var before = new ArrayList<ItemStack>(SLOTS);
+        for (int i = 0; i < SLOTS; i++) before.add(inventory.getItem(i).copy());
+        var after = new ArrayList<>(copies(before)); int total = 0;
+        for (var prototype : offers) {
+            int remaining = prototype.getCount();
+            int limit = Math.min(prototype.getMaxStackSize(), inventory.getMaxStackSize());
+            for (int pass = 0; pass < 2 && remaining > 0; pass++) for (int i = 0; i < SLOTS && remaining > 0; i++) {
+                if (reservedSlots.contains(i)) continue;
+                var current = after.get(i);
+                if (pass == 0 ? current.isEmpty() || !ItemStack.isSameItemSameComponents(current, prototype) : !current.isEmpty()) continue;
+                int moved = Math.min(remaining, Math.max(0, limit - current.getCount()));
+                if (moved > 0) { after.set(i, prototype.copyWithCount(current.getCount() + moved)); remaining -= moved; total = Math.addExact(total, moved); }
+            }
+        }
+        return new Plan(before, after, total);
+    }
 }

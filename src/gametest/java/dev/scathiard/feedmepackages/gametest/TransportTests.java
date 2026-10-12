@@ -1,5 +1,5 @@
 package dev.scathiard.feedmepackages.gametest;
-
+import dev.scathiard.feedmepackages.interaction.CacheActions;
 import com.simibubi.create.AllDataComponents;
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.logistics.ParcelAuthentication;
@@ -61,6 +61,13 @@ public final class TransportTests {
             tests.add(test("return_paper_dispatch", TransportTests::returnPaperDispatch));
             tests.add(test("return_paper_shared_stock", h -> returnSharedStock(h, false)));
             tests.add(test("return_paper_unavailable", h -> returnUnavailable(h, false, false)));
+        }
+        if (ModList.get().isLoaded("fluidlogistics")) for (boolean mobile : new boolean[]{false,true}) {
+            if (!ModList.get().isLoaded(mobile ? "create_mobile_packages" : "cmpackagecouriers")) continue;
+            String name=mobile?"mobile":"paper";
+            tests.add(test("supply_fluid_"+name+"_flight",h->fluidNativeFlight(h,mobile)));
+            tests.add(test("return_fluid_"+name+"_flight",h->returnFluidFlight(h,mobile)));
+            tests.add(test("return_fluid_"+name+"_preview",h->returnFluidPreview(h,mobile)));
         }
         return tests;
     }
@@ -640,5 +647,254 @@ public final class TransportTests {
                 "Unavailable return target consumed stock/carrier: mobile=" + mobile + " fullPort=" + fullPort
                         + " stock=" + ConsumptionTests.stock(player, 0) + " carrier=" + player.getInventory().getItem(0).getCount());
         helper.succeed();
+    }
+
+    private static void fluidNativeFlight(GameTestHelper h, boolean mobile) {
+        var sample = new net.neoforged.neoforge.fluids.FluidStack(net.minecraft.world.level.material.Fluids.WATER, 1);
+        sample.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME,
+                net.minecraft.network.chat.Component.literal("Factory flight water"));
+        var f = SupplyTests.fluidSupply(h, sample, false); var player = f.player();
+        var before = f.record(); var edit = before.fluids().state().edit(); edit.thresholds(0, 2, -1);
+        f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(edit.finish())));
+        for (int i = 0; i < 36; i++) player.getInventory().setItem(i, new ItemStack(Items.DIRT, 64));
+        // The empty template has no ground. Keep the author's rejected physical parcel out of the void.
+        for (int x = 0; x < 5; x++) for (int z = 0; z < 5; z++) h.setBlock(new BlockPos(x, 0, z), net.minecraft.world.level.block.Blocks.STONE);
+        // Stay inside the 5x5x5 template: a fake player survives in its barrier wall, a dropped parcel does not.
+        player.setPos(h.absoluteVec(new Vec3(3.5, 1, 3.5))); h.getLevel().addNewPlayer(player);
+        var courier = fluidCourier(h, player, mobile);
+        var inventory = player.getInventory().items.stream().map(ItemStack::copy).toList();
+        var pos = new BlockPos(2, 1, 2); SupplyTests.placeFluidFactory(h, pos, 2);
+        var parcels = new java.util.HashMap<UUID, Integer>(); var flown = new java.util.HashSet<UUID>();
+        int[] phase = {0}; long[] waitingSince = {-1}, finishedAt = {-1};
+        h.onEachTick(() -> {
+            if (h.getTick() < 5) return;
+            courier.refresh().run();
+            h.assertTrue(h.getTick() < 1100, "Fluid flight stalled: phase=" + phase[0] + " parcels=" + parcels.size()
+                    + " flown=" + flown.size() + " stock=" + f.record().fluids().state().cells().get(0).amount()
+                    + " pending=" + f.record().fluids().state().pending(0) + " residual=" + f.record().anyResidual()
+                    + " drops=" + fluidDrops(h, f).size() + " flights=" + returnTransitBoxes(player, mobile).size());
+            if (phase[0] == 0) {
+                // A registered player ticks naturally; request only at the production scheduler boundary.
+                if (player.tickCount % 20 != 0) return;
+                SupplyTests.fillSource(h, f, pos, 16000); SupplyTests.connect(h, pos, f.network());
+                SupplyService.tick(player); phase[0] = 1;
+                h.assertTrue(f.record().fluids().state().pending(0) == 16000
+                         &&  SupplyTests.source(h, pos).getFluidInTank(0).isEmpty()
+                        ,
+                        "Native factory request did not reserve exactly 16000 mB: pending="
+                                + f.record().fluids().state().pending(0) + " source="
+                                + SupplyTests.source(h, pos).getFluidInTank(0).getAmount());
+            }
+            var box = SupplyTests.takeOutput(h, pos);
+            if (!box.isEmpty()) {
+                var contents = dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(box);
+                var seal = box.get(FmpRegistries.FLUID_PARCEL_SEAL.get());
+                h.assertTrue(seal != null && ParcelAuthentication.validFluid(f.ledger(), player.registryAccess(), box, seal)
+                        && net.neoforged.neoforge.fluids.FluidStack.isSameFluidSameComponents(sample, contents)
+                        && (contents.getAmount() == 10000 || contents.getAmount() == 6000)
+                        && parcels.putIfAbsent(seal.parcelId(), contents.getAmount()) == null,
+                        "Factory output changed exact fluid, lost authentication, or reused a parcel");
+                courier.send().accept(box);
+                h.assertTrue(box.isEmpty(), "Factory-to-carrier wiring retained a second source copy");
+            }
+            for (var cargo : returnTransitBoxes(player, mobile)) {
+                var seal = cargo.get(FmpRegistries.FLUID_PARCEL_SEAL.get());
+                h.assertTrue(seal != null && parcels.containsKey(seal.parcelId())
+                        && ParcelAuthentication.validFluid(f.ledger(), player.registryAccess(), cargo, seal)
+                        && dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(cargo).getAmount() == parcels.get(seal.parcelId()),
+                        "Native carrier altered, forged or duplicated factory cargo");
+                flown.add(seal.parcelId());
+            }
+
+            if (f.record().fluids().state().cells().get(0).amount() != 16000 || !courier.idle().getAsBoolean()) return;
+            h.assertTrue(parcels.size() == 2  &&  flown.size() == 2
+                     &&  f.record().fluids().state().orders().isEmpty()  &&  !f.record().anyResidual()
+                     &&  SupplyTests.source(h, pos).getFluidInTank(0).isEmpty()  &&  fluidDrops(h, f).isEmpty()
+                     &&  player.getOffhandItem().isEmpty(), "Full-chain delivery did not conserve stock, requests, cargo or contents");
+            for (int i = 0; i < 36; i++) h.assertTrue(ItemStack.matches(player.getInventory().getItem(i), inventory.get(i)),
+                    "Full-chain delivery changed ordinary inventory slot " + i);
+            if (finishedAt[0] < 0) finishedAt[0] = h.getTick();
+            if (h.getTick() - finishedAt[0] < 20) return;
+            FeedMePackages.LOGGER.info("FMP_FLUID_NETWORK_FLIGHT_PASSED carrier={} source=16000 cache=16000 parcels=2 backpack=full",
+                    mobile ? "mobile" : "paper"); h.succeed();
+        });
+    }
+
+    private static List<Entity> fluidDrops(GameTestHelper h, SupplyTests.FluidSupply f) {
+        return h.getLevel().getEntitiesOfClass(Entity.class, new AABB(f.player().blockPosition()).inflate(8), entity -> {
+            var seal = droppedStack(entity).get(FmpRegistries.FLUID_PARCEL_SEAL.get());
+            return seal != null && seal.cacheId().equals(f.handle().cacheId());
+        });
+    }
+
+    private record FluidCourier(Consumer<ItemStack> send, Runnable refresh, java.util.function.BooleanSupplier idle) {}
+
+    private static FluidCourier fluidCourier(GameTestHelper h, net.minecraft.server.level.ServerPlayer player, boolean mobile) {
+        try {
+            if (mobile) {
+                var pos = new BlockPos(1, 1, 1);
+                var block = BuiltInRegistries.BLOCK.get(ResourceLocation.parse("create_mobile_packages:bee_port"));
+                h.setBlock(pos, block.defaultBlockState());
+                block.setPlacedBy(h.getLevel(), h.absolutePos(pos), h.getBlockState(pos), player, new ItemStack(block));
+                var port = h.getBlockEntity(pos); var type = port.getClass();
+                var bees = (net.neoforged.neoforge.items.ItemStackHandler)type.getMethod("getRoboBeeInventory").invoke(port);
+                type.getMethod("addBeeToRoboBeeInventory", int.class).invoke(port, 2);
+                type.getMethod("setBeeReturnModeEnabled", boolean.class).invoke(port, true);
+                var network = (UUID)type.getMethod("getLogisticsNetworkId").invoke(port);
+                var join = Class.forName("de.theidler.create_mobile_packages.network_settings.AddPlayerToNetworkPackage");
+                join.getMethod("handle", net.minecraft.server.level.ServerPlayer.class).invoke(
+                        join.getConstructor(UUID.class, UUID.class).newInstance(player.getUUID(), network), player);
+                var add = type.getMethod("addItemStack", ItemStack.class, boolean.class);
+                return new FluidCourier(box -> {
+                    try {
+                        h.assertTrue((Boolean)add.invoke(port, box, true) && box.getCount() == 1, "Bee port simulation consumed factory output");
+                        h.assertTrue((Boolean)add.invoke(port, box.copy(), false), "Bee port refused factory output"); box.setCount(0);
+                    } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
+                }, () -> {}, () -> returnTransitBoxes(player, true).isEmpty() && bees.getStackInSlot(0).getCount() == 2);
+            }
+            var tx = new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse("cmpackagecouriers:location_transmitter")));
+            tx.getItem().getClass().getMethod("setEnabled", ItemStack.class, boolean.class).invoke(null, tx, true);
+            player.getInventory().setItem(8, tx);
+            Runnable publish = () -> tx.getItem().inventoryTick(tx, h.getLevel(), player, 8, false); publish.run();
+            var launch = Class.forName("com.kreidev.cmpackagecouriers.plane.CardboardPlaneManager")
+                    .getMethod("addPlane", Level.class, Vec3.class, float.class, float.class, ItemStack.class, boolean.class);
+            return new FluidCourier(box -> {
+                try {
+                    publish.run(); h.assertTrue((Boolean)launch.invoke(null, h.getLevel(), player.position().add(0, 0, 3),
+                            180F, 0F, box.copy(), false), "Native plane refused factory address"); box.setCount(0);
+                } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
+            }, publish, () -> returnTransitBoxes(player, false).isEmpty());
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("Native fluid courier fixture failed", failure); }
+    }
+
+    private static ReceiveTests.Fixture returnFixture(GameTestHelper helper, boolean mobile) {
+        var f = ReceiveTests.setup(helper, 0); var player = f.player(); player.getInventory().clearContent();
+        player.setPos(helper.absoluteVec(new Vec3(3, 2, 3))); helper.getLevel().addNewPlayer(player);
+        UUID network = UUID.randomUUID();
+        try {
+            // Both targets are genuinely available in the paper fallback experiment.
+            if (ModList.get().isLoaded("create_mobile_packages")) {
+                var pos = new BlockPos(1, 1, 1);
+                var block = BuiltInRegistries.BLOCK.get(ResourceLocation.parse("create_mobile_packages:bee_port"));
+                helper.setBlock(pos, block.defaultBlockState());
+                block.setPlacedBy(helper.getLevel(), helper.absolutePos(pos), helper.getBlockState(pos), player, new ItemStack(block));
+                var port = helper.getBlockEntity(pos);
+                network = (UUID)port.getClass().getMethod("getLogisticsNetworkId").invoke(port);
+                var join = Class.forName("de.theidler.create_mobile_packages.network_settings.AddPlayerToNetworkPackage");
+                join.getMethod("handle", net.minecraft.server.level.ServerPlayer.class).invoke(
+                        join.getConstructor(UUID.class, UUID.class).newInstance(player.getUUID(), network), player);
+            }
+            if (!mobile) {
+                var tx = new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse("cmpackagecouriers:location_transmitter")));
+                tx.getItem().getClass().getMethod("setEnabled", ItemStack.class, boolean.class).invoke(null, tx, true);
+                player.getInventory().setItem(8, tx);
+                tx.getItem().inventoryTick(tx, helper.getLevel(), player, 0, false);
+            }
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
+        TestPlayers.necklace(player).getStackInSlot(0).set(FmpRegistries.NETWORK.get(), network);
+        f.ledger().setReturnAddress(f.handle().cacheId(), SupplyService.address(player));
+        ConsumptionTests.seed(player, 0, new ItemStack(Items.STONE), 100);
+        var before = f.record(); var edit = before.state().edit(); edit.thresholds(0, 0, 0);
+        f.ledger().replace(f.handle(), before.state().revision(), before.withState(edit.finish()));
+        var item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(mobile ? "create_mobile_packages:robo_bee" : "cmpackagecouriers:cardboard_plane_parts"));
+        player.getInventory().setItem(0, new ItemStack(item, 2));
+        return f;
+    }
+
+    private static dev.scathiard.feedmepackages.fluid.FluidVariantKey seedReturnFluid(ReceiveTests.Fixture f) {
+        var stack = new net.neoforged.neoforge.fluids.FluidStack(net.minecraft.world.level.material.Fluids.WATER, 1);
+        stack.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME, net.minecraft.network.chat.Component.literal("return fluid components"));
+        var key = dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(stack, f.player().registryAccess());
+        var before = f.record(); var items = before.state().edit(); items.thresholds(0, 0, -1);
+        var fluids = before.fluids().state().edit(); fluids.filter(2, key); fluids.insert(2, key, 16000); fluids.thresholds(2, 0, 0);
+        f.ledger().replace(f.handle(), before.state().revision(), before.withStates(items.finish(), before.fluids().withState(fluids.finish())));
+        return key;
+    }
+
+    private static long returnStock(ReceiveTests.Fixture f, boolean fluid) {
+        return fluid ? f.record().fluids().state().cells().get(2).amount() : f.record().state().cells().get(0).amount();
+    }
+
+    private static int returnedFluid(net.minecraft.server.level.ServerPlayer player) {
+        return player.getInventory().items.stream().filter(box -> PackageItem.isPackage(box)
+                && PackageItem.getAddress(box).equals(SupplyService.address(player)))
+                .mapToInt(box -> dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(box).getAmount()).sum();
+    }
+
+    private static void returnFluidFlight(GameTestHelper h, boolean mobile) {
+        var f = returnFixture(h, mobile); var player = f.player(); var key = seedReturnFluid(f);
+        var before = f.record(); var next = before;
+        if (mobile) {
+            // Cover a real carrier source in the item column of the same cache transaction.
+            var carrier = player.getInventory().getItem(0); var items = next.state().edit();
+            var carrierKey = dev.scathiard.feedmepackages.item.ItemVariantKey.of(carrier.copyWithCount(1), player.registryAccess());
+            items.filter(1, carrierKey); items.insert(1, carrierKey, 2); next = next.withState(items.finish());
+            player.getInventory().setItem(0, ItemStack.EMPTY);
+        }
+        f.ledger().replace(f.handle(), before.state().revision(), next);
+        ReturnService.check(player);
+        h.assertTrue(returnStock(f, true) == 6000, "First native return must ship 10000 mB");
+        ReturnService.check(player);
+        h.assertTrue(returnStock(f, true) == 0  &&  f.record().state().cells().get(0).amount() == 100
+                 &&  player.getInventory().getItem(0).isEmpty()  &&  f.record().state().cells().get(1).amount() == 0,
+                "Native fluid return failed to debit exact cargo and both original carriers");
+        var boxes = returnTransitBoxes(player, mobile);
+        var quantities = boxes.stream().map(dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages::read)
+                .mapToInt(net.neoforged.neoforge.fluids.FluidStack::getAmount).sorted().toArray();
+        h.assertTrue(java.util.Arrays.equals(quantities, new int[]{6000, 10000}), "Fluid return did not split at the author's actual parcel capacity");
+        for (var box : boxes) assertFluidParcel(h, player, box, key);
+        var settled = f.record(); ReturnService.check(player);
+        h.assertTrue(f.record() == settled, "Fluid return reused the already emptied cache");
+        h.startSequence().thenWaitUntil(() -> h.assertTrue(returnedFluid(player) == 16000, "Native fluid return flight did not arrive intact"))
+                .thenExecute(() -> {
+                    for (var box : player.getInventory().items) if (PackageItem.isPackage(box)) assertFluidParcel(h, player, box, key);
+                    h.assertTrue(returnStock(f, true) == 0 && returnTransitBoxes(player, mobile).isEmpty(), "Returned unsigned parcels were absorbed or duplicated");
+                    FeedMePackages.LOGGER.info("FMP_FLUID_RETURN_FLIGHT_PASSED mobile={} amount=16000 packages=2 carriers=2", mobile);
+                }).thenSucceed();
+    }
+
+    private static void returnFluidPreview(GameTestHelper h, boolean mobile) {
+        var f=returnFixture(h,mobile); var player=f.player(); seedReturnFluid(f);
+        var view=CacheActions.open(player);
+        h.assertTrue(CacheActions.execute(player,new CacheActions.Intent(view.session(),view.record().state().revision(),
+                CacheActions.Action.TAKE_FLUID,2,8000,0,""),1)==CacheActions.Result.OK,"Native return preview fixture failed");
+        ReturnService.check(player);
+        h.assertTrue(returnStock(f,true)==8000 && player.getInventory().getItem(0).getCount()==1
+                && dev.scathiard.feedmepackages.interaction.FluidActions.preview(player).amount()==8000,
+                "Return stole the player's reserved fluid or charged its carrier");
+        h.assertTrue(returnTransitBoxes(player,mobile).stream().mapToInt(box ->
+                dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(box).getAmount()).sum()==8000,
+                "Reserved preview escaped into native transport");
+        CacheActions.close(player); h.assertTrue(returnStock(f,true)==8000,"Cancel after return restored dispatched fluid");
+        h.succeed();
+    }
+
+    private static void assertFluidParcel(GameTestHelper h, net.minecraft.server.level.ServerPlayer player, ItemStack box,
+            dev.scathiard.feedmepackages.fluid.FluidVariantKey key) {
+        var contents = dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(box);
+        h.assertTrue(!contents.isEmpty() && key.equals(dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(contents, player.registryAccess()))
+                && !box.has(FmpRegistries.PARCEL_SEAL.get()) && !box.has(FmpRegistries.FLUID_PARCEL_SEAL.get()),
+                "Native return parcel changed exact fluid identity or acquired a false inbound receipt");
+    }
+
+    private static List<ItemStack> returnTransitBoxes(net.minecraft.server.level.ServerPlayer player, boolean mobile) {
+        try {
+            var boxes = new ArrayList<ItemStack>();
+            if (mobile) {
+                var type = Class.forName("de.theidler.create_mobile_packages.robo.RoboManager");
+                var manager = type.getMethod("get", ServerLevel.class).invoke(null, player.serverLevel());
+                var robos = (java.util.Map<?,?>)type.getField("robos").get(manager);
+                for (Object robo : robos.values()) boxes.add((ItemStack)robo.getClass().getMethod("getItemStack").invoke(robo));
+            } else {
+                var type = Class.forName("com.kreidev.cmpackagecouriers.plane.CardboardPlaneManager");
+                var manager = type.getField("INSTANCE").get(null);
+                var planes = (List<?>)manager.getClass().getField("pairedPlanes").get(manager);
+                for (Object entry : planes) {
+                    var plane = ((net.createmod.catnip.data.Pair<?,?>)entry).getFirst();
+                    boxes.add((ItemStack)plane.getClass().getMethod("getPackage").invoke(plane));
+                }
+            }
+            return boxes.stream().filter(box -> PackageItem.isPackage(box) && PackageItem.getAddress(box).equals(SupplyService.address(player))).toList();
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
     }
 }

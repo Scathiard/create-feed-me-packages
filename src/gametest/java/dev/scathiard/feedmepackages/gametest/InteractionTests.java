@@ -1,4 +1,11 @@
 package dev.scathiard.feedmepackages.gametest;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.fluids.FluidStack;
+import net.neoforged.neoforge.fluids.capability.IFluidHandlerItem;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.component.CustomData;
+import net.minecraft.world.level.material.Fluids;
 
 import com.simibubi.create.content.logistics.box.PackageItem;
 import dev.scathiard.feedmepackages.FeedMePackages;
@@ -29,6 +36,7 @@ import java.util.UUID;
 
 @GameTestHolder(FeedMePackages.MOD_ID)
 @PrefixGameTestTemplate(false)
+@EventBusSubscriber(modid = FeedMePackages.MOD_ID, bus = EventBusSubscriber.Bus.MOD)
 public final class InteractionTests {
     @GameTest(template = "empty")
     public static void blockHitDoesNotAccidentallyClearHeldBinding(GameTestHelper helper) {
@@ -36,6 +44,7 @@ public final class InteractionTests {
         var pendant = TestPlayers.necklace(player).getStackInSlot(0); TestPlayers.necklace(player).setStackInSlot(0, ItemStack.EMPTY);
         var network = UUID.randomUUID(); pendant.set(FmpRegistries.NETWORK.get(), network); player.setItemInHand(InteractionHand.MAIN_HAND, pendant);
         player.setPos(helper.absoluteVec(new net.minecraft.world.phys.Vec3(2.5, 30, 2.5))); player.setXRot(0); player.xRotO = 0; player.setYRot(0); player.yRotO = 0;
+        player.setShiftKeyDown(true);
         var target = net.minecraft.core.BlockPos.containing(player.getEyePosition().add(0, 0, 2));
         helper.getLevel().setBlockAndUpdate(target, net.minecraft.world.level.block.Blocks.STONE.defaultBlockState());
         var ray = net.minecraft.world.item.Item.getPlayerPOVHitResult(helper.getLevel(), player, net.minecraft.world.level.ClipContext.Fluid.NONE);
@@ -48,10 +57,31 @@ public final class InteractionTests {
     }
 
     @GameTest(template = "empty")
+    public static void onlySneakAirUseClearsBindingAndNeverCache(GameTestHelper h) {
+        var f=ReceiveTests.setup(h,10); var p=f.player(); var before=f.record();
+        var pendant=TestPlayers.necklace(p).getStackInSlot(0);TestPlayers.necklace(p).setStackInSlot(0,ItemStack.EMPTY);
+        var network=UUID.randomUUID();pendant.set(FmpRegistries.NETWORK.get(),network);p.setItemInHand(InteractionHand.MAIN_HAND,pendant);
+        var expected=pendant.copy();expected.remove(FmpRegistries.NETWORK.get());
+        p.setPos(h.absoluteVec(new net.minecraft.world.phys.Vec3(2.5,30,2.5)));p.setYRot(0);p.setXRot(-90);
+        p.setShiftKeyDown(false);
+        h.assertTrue(p.gameMode.useItem(p,h.getLevel(),pendant,InteractionHand.MAIN_HAND)==net.minecraft.world.InteractionResult.PASS
+                && network.equals(pendant.get(FmpRegistries.NETWORK.get())),"Ordinary air use cleared the network");
+        p.setShiftKeyDown(true);p.setXRot(0);
+        var target=net.minecraft.world.entity.EntityType.ARMOR_STAND.create(h.getLevel());
+        target.setPos(p.position().add(0,0,2));h.getLevel().addFreshEntity(target);
+        h.assertTrue(pendant.getItem().use(h.getLevel(),p,InteractionHand.MAIN_HAND).getResult()==net.minecraft.world.InteractionResult.PASS
+                && network.equals(pendant.get(FmpRegistries.NETWORK.get())),"Entity aim was treated as air");target.discard();
+        p.setXRot(-90);
+        h.assertTrue(p.gameMode.useItem(p,h.getLevel(),pendant,InteractionHand.MAIN_HAND).consumesAction()
+                && !pendant.has(FmpRegistries.NETWORK.get()),"Sneak air use did not clear the binding");
+        h.assertTrue(ItemStack.isSameItemSameComponents(expected,pendant) && f.record()==before,"Clearing a network altered cache identity or inventory");
+        h.succeed();
+    }
+    @GameTest(template = "empty")
     public static void curioEquipRejectsSecondPendantBeforeCreatingAnyCache(GameTestHelper helper) {
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
         TestPlayers.necklace(player).grow(2);
-        for (var candidate : java.util.List.of(FmpRegistries.PENDANT.toStack(), FmpRegistries.PERSONAL_PENDANT.toStack())) {
+        for (var candidate : java.util.List.of(FmpRegistries.PENDANT.toStack())) {
             var curio = top.theillusivec4.curios.api.CuriosApi.getCurio(candidate).orElseThrow();
             var replacement = new top.theillusivec4.curios.api.SlotContext("necklace", player, 0, false, true);
             var extra = new top.theillusivec4.curios.api.SlotContext("necklace", player, 2, false, true);
@@ -135,17 +165,19 @@ public final class InteractionTests {
                 var behavior = com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour.get(helper.getLevel(), absolute,
                         com.simibubi.create.content.logistics.packagerLink.LogisticallyLinkedBehaviour.TYPE);
                 helper.assertTrue(behavior != null, "Native fixture does not expose a logistics network behavior");
-                var context = new net.minecraft.world.item.context.UseOnContext(f.player(), InteractionHand.MAIN_HAND,
-                        new net.minecraft.world.phys.BlockHitResult(net.minecraft.world.phys.Vec3.atCenterOf(absolute), net.minecraft.core.Direction.UP, absolute, false));
-                f.player().setShiftKeyDown(false);
-                helper.assertTrue(pendant.getItem().useOn(context) == net.minecraft.world.InteractionResult.PASS
-                        && java.util.Objects.equals(prior, pendant.get(FmpRegistries.NETWORK.get())), "Non-sneaking use changed network binding");
+                var hit = new net.minecraft.world.phys.BlockHitResult(net.minecraft.world.phys.Vec3.atCenterOf(absolute), net.minecraft.core.Direction.UP, absolute, false);
+                var context = new net.minecraft.world.item.context.UseOnContext(f.player(), InteractionHand.MAIN_HAND, hit);
                 f.player().setShiftKeyDown(true);
-                helper.assertTrue(pendant.getItem().useOn(context).consumesAction() && behavior.freqId.equals(pendant.get(FmpRegistries.NETWORK.get())),
-                        "Sneaking use did not bind the actual device network");
+                helper.assertTrue(pendant.getItem().useOn(context) == net.minecraft.world.InteractionResult.PASS
+                        && java.util.Objects.equals(prior, pendant.get(FmpRegistries.NETWORK.get())), "Sneaking device use changed network binding");
+                f.player().setShiftKeyDown(false);
+                helper.assertTrue(f.player().gameMode.useItemOn(f.player(), helper.getLevel(), pendant, InteractionHand.MAIN_HAND, hit).consumesAction()
+                        && behavior.freqId.equals(pendant.get(FmpRegistries.NETWORK.get())) && f.player().containerMenu == f.player().inventoryMenu,
+                        "Ordinary device use did not bind before opening its menu");
                 helper.assertTrue(pendant.hasFoil() && !pendant.isEnchanted(), "Network binding did not derive its foil without adding enchantments");
                 prior = behavior.freqId;
             }
+            f.player().setShiftKeyDown(true);
             f.player().setXRot(-90); f.player().xRotO = -90;
             f.player().setPos(helper.absoluteVec(new net.minecraft.world.phys.Vec3(2, 40, 2)));
             var airUse = pendant.getItem().use(helper.getLevel(), f.player(), InteractionHand.MAIN_HAND).getResult();
@@ -243,16 +275,16 @@ public final class InteractionTests {
     }
 
     @GameTest(template = "empty")
-    public static void retiredGhostIsRejectedAndRealFiltersRemainSafe(GameTestHelper helper) {
+    public static void browserTemplatesCreateNoItemsAndRealFiltersRemainSafe(GameTestHelper helper) {
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
         var key = ItemVariantKey.of(new ItemStack(Items.STONE), player.registryAccess()).encoded();
-        helper.assertTrue(execute(player, Action.SET_GHOST, 0, 0, key) == Result.INVALID_REQUEST && stock(player, 0) == 0, "Retired ghost command set a filter");
+        helper.assertTrue(execute(player, Action.SET_GHOST, 0, 0, key) == Result.OK && stock(player, 0) == 0, "Template must set an empty filter without creating items");
         player.containerMenu.setCarried(new ItemStack(Items.STONE, 3)); execute(player, Action.DEPOSIT, 0, 0, "");
         player.containerMenu.setCarried(new ItemStack(Items.STONE));
         helper.assertTrue(execute(player, Action.DEPOSIT, 1, 1, "") == Result.DUPLICATE_FILTER && stock(player, 1) == 0, "Duplicate real variant accepted");
         helper.assertTrue(execute(player, Action.CLEAR_FILTER, 0, 0, "") == Result.FILTER_OCCUPIED, "Nonempty filter cleared");
         var other = ItemVariantKey.of(new ItemStack(Items.DIRT), player.registryAccess()).encoded();
-        helper.assertTrue(execute(player, Action.SET_GHOST, 0, 0, other) == Result.INVALID_REQUEST && stock(player, 0) == 3, "Retired ghost replaced a filter");
+        helper.assertTrue(execute(player, Action.SET_GHOST, 0, 0, other) == Result.FILTER_OCCUPIED && stock(player, 0) == 3, "Template replaced an occupied filter");
         player.containerMenu.setCarried(new ItemStack(Items.DIRT));
         helper.assertTrue(execute(player, Action.DEPOSIT, 0, 1, "") == Result.FILTER_OCCUPIED && stock(player, 0) == 3, "Nonempty real replacement discarded material");
         helper.assertTrue(CacheActions.execute(player, intent(player, Action.THRESHOLDS, 0, 129, -1, "")) == Result.INVALID_REQUEST, "Out-of-range threshold accepted");
@@ -576,6 +608,39 @@ public final class InteractionTests {
             boolean refused = false; try { PanelPackets.Query.CODEC.decode(trailing); } catch (DecoderException expected) { refused = true; }
             helper.assertTrue(refused, "Trailing packet data accepted");
         } finally { trailing.release(); }
+        var change=new CacheActions.SettingsChange(0,view.cells().getFirst().filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(65,1000,64,63));
+        var packet=new PanelPackets.SettingsBatch(view.window(),view.session(),1,java.util.List.of(change));
+        var controls=new RegistryFriendlyByteBuf(Unpooled.buffer(),player.registryAccess());
+        try {
+            PanelPackets.SettingsBatch.CODEC.encode(controls,packet);
+            helper.assertTrue(controls.readableBytes()<256 && packet.equals(PanelPackets.SettingsBatch.CODEC.decode(controls)),"Settings batch did not round-trip within its bounded wire shape");
+        } finally { controls.release(); }
+        helper.succeed();
+    }
+
+    @GameTest(template="empty")
+    public static void cellSettingsAreAtomicAndBoundToTheFilterLifetime(GameTestHelper helper) {
+        var player=TestPlayers.create(helper,FmpRegistries.PENDANT.toStack());
+        ConsumptionTests.seed(player,0,new ItemStack(Items.STONE),63);
+        ConsumptionTests.seed(player,1,new ItemStack(Items.ENDER_PEARL),16);
+        var view=PanelNetwork.query(player,new PanelPackets.Query(UUID.randomUUID(),0,true));
+        var access=AccessGate.resolve(player);var ledger=CacheLedger.get(player.getServer());var before=ledger.find(access.handle().cacheId());
+        var edit=before.state().edit();edit.extract(0,1);ledger.replace(access.handle(),before.state().revision(),before.withState(edit.finish()));
+        var a=new CacheActions.SettingsChange(0,view.cells().get(0).filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(65,128,64,63));
+        var b=new CacheActions.SettingsChange(1,view.cells().get(1).filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(17,32,16,144));
+        var reply=PanelNetwork.settings(player,new PanelPackets.SettingsBatch(view.window(),view.session(),1,java.util.List.of(a,b)));
+        helper.assertTrue(reply.result()==Result.OK && reply.cells().get(0).amount()==62 && reply.cells().get(0).minimum()==65
+                && reply.cells().get(0).pendingLimit()==63 && reply.cells().get(1).batch()==16,"Concurrent stock change lost a legitimate settings batch");
+        var saved=ledger.find(access.handle().cacheId());
+        helper.assertTrue(CacheActions.settings(player,view.session(),java.util.List.of(a,a))==Result.INVALID_REQUEST
+                && ledger.find(access.handle().cacheId()).equals(saved),"Duplicate settings slot committed a partial batch");
+        var next=saved.state().edit();next.extract(1,16);next.filter(1,null);next.filter(1,ItemVariantKey.of(new ItemStack(Items.DIAMOND),player.registryAccess()));
+        ledger.replace(access.handle(),saved.state().revision(),saved.withState(next.finish()));saved=ledger.find(access.handle().cacheId());
+        helper.assertTrue(CacheActions.settings(player,view.session(),java.util.List.of(a,b))==Result.STALE
+                && ledger.find(access.handle().cacheId()).equals(saved),"Old filter settings committed after replacement");
+        TestPlayers.necklace(player).setStackInSlot(0,ItemStack.EMPTY);
+        helper.assertTrue(CacheActions.settings(player,view.session(),java.util.List.of(a))!=Result.OK
+                && ledger.find(access.handle().cacheId()).equals(saved),"Unworn pendant retained a settings capability");
         helper.succeed();
     }
 
@@ -630,5 +695,352 @@ public final class InteractionTests {
         FeedMePackages.LOGGER.info("FMP_LOAD_OBSERVATION players=32 cells=36 logicalTicks=200 queries=6400 replies={} initialHints={} elapsedMs={} simulated-server-players/no-network-throughput-claim",
                 replies, hints, elapsedMillis);
         helper.succeed();
+    }
+
+    private static Item fluidProbe;
+    private static Runnable fluidCallback;
+    @SubscribeEvent public static void registerFluidProbe(net.neoforged.neoforge.registries.RegisterEvent event) {
+        event.register(net.minecraft.core.registries.Registries.ITEM, h -> h.register(
+                net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID,"test_fluid_container"),
+                fluidProbe=new Item(new Item.Properties().stacksTo(1))));
+    }
+    @SubscribeEvent public static void registerFluidCapability(net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent event) {
+        event.registerItem(net.neoforged.neoforge.capabilities.Capabilities.FluidHandler.ITEM,(stack,context)->new FluidProbe(stack),fluidProbe);
+    }
+    private static ItemStack probeStack(int water,int lava,String mode) {
+        var stack=new ItemStack(fluidProbe); var tag=new net.minecraft.nbt.CompoundTag();
+        tag.putInt("water",water);tag.putInt("lava",lava);tag.putString("mode",mode);stack.set(DataComponents.CUSTOM_DATA,CustomData.of(tag));return stack;
+    }
+    /** Test-only foreign capability: it uses the real item capability registry, never ships in the mod. */
+    private static final class FluidProbe implements IFluidHandlerItem {
+        private final ItemStack stack;
+        FluidProbe(ItemStack stack){this.stack=stack;}
+        private net.minecraft.nbt.CompoundTag tag(){return stack.getOrDefault(DataComponents.CUSTOM_DATA,CustomData.EMPTY).copyTag();}
+        @Override public ItemStack getContainer(){return stack;}
+        @Override public int getTanks(){return 2;}
+        @Override public FluidStack getFluidInTank(int tank){return new FluidStack(tank==0?Fluids.WATER:Fluids.LAVA,tag().getInt(tank==0?"water":"lava"));}
+        @Override public int getTankCapacity(int tank){return 8000;}
+        @Override public boolean isFluidValid(int tank,FluidStack fluid){return fluid.getFluid()==(tank==0?Fluids.WATER:Fluids.LAVA);}
+        private int move(FluidStack fluid,int delta,FluidAction action){
+            if(!action.execute())return Math.abs(delta);
+            if(fluidCallback!=null)fluidCallback.run();
+            var data=tag(); String key=fluid.getFluid()==Fluids.WATER?"water":"lava";String mode=data.getString("mode");
+            data.putInt(key,data.getInt(key)+delta);
+            if(mode.equals("other"))data.putInt(key.equals("water")?"lava":"water",0);
+            stack.set(DataComponents.CUSTOM_DATA,CustomData.of(data));
+            if(mode.equals("count"))stack.setCount(2);
+            if(mode.equals("throw"))throw new IllegalStateException("test fluid capability failure");
+            if(mode.equals("linkage"))throw new NoClassDefFoundError("test fluid optional dependency failure");
+            return Math.abs(delta)+(mode.equals("lie")?1:0);
+        }
+        @Override public int fill(FluidStack fluid,FluidAction action){
+            if(fluid.getFluid()!=Fluids.WATER && fluid.getFluid()!=Fluids.LAVA)return 0;
+            int amount=Math.min(fluid.getAmount(),8000-tag().getInt(fluid.getFluid()==Fluids.WATER?"water":"lava"));
+            return move(fluid,amount,action);
+        }
+        @Override public FluidStack drain(FluidStack wanted,FluidAction action){
+            for(int tank=0;tank<2;tank++)if(FluidStack.isSameFluidSameComponents(wanted,getFluidInTank(tank))){
+                int amount=Math.min(wanted.getAmount(),getFluidInTank(tank).getAmount());
+                return wanted.copyWithAmount(move(wanted,-amount,action));
+            }
+            return FluidStack.EMPTY;
+        }
+        @Override public FluidStack drain(int maximum,FluidAction action){
+            for(int tank=0;tank<2;tank++)if(!getFluidInTank(tank).isEmpty())return drain(getFluidInTank(tank).copyWithAmount(maximum),action);
+            return FluidStack.EMPTY;
+        }
+    }
+
+    @GameTest(template = "empty")
+    public static void foreignFluidFailuresDoNotPublishCopiesOrStrandTheGuard(GameTestHelper h) {
+        for(String mode:java.util.List.of("throw","linkage","lie","other","count")) {
+            var p=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());seedFluid(p,0,water(2000));
+            var full=probeStack(1000,250,mode);p.containerMenu.setCarried(full);var original=full.copy();
+            h.assertTrue(fluidAction(p,1,Action.DEPOSIT_FLUID,0,0,0,"")==Result.INVALID_ITEM
+                    && fluidStock(p,0)==2000 && p.containerMenu.getCarried()==full && ItemStack.matches(full,original),"Bad drain published a copy: "+mode);
+            p.containerMenu.setCarried(ItemStack.EMPTY);var empty=probeStack(0,250,mode);p.getInventory().setItem(0,empty);original=empty.copy();
+            h.assertTrue(fluidAction(p,2,Action.TAKE_FLUID,0,1000,0,"")==Result.OK,"Failed drain stranded the guard: "+mode);
+            String template=ItemVariantKey.of(empty,p.registryAccess()).encoded();
+            h.assertTrue(fluidAction(p,3,Action.PLACE_FLUID,0,0,2,template)==Result.NO_SPACE && fluidStock(p,0)==2000
+                    && p.getInventory().getItem(0)==empty && ItemStack.matches(empty,original)
+                    && dev.scathiard.feedmepackages.interaction.FluidActions.preview(p).amount()==1000,"Bad fill published a copy: "+mode);
+            p.getInventory().setItem(0,probeStack(0,250,"ok"));template=ItemVariantKey.of(p.getInventory().getItem(0),p.registryAccess()).encoded();
+            h.assertTrue(fluidAction(p,4,Action.PLACE_FLUID,0,0,2,template)==Result.OK && fluidStock(p,0)==1000,"Failed fill stranded the guard: "+mode);
+            var actual=net.neoforged.neoforge.fluids.FluidUtil.getFluidHandler(p.getInventory().getItem(0)).orElseThrow();
+            h.assertTrue(actual.getFluidInTank(0).getAmount()==1000 && actual.getFluidInTank(1).getAmount()==250,"Successful fill lost an unrelated tank");
+        }
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void foreignFluidCallbacksCannotReenterReceiptOrResidualResumption(GameTestHelper h) {
+        for(boolean deposit:new boolean[]{false,true})for(boolean residual:new boolean[]{false,true}) {
+            var f=ReceiveTests.setup(h,residual?ReceiveTests.FULL-8:0);var p=f.player();var box=f.box(16);var original=box.copy();
+            if(residual){h.assertTrue(ReceiveService.receive(p,box),"Residual fixture rejected");f.extract(8);}
+            seedFluid(p,1,water(2000));var before=f.record();var container=probeStack(deposit?1000:0,250,"ok");
+            p.getInventory().setItem(0,deposit?ItemStack.EMPTY:container);p.containerMenu.setCarried(deposit?container:ItemStack.EMPTY);
+            if(!deposit)h.assertTrue(fluidAction(p,1,Action.TAKE_FLUID,1,1000,0,"")==Result.OK,"Callback preview fixture failed");
+            final boolean[] receiptBlocked={false};final Result[] nested={null};
+            try {
+                fluidCallback=()->{
+                    nested[0]=fluidAction(p,90,Action.THRESHOLDS,1,1,-1,"");
+                    if(residual){ReceiveService.resume(p);receiptBlocked[0]=f.record()==before;}
+                    else receiptBlocked[0]=!ReceiveService.receive(p,box);
+                };
+                var result=fluidAction(p,2,deposit?Action.DEPOSIT_FLUID:Action.PLACE_FLUID,1,0,1,
+                        deposit?"":ItemVariantKey.of(container,p.registryAccess()).encoded());
+                h.assertTrue(receiptBlocked[0] && nested[0]==Result.STALE && result==Result.OK
+                        && fluidStock(p,1)==(deposit?3000:1000) && f.record().state().cells().getFirst().amount()==before.state().cells().getFirst().amount(),
+                        "Fluid callback reentered FMP: deposit="+deposit+" residual="+residual+" receiptBlocked="+receiptBlocked[0]+" nested="+nested[0]+" outer="+result);
+            } finally {fluidCallback=null;}
+            if(residual){ReceiveService.resume(p);h.assertTrue(f.residual().isEmpty() && f.record().state().cells().getFirst().amount()==ReceiveTests.FULL,"Guard stranded a real remainder");}
+            else h.assertTrue(ItemStack.matches(box,original) && ReceiveService.receive(p,box) && box.isEmpty()
+                    && f.record().state().cells().getFirst().amount()==16,"Guard changed or stranded a real incoming parcel");
+        }
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void foreignFluidCallbackChangingTheActualSlotCancelsOnlyOurPublication(GameTestHelper h) {
+        var p=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());seedFluid(p,0,water(2000));
+        var empty=probeStack(0,0,"ok");p.getInventory().setItem(0,empty);
+        h.assertTrue(fluidAction(p,1,Action.TAKE_FLUID,0,1000,0,"")==Result.OK,"Stale-slot fixture failed");
+        var foreign=new ItemStack(Items.DIAMOND);Result result;
+        try{fluidCallback=()->p.getInventory().setItem(0,foreign);
+            result=fluidAction(p,2,Action.PLACE_FLUID,0,0,1,ItemVariantKey.of(empty,p.registryAccess()).encoded());
+        }finally{fluidCallback=null;}
+        h.assertTrue(result==Result.STALE && p.getInventory().getItem(0)==foreign && fluidStock(p,0)==2000
+                && dev.scathiard.feedmepackages.interaction.FluidActions.preview(p).amount()==1000,"Fluid publication overwrote a foreign slot edit or spent fluid");
+        p.getInventory().setItem(0,new ItemStack(Items.BUCKET));
+        h.assertTrue(fluidAction(p,3,Action.PLACE_FLUID,0,0,1,ItemVariantKey.of(new ItemStack(Items.BUCKET),p.registryAccess()).encoded())==Result.OK
+                && fluidStock(p,0)==1000,"Stale foreign slot stranded fluid access");h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void foreignFluidCallbacksCannotOpenOrCommitItemConsumption(GameTestHelper h) {
+        var p=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());seedFluid(p,0,water(2000));
+        ConsumptionTests.seed(p,1,new ItemStack(Items.STONE),8);var container=probeStack(0,0,"ok");p.getInventory().setItem(0,container);
+        h.assertTrue(fluidAction(p,1,Action.TAKE_FLUID,0,1000,0,"")==Result.OK,"Material callback preview fixture failed");
+        var pending=dev.scathiard.feedmepackages.consumption.MaterialTransaction.open(p).orElseThrow();
+        h.assertTrue(pending.takeCache(new ItemStack(Items.STONE),1),"Prepared item debit fixture failed");
+        final boolean[] opened={false},committed={false};Result result;
+        try{fluidCallback=()->{opened[0]=dev.scathiard.feedmepackages.consumption.MaterialTransaction.open(p).isPresent();committed[0]=pending.commit();};
+            result=fluidAction(p,2,Action.PLACE_FLUID,0,0,1,ItemVariantKey.of(container,p.registryAccess()).encoded());
+        }finally{fluidCallback=null;}
+        h.assertTrue(!opened[0] && !committed[0] && result==Result.OK && fluidStock(p,0)==1000 && ConsumptionTests.stock(p,1)==8,
+                "Fluid callback reentered material consumption: opened="+opened[0]+" committed="+committed[0]+" outer="+result);
+        var after=dev.scathiard.feedmepackages.consumption.MaterialTransaction.open(p).orElseThrow();
+        h.assertTrue(after.takeCache(new ItemStack(Items.STONE),1) && after.commit() && ConsumptionTests.stock(p,1)==7,"Completed fluid fill stranded item consumption");h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void fluidPanelDepositsPreviewsAndFillsActualBucketExactlyOnce(GameTestHelper h) {
+        var player=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());
+        var window=UUID.randomUUID();
+        var initial=PanelNetwork.query(player,new PanelPackets.Query(window,player.containerMenu.containerId,true));
+        player.containerMenu.setCarried(new ItemStack(Items.WATER_BUCKET));
+        var deposited=fluidCommand(player,initial,1,Action.DEPOSIT_FLUID,0,0,0,"");
+        h.assertTrue(deposited.result()==Result.OK && deposited.cells().getFirst().fluid()
+                && deposited.cells().getFirst().amount()==1000 && player.containerMenu.getCarried().is(Items.BUCKET),
+                "Actual bucket deposit did not conserve liquid and container");
+        player.containerMenu.setCarried(ItemStack.EMPTY);
+        player.getInventory().setItem(0,new ItemStack(Items.BUCKET,2));
+        var take=fluidCommand(player,deposited,2,Action.TAKE_FLUID,0,1000,0,"");
+        h.assertTrue(take.result()==Result.OK && take.cells().getFirst().amount()==1000 && take.cells().getFirst().reserved()==1000
+                && take.fluidPreview().amount()==1000 && player.containerMenu.getCarried().isEmpty(),"Fluid preview materialized or deducted stock");
+        var bytes=new RegistryFriendlyByteBuf(Unpooled.buffer(),player.registryAccess());
+        try { PanelPackets.Snapshot.CODEC.encode(bytes,take); h.assertTrue(PanelPackets.Snapshot.CODEC.decode(bytes).equals(take),"Typed fluid snapshot lost its preview"); }
+        finally { bytes.release(); }
+        String target=ItemVariantKey.of(player.getInventory().getItem(0),player.registryAccess()).encoded();
+        var command=new PanelPackets.Command(window,3,new CacheActions.Intent(take.session(),take.revision(),Action.PLACE_FLUID,0,0,2,target),false,"",0);
+        var placed=PanelNetwork.command(player,command);
+        h.assertTrue(placed.result()==Result.OK  &&  placed.cells().getFirst().amount()==0  &&  placed.fluidPreview().amount()==0
+                 &&  player.getInventory().countItem(Items.BUCKET)==1  &&  player.getInventory().countItem(Items.WATER_BUCKET)==1
+                ,"Container placement duplicated liquid, lost a bucket or changed local contents");
+        h.assertTrue(PanelNetwork.command(player,command).result()==Result.STALE && fluidStock(player,0)==0,"Fluid placement replay succeeded");
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void fluidPreviewFullInventoryPartialPlacementAndCancelConserveStock(GameTestHelper h) {
+        var player=TestPlayers.create(h,FmpRegistries.PENDANT.toStack()); seedFluid(player,0,water(12000));
+        for (int i=0;i<36;i++) player.getInventory().setItem(i,new ItemStack(Items.STONE,64));
+        player.getInventory().setItem(0,new ItemStack(Items.BUCKET,2));
+        h.assertTrue(fluidAction(player,1,Action.TAKE_FLUID,0,8000,0,"")==Result.OK,"Fluid preview fixture failed");
+        String bucket=ItemVariantKey.of(new ItemStack(Items.BUCKET),player.registryAccess()).encoded();
+        h.assertTrue(fluidAction(player,2,Action.PLACE_FLUID,0,0,1,bucket)==Result.NO_SPACE && fluidStock(player,0)==12000
+                && player.getInventory().getItem(0).getCount()==2,"Full inventory lost the split bucket or spent fluid");
+        player.getInventory().setItem(1,ItemStack.EMPTY);
+        h.assertTrue(fluidAction(player,3,Action.PLACE_FLUID,0,0,1,bucket)==Result.OK && fluidStock(player,0)==11000
+                && dev.scathiard.feedmepackages.interaction.FluidActions.preview(player).amount()==7000,"Partial placement did not retain only unspent preview");
+        h.assertTrue(fluidAction(player,4,Action.RELEASE_FLUID,-1,99,0,"")==Result.STALE
+                && dev.scathiard.feedmepackages.interaction.FluidActions.preview(player).amount()==7000,"Stale release cancelled another preview");
+        h.assertTrue(fluidAction(player,5,Action.RELEASE_FLUID,-1,1,0,"")==Result.OK && fluidStock(player,0)==11000
+                && dev.scathiard.feedmepackages.interaction.FluidActions.preview(player).amount()==0,"Cancel spent or restored already placed fluid");
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void fluidContainerPreservesComponentsAndRefusesLossyBucket(GameTestHelper h) {
+        var player=TestPlayers.create(h,FmpRegistries.PENDANT.toStack()); var named=water(1250);
+        named.set(DataComponents.CUSTOM_NAME,Component.literal("Exact spring"));
+        var tank=fluidContainer(h); if (tank==null) return;
+        h.assertTrue(tank.fill(named,net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE)==1250,"Native tank fixture could not hold exact fluid");
+        player.containerMenu.setCarried(tank.getContainer());
+        h.assertTrue(fluidAction(player,1,Action.DEPOSIT_FLUID,0,0,0,"")==Result.OK && fluidStock(player,0)==1250,"Tank deposit failed");
+        var emptyTank=player.containerMenu.getCarried().copy(); player.containerMenu.setCarried(ItemStack.EMPTY);
+        player.getInventory().setItem(0,new ItemStack(Items.BUCKET)); player.getInventory().setItem(1,emptyTank);
+        h.assertTrue(fluidAction(player,2,Action.TAKE_FLUID,0,8000,0,"")==Result.OK,"Exact preview failed");
+        h.assertTrue(fluidAction(player,3,Action.PLACE_FLUID,0,0,2,ItemVariantKey.of(new ItemStack(Items.BUCKET),player.registryAccess()).encoded())==Result.NO_SPACE
+                && fluidStock(player,0)==1250 && player.getInventory().getItem(0).is(Items.BUCKET),"Vanilla bucket silently stripped fluid components");
+        h.assertTrue(fluidAction(player,4,Action.PLACE_FLUID,0,1,2,ItemVariantKey.of(emptyTank,player.registryAccess()).encoded())==Result.OK
+                && fluidStock(player,0)==0,"Exact tank refill failed");
+        var actual=net.neoforged.neoforge.fluids.FluidUtil.getFluidHandler(player.getInventory().getItem(1)).orElseThrow().getFluidInTank(0);
+        h.assertTrue(actual.getAmount()==1250 && net.neoforged.neoforge.fluids.FluidStack.isSameFluidSameComponents(actual,named),"Tank roundtrip changed fluid identity");
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void fluidDepositRespectsCapacityAndDoesNotPartiallyEmptyBucket(GameTestHelper h) {
+        var player=TestPlayers.create(h,FmpRegistries.PENDANT.toStack()); seedFluid(player,0,water(15900));
+        player.containerMenu.setCarried(new ItemStack(Items.WATER_BUCKET));
+        h.assertTrue(fluidAction(player,1,Action.DEPOSIT_FLUID,0,0,0,"")==Result.NO_SPACE && fluidStock(player,0)==15900
+                && player.containerMenu.getCarried().is(Items.WATER_BUCKET),"An indivisible bucket was partially drained");
+        var tank=fluidContainer(h); if (tank==null) return;
+        tank.fill(water(5000),net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+        player.containerMenu.setCarried(tank.getContainer());
+        h.assertTrue(fluidAction(player,2,Action.DEPOSIT_FLUID,0,0,0,"")==Result.OK && fluidStock(player,0)==16000
+                && net.neoforged.neoforge.fluids.FluidUtil.getFluidHandler(player.containerMenu.getCarried()).orElseThrow().getFluidInTank(0).getAmount()==4900,
+                "Tank partial deposit did not conserve the remainder");
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void fluidPreviewLifecycleAndTypedFiltersStaySeparate(GameTestHelper h) {
+        var player=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());
+        var template=dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(water(1),player.registryAccess()).encoded();
+        h.assertTrue(fluidAction(player,1,Action.SET_FLUID_GHOST,0,0,0,template)==Result.OK && fluidStock(player,0)==0,"Fluid template generated stock");
+        h.assertTrue(fluidAction(player,2,Action.SET_FLUID_GHOST,1,0,0,template)==Result.DUPLICATE_FILTER,"Duplicate fluid filter accepted");
+        var stone=ItemVariantKey.of(new ItemStack(Items.STONE),player.registryAccess()).encoded();
+        h.assertTrue(fluidAction(player,3,Action.SET_GHOST,0,0,0,stone)==Result.OK
+                && fluidAction(player,4,Action.SET_FLUID_GHOST,0,0,0,template)==Result.OK,"Empty item/fluid filter switch failed");
+        seedFluid(player,0,water(2000));
+        h.assertTrue(fluidAction(player,5,Action.CLEAR_FILTER,0,0,0,"")==Result.FILTER_OCCUPIED,"Nonempty fluid filter cleared");
+        h.assertTrue(fluidAction(player,6,Action.TAKE_FLUID,0,1000,0,"")==Result.OK,"Lifecycle preview fixture failed");
+        var old=CacheActions.snapshot(player); CacheActions.close(player);
+        h.assertTrue(dev.scathiard.feedmepackages.interaction.FluidActions.preview(player).amount()==0 && fluidStock(player,0)==2000,"Close spent or retained a preview");
+        CacheActions.open(player);
+        h.assertTrue(CacheActions.execute(player,new CacheActions.Intent(old.session(),old.record().state().revision(),Action.TAKE_FLUID,0,1000,0,""),7)==Result.STALE,
+                "Closed session reopened a fluid hold");
+        h.assertTrue(fluidAction(player,8,Action.TAKE_FLUID,0,1000,0,"")==Result.OK,"Reopened preview failed");
+        player.containerMenu.setCarried(new ItemStack(Items.STONE)); CacheActions.validateOpenContext(player);
+        h.assertTrue(dev.scathiard.feedmepackages.interaction.FluidActions.preview(player).amount()==0 && fluidStock(player,0)==2000,"A real cursor retained the fluid preview");
+        player.containerMenu.setCarried(ItemStack.EMPTY);
+        h.assertTrue(fluidAction(player,9,Action.TAKE_FLUID,0,1000,0,"")==Result.OK,"Final preview failed");
+        TestPlayers.necklace(player).setStackInSlot(0,ItemStack.EMPTY); CacheActions.validateOpenContext(player);
+        h.assertTrue(dev.scathiard.feedmepackages.interaction.FluidActions.preview(player).amount()==0,"Unequipped pendant retained fluid access");
+        h.succeed();
+    }
+
+    private static PanelPackets.Snapshot fluidCommand(ServerPlayer player,PanelPackets.Snapshot view,int seq,Action action,int slot,int first,int second,String template) {
+        return PanelNetwork.command(player,new PanelPackets.Command(view.window(),seq,
+                new CacheActions.Intent(view.session(),view.revision(),action,slot,first,second,template),false,"",0));
+    }
+    @GameTest(template = "empty")
+    public static void creativeFluidDepositReturnsActualEmptyContainerWithoutServerCursor(GameTestHelper h) {
+        var player=TestPlayers.create(h,FmpRegistries.PENDANT.toStack()); player.setGameMode(net.minecraft.world.level.GameType.CREATIVE);
+        var packets=TestPlayers.nativePackets(player); var window=UUID.randomUUID();
+        var view=PanelNetwork.query(player,new PanelPackets.Query(window,player.containerMenu.containerId,true));
+        var intent=new CacheActions.Intent(view.session(),view.revision(),Action.DEPOSIT_FLUID,0,0,0,"");
+        String full=ItemVariantKey.of(new ItemStack(Items.WATER_BUCKET),player.registryAccess()).encoded();
+        h.assertTrue(CacheActions.execute(player,intent,1)==Result.INVALID_REQUEST,"Creative deposit bypassed explicit cursor ownership");
+        var result=PanelNetwork.command(player,new PanelPackets.Command(window,1,intent,true,full,1));
+        var reply=packets.stream().filter(p -> p instanceof net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket)
+                .map(p -> ((net.minecraft.network.protocol.common.ClientboundCustomPayloadPacket)p).payload())
+                .filter(p -> p instanceof PanelPackets.CursorUpdate).map(p -> (PanelPackets.CursorUpdate)p).findFirst().orElseThrow();
+        h.assertTrue(result.result()==Result.OK && fluidStock(player,0)==1000 && player.containerMenu.getCarried().isEmpty()
+                && reply.count()==1 && ItemVariantKey.decode(reply.template(),player.registryAccess()).stack(player.registryAccess(),1).is(Items.BUCKET),
+                "Creative fluid deposit lost the remainder or created a second server cursor");
+        h.succeed();
+    }
+
+    private static Result fluidAction(ServerPlayer player,int seq,Action action,int slot,int first,int second,String template) {
+        var view=CacheActions.snapshot(player);
+        return CacheActions.execute(player,new CacheActions.Intent(view.session(),view.record().state().revision(),action,slot,first,second,template),seq);
+    }
+    private static net.neoforged.neoforge.fluids.FluidStack water(int amount) {
+        return new net.neoforged.neoforge.fluids.FluidStack(net.minecraft.world.level.material.Fluids.WATER,amount);
+    }
+    private static net.neoforged.neoforge.fluids.capability.IFluidHandlerItem fluidContainer(GameTestHelper h) {
+        if (!net.neoforged.fml.ModList.get().isLoaded("fluidlogistics")) {
+            FeedMePackages.LOGGER.info("FMP_FLUID_CONTAINER_SKIPPED: native copper bucket absent"); h.succeed(); return null;
+        }
+        var item=net.minecraft.core.registries.BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse("fluidlogistics:copper_bucket"));
+        return net.neoforged.neoforge.fluids.FluidUtil.getFluidHandler(new ItemStack(item)).orElseThrow();
+    }
+    private static void seedFluid(ServerPlayer player,int slot,net.neoforged.neoforge.fluids.FluidStack sample) {
+        var handle=AccessGate.resolve(player).handle(); var ledger=CacheLedger.get(player.getServer()); var before=ledger.find(handle.cacheId());
+        var edit=before.fluids().state().edit(); var key=dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(sample,player.registryAccess());
+        edit.filter(slot,key); edit.insert(slot,key,sample.getAmount());
+        ledger.replace(handle,before.state().revision(),before.withFluids(before.fluids().withState(edit.finish())));
+    }
+    @GameTest(template = "empty")
+    public static void configuredShrinkUsesReadonlyPagedCellsAndRestoresWrites(GameTestHelper h) {
+        var slots=dev.scathiard.feedmepackages.FmpConfig.SLOTS.get(0);var groups=dev.scathiard.feedmepackages.FmpConfig.GROUPS.get(0);
+        int oldSlots=slots.get(),oldGroups=groups.get();
+        try {
+            slots.set(50);groups.set(32);dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            var player=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());var handle=AccessGate.resolve(player).handle();var ledger=CacheLedger.get(player.getServer());
+            var record=ledger.find(handle.cacheId());var key=ItemVariantKey.of(new ItemStack(Items.STONE),player.registryAccess());
+            var edit=record.state().edit();edit.filter(49,key);edit.insert(49,key,1800);ledger.replace(handle,record.state().revision(),record.withState(edit.finish()));
+            var window=UUID.randomUUID();var view=PanelNetwork.query(player,new PanelPackets.Query(window,player.containerMenu.containerId,true,999,6));
+            h.assertTrue(view==null,"Oversized viewport was accepted");
+            player.tickCount+=10;view=PanelNetwork.query(player,new PanelPackets.Query(window,player.containerMenu.containerId,true,48,6));
+            var hints=dev.scathiard.feedmepackages.network.MaterialHints.next(player);
+            h.assertTrue(hints!=null && hints.amounts().size()==50 && hints.amounts().get(49)==1800,"Extra cells missing from native crafting material hints");
+            int local=view.grid().localSlot(49);
+            h.assertTrue(local>=0 && view.cells().get(local).amount()==1800 && view.cells().size()<=36 && view.totalSlots()==50,"Last configured slot was missing from bounded page");
+            var buffer=new RegistryFriendlyByteBuf(Unpooled.buffer(),player.registryAccess());
+            try {PanelPackets.Snapshot.CODEC.encode(buffer,view);h.assertTrue(view.equals(PanelPackets.Snapshot.CODEC.decode(buffer)),"Paged snapshot did not round trip");}finally{buffer.release();}
+            slots.set(9);groups.set(2);dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            player.tickCount+=10;view=PanelNetwork.query(player,new PanelPackets.Query(window,player.containerMenu.containerId,true,48,6));local=view.grid().localSlot(49);
+            h.assertTrue(view.totalSlots()==50 && !view.cells().get(local).writable() && view.cells().get(local).amount()==1800,"Shrinking config hid or rewrote retained stock");
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,3));
+            h.assertTrue(execute(player,Action.DEPOSIT,49,0,"")==Result.READ_ONLY && player.containerMenu.getCarried().getCount()==3,"Readonly slot consumed cursor");
+            player.containerMenu.setCarried(ItemStack.EMPTY);
+            h.assertTrue(execute(player,Action.TAKE_INVENTORY,49,64,"")==Result.OK && stock(player,49)==1736,"Readonly slot could not be taken through native action");
+            slots.set(50);groups.set(32);dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,3));
+            h.assertTrue(execute(player,Action.DEPOSIT,49,0,"")==Result.OK && stock(player,49)==1739,"Restored configuration did not restore writes");
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,3));var actionView=CacheActions.snapshot(player);
+            h.assertTrue(CacheActions.execute(player,new CacheActions.Intent(actionView.session(),actionView.record().state().revision(),Action.DEPOSIT,0,0,CacheActions.AUTO_DEPOSIT,""))==Result.OK
+                    && stock(player,49)==1742 && stock(player,0)==0,"Automatic drop failed to resolve an off-page exact filter");
+        } finally { slots.set(oldSlots);groups.set(oldGroups);dev.scathiard.feedmepackages.FmpConfig.refreshServer(); }
+        h.succeed();
+    }
+    @GameTest(template = "empty")
+    public static void configuredAdmissionKeepsExistingStockAndHonorsExplicitAllow(GameTestHelper h) {
+        var denied=dev.scathiard.feedmepackages.FmpConfig.DENIED;var allowed=dev.scathiard.feedmepackages.FmpConfig.ALLOWED;
+        var oldD=denied.get();var oldA=allowed.get();
+        try {
+            var player=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,8));
+            h.assertTrue(execute(player,Action.DEPOSIT,0,0,"")==Result.OK,"Admission fixture failed");
+            denied.set(java.util.List.of("minecraft:stone","#minecraft:logs"));allowed.set(java.util.List.of());dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,2));
+            h.assertTrue(execute(player,Action.DEPOSIT,0,0,"")==Result.DENIED && stock(player,0)==8 && player.containerMenu.getCarried().getCount()==2,"Config ban changed existing or incoming stock");
+            player.containerMenu.setCarried(ItemStack.EMPTY);
+            h.assertTrue(execute(player,Action.TAKE_INVENTORY,0,3,"")==Result.OK && stock(player,0)==5,"Ban prevented taking existing stock");
+            var oak=ItemVariantKey.of(new ItemStack(Items.OAK_LOG),player.registryAccess());
+            h.assertTrue(!dev.scathiard.feedmepackages.service.CachePolicy.admits(oak,player.registryAccess()),"Configured #tag denial not applied");
+            allowed.set(java.util.List.of("minecraft:stone","#minecraft:logs"));dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            player.containerMenu.setCarried(new ItemStack(Items.STONE,2));
+            h.assertTrue(execute(player,Action.DEPOSIT,0,0,"")==Result.OK && stock(player,0)==7
+                    && dev.scathiard.feedmepackages.service.CachePolicy.admits(oak,player.registryAccess()),"Explicit ID/tag allow did not override configurable ban");
+        } finally {denied.set(oldD);allowed.set(oldA);dev.scathiard.feedmepackages.FmpConfig.refreshServer();}
+        h.succeed();
+    }
+    private static long fluidStock(ServerPlayer player,int slot) {
+        return CacheLedger.get(player.getServer()).find(AccessGate.resolve(player).handle().cacheId()).fluids().state().cells().get(slot).amount();
     }
 }

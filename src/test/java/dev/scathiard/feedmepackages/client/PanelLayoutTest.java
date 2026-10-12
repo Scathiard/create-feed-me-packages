@@ -7,6 +7,208 @@ import java.util.HashSet;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PanelLayoutTest {
+    @Test void borderFlashesTwiceAndDarkensInOppositeDirections() {
+        var request=dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.REQUEST;
+        assertEquals(18,BorderAnimation.sample(request,0,18).to());
+        assertEquals(0,BorderAnimation.sample(request,150,18).to());
+        assertEquals(18,BorderAnimation.sample(request,250,18).to());
+        assertTrue(BorderAnimation.sample(request,300,18).finished());
+        var arrival=dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.ARRIVAL;
+        var departure=dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE;
+        assertEquals(new BorderAnimation.Rows(0,18,false),BorderAnimation.sample(arrival,0,18));
+        assertEquals(new BorderAnimation.Rows(9,18,false),BorderAnimation.sample(arrival,350,18));
+        assertEquals(new BorderAnimation.Rows(0,9,false),BorderAnimation.sample(departure,350,18));
+        assertTrue(BorderAnimation.sample(arrival,700,18).finished());
+        assertTrue(BorderAnimation.sample(departure,700,18).finished());
+    }
+    @Test void logisticsViewersOnlyRememberTheLatestVisibleEvent() {
+        var cache=java.util.UUID.randomUUID();
+        try(var viewer=new dev.scathiard.feedmepackages.logistics.LogisticsSignals.Viewer(cache)) {
+            viewer.page(36,36);
+            dev.scathiard.feedmepackages.logistics.LogisticsSignals.publish(cache,0,dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.REQUEST);
+            assertEquals(0,viewer.get(0).sequence());
+            dev.scathiard.feedmepackages.logistics.LogisticsSignals.publish(cache,36,dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.REQUEST);
+            long first=viewer.get(36).sequence();
+            dev.scathiard.feedmepackages.logistics.LogisticsSignals.publish(cache,36,dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE);
+            assertEquals(first+1,viewer.get(36).sequence());
+            assertEquals(dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE,viewer.get(36).kind());
+            viewer.page(0,36);assertEquals(0,viewer.get(36).sequence());
+        }
+        try(var reopened=new dev.scathiard.feedmepackages.logistics.LogisticsSignals.Viewer(cache)) {
+            reopened.page(36,36);assertEquals(0,reopened.get(36).sequence());
+        }
+    }
+
+    @Test void palletGridKeepsEveryTargetReachableAtSeveralGuiSizes() {
+        for (int count : new int[]{0, 1, 40, 80, 4096})
+            for (int[] size : new int[][]{{320,240},{427,240},{854,480},{1920,1080}}) {
+                java.util.Set<Integer> reached = new java.util.HashSet<>(); int first = 0;
+                while (true) {
+                    var view = dev.scathiard.feedmepackages.domain.PalletLayout.grid(count,first,size[0],size[1]);
+                    for (var tile : view.tiles()) {
+                        assertTrue(tile.x() >= 0 && tile.x() + 24 <= size[0] && tile.y() >= 50 && tile.y() + 24 <= size[1] - 26);
+                        assertTrue(tile.contains(tile.x()+12,tile.y()+12)); reached.add(tile.index());
+                        for (var other : view.tiles()) if (tile != other)
+                            assertFalse(tile.x() < other.x()+24 && tile.x()+24 > other.x() && tile.y() < other.y()+24 && tile.y()+24 > other.y());
+                    }
+                    if (view.first() == view.maximum()) break;
+                    first = Math.min(view.maximum(),view.first()+view.step());
+                }
+                assertEquals(count,reached.size());
+            }
+    }
+
+
+    @Test void spiralContinuesAcrossTurnsAndReversesWithoutPaging() {
+        var spiral = new dev.scathiard.feedmepackages.domain.PalletSpiral(100, 0);
+        double step = dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        spiral.move(100, 0);
+        assertEquals(0, spiral.selected());
+        for (int i = 1; i <= 48; i++) {
+            spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100);
+            assertEquals(i, spiral.selected(), "clockwise item " + i);
+        }
+        for (int i = 47; i >= 0; i--) {
+            spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100);
+            assertEquals(i, spiral.selected(), "counterclockwise item " + i);
+        }
+    }
+    @Test void spiralIgnoresRadialMovementAndCenterCrossingWhileWrapping() {
+        var spiral = new dev.scathiard.feedmepackages.domain.PalletSpiral(40, 18);
+        spiral.move(100, 0);
+        spiral.move(45, 0);
+        assertEquals(18, spiral.selected());
+        spiral.move(-100, 0);
+        assertEquals(18, spiral.selected(), "crossing the center cannot add half a turn");
+        spiral.move(0, 0);
+        assertEquals(18, spiral.selected(), "center preserves the current candidate");
+        spiral.move(0, 100);
+        assertEquals(18, spiral.selected(), "leaving center only reanchors");
+        spiral.reset(3, 2);
+        spiral.move(100, 0);
+        spiral.move(0, 100);
+        assertEquals(0, spiral.selected());
+        double angle = Math.PI / 2 - dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        spiral.move(Math.cos(angle) * 100, Math.sin(angle) * 100);
+        assertEquals(2, spiral.selected(), "reversing across the cyclic seam responds immediately");
+        spiral.reset(0, 0);
+        spiral.move(100, 0);
+        assertEquals(-1, spiral.selected());
+    }
+    @Test void spiralHasNoInactiveRadiusAndKeepsTheChoiceAtTheExactCenter() {
+        double step = dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        for (double radius : new double[]{.01, .25, 1, 4, 10}) {
+            var spiral = new dev.scathiard.feedmepackages.domain.PalletSpiral(34, 0);
+            spiral.move(radius, 0);
+            for (int i = 1; i <= 40; i++) {
+                spiral.move(Math.cos(i * step) * radius, Math.sin(i * step) * radius);
+                assertEquals(i % 34, spiral.selected(), "small radius=" + radius);
+            }
+            spiral.move(0, 0);
+            assertEquals(6, spiral.selected(), "center release must not cancel the new choice");
+            spiral.move(-radius, 0);
+            assertEquals(6, spiral.selected(), "leaving the exact center reanchors without adding steps");
+        }
+    }
+    @Test void spiralLoopsBothDirectionsAndKeepsItsPhaseBounded() {
+        double step = dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        for (int count : new int[]{1,2,3,16,34,128}) {
+            var spiral = new dev.scathiard.feedmepackages.domain.PalletSpiral(count, 0);
+            spiral.move(100, 0);
+            for (int i = 1; i <= count * 3 + 7; i++) {
+                spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100);
+                assertEquals(i % count, spiral.selected(), "forward count=" + count + " step=" + i);
+                assertTrue(spiral.position() >= 0 && spiral.position() < count);
+            }
+            for (int i = count * 3 + 6; i >= -count * 2; i--) {
+                spiral.move(Math.cos(i * step) * 100, Math.sin(i * step) * 100);
+                assertEquals(Math.floorMod(i, count), spiral.selected(), "reverse count=" + count + " step=" + i);
+                assertTrue(spiral.position() >= 0 && spiral.position() < count);
+            }
+        }
+    }
+    @Test void spiralDrawsAcrossTheHeadTailSeamAndRepeatsWithoutAnEmptyEnd() {
+        double step = dev.scathiard.feedmepackages.domain.PalletSpiral.STEP;
+        var first = dev.scathiard.feedmepackages.domain.PalletLayout.spiral(34, 0, 0, 854, 480);
+        assertTrue(first.tiles().stream().anyMatch(tile -> tile.index() == 33), "last item precedes first visually");
+        for (int lap : new int[]{-7,-1,1,9}) {
+            var next = dev.scathiard.feedmepackages.domain.PalletLayout.spiral(34, lap * 34, -lap * 34 * step, 854, 480);
+            assertEquals(first.tiles().size(), next.tiles().size());
+            for (int i = 0; i < first.tiles().size(); i++) {
+                var a = first.tiles().get(i); var b = next.tiles().get(i);
+                assertEquals(a.index(), b.index());
+                assertEquals(a.x(), b.x(), 1e-8); assertEquals(a.y(), b.y(), 1e-8);
+                assertEquals(a.size(), b.size(), 1e-8); assertEquals(a.opacity(), b.opacity(), 1e-8);
+            }
+        }
+    }
+    @Test void spiralLayoutKeepsTheCurrentIdentityVisibleAtEveryScaleAndTurn() {
+        for (int[] viewport : new int[][]{{320,240},{427,240},{854,480},{1920,1080}})
+            for (int index = 0; index < 128; index++) {
+                var view = dev.scathiard.feedmepackages.domain.PalletLayout.spiral(128, index + .1,
+                        .1, viewport[0], viewport[1]);
+                final int selected = index;
+                assertEquals(1, view.tiles().stream().filter(tile -> tile.current() && tile.index() == selected).count());
+                for (var tile : view.tiles()) {
+                    assertTrue(tile.index() >= 0 && tile.index() < 128);
+                    assertTrue(tile.x() - tile.size() / 2 >= 8 && tile.x() + tile.size() / 2 <= viewport[0] - 8);
+                    assertTrue(tile.y() - tile.size() / 2 >= 26 && tile.y() + tile.size() / 2 <= viewport[1] - 26);
+                    assertTrue(tile.opacity() > 0 && tile.opacity() <= 1);
+                }
+            }
+    }
+
+    @Test void scrollingChangesExactItemsAndStopsAtNineStacksBeforeUnlimited() {
+        for (int stack : new int[]{64,16,1}) {
+            int max=9*stack;
+            assertEquals(2,CellControlDraft.wheel(1,1,1,1,max,false));
+            assertEquals(stack == 1 ? 2 : stack,CellControlDraft.wheel(1,1,stack,1,max,false));
+            assertEquals(max,CellControlDraft.wheel(max-1,1,stack,1,max,true));
+            assertEquals(-1,CellControlDraft.wheel(max,1,stack,1,max,true));
+            assertEquals(max,CellControlDraft.wheel(-1,-1,stack,1,max,true));
+            assertEquals(1,CellControlDraft.wheel(1,-1,stack,1,max,false));
+        }
+    }
+    @Test void shiftScrollAlignsAlongTheDirectionBeforeSteppingWholeStacks() {
+        assertEquals(64, CellControlDraft.wheel(4, 1, 64, 0, 2048, false));
+        assertEquals(64, CellControlDraft.wheel(65, -1, 64, 0, 2048, false));
+        assertEquals(0, CellControlDraft.wheel(4, -1, 64, 0, 2048, false));
+        assertEquals(128, CellControlDraft.wheel(64, 1, 64, 0, 2048, false));
+        assertEquals(0, CellControlDraft.wheel(64, -1, 64, 0, 2048, false));
+        assertEquals(16, CellControlDraft.wheel(4, 1, 16, 0, 512, false));
+        assertEquals(16, CellControlDraft.wheel(17, -1, 16, 0, 512, false));
+        assertEquals(5, CellControlDraft.wheel(4, 1, 1, 0, 512, false));
+        assertEquals(65, CellControlDraft.wheel(70, -1, 64, 65, 2048, false));
+        assertEquals(70, CellControlDraft.wheel(65, 1, 64, 0, 70, false));
+    }
+    @Test void fluidWellsKeepTheirVolumeStepWithoutStackAlignment() {
+        assertEquals(8321, CellControlDraft.wheel(321, 1, 8000, 0, 32000, false, false));
+        assertEquals(321, CellControlDraft.wheel(8321, -1, 8000, 0, 32000, false, false));
+    }
+    @Test void newerDragIsNotRolledBackByInventorySnapshotsOrAnOlderAcknowledgement() {
+        var initial=new dev.scathiard.feedmepackages.domain.CellSettings(64,512,1,-1);
+        var sent=new dev.scathiard.feedmepackages.domain.CellSettings(65,512,1,-1);
+        var latest=new dev.scathiard.feedmepackages.domain.CellSettings(66,512,1,-1);
+        var d=new CellControlDraft(new CellControlDraft.Context(UUID.randomUUID(),8,"stone",3),initial);
+        d.changed(sent,10); assertFalse(d.ready(13)); assertTrue(d.ready(14)); d.sent(1,true);
+        d.changed(latest,15); d.snapshot(initial,0,true); assertEquals(latest,d.value()); assertFalse(d.ready(20));
+        d.snapshot(sent,1,true); assertEquals(latest,d.value()); assertTrue(d.ready(20));
+        d.sent(2,true); d.snapshot(latest,2,true); assertFalse(d.ready(30)); assertEquals(latest,d.value());
+    }
+    @Test void rejectedUnchangedDraftReconcilesAndDifferentCellsRemainIndependent() {
+        var s=new dev.scathiard.feedmepackages.domain.CellSettings(64,512,1,-1); UUID session=UUID.randomUUID();
+        var a=new CellControlDraft(new CellControlDraft.Context(session,0,"stone",1),s);
+        var b=new CellControlDraft(new CellControlDraft.Context(session,1,"iron",2),s);
+        a.changed(new dev.scathiard.feedmepackages.domain.CellSettings(65,512,64,128),1);
+        a.sent(3,true); a.snapshot(s,3,false);
+        assertEquals(64,a.value().lower()); assertEquals(64,a.value().batch());
+        assertTrue(a.ready(9)); assertFalse(a.stockNext()); assertEquals(s,b.value());
+        a.sent(4,false); a.snapshot(s,4,false); assertEquals(s,a.value()); assertFalse(a.ready(20));
+        a.changed(new dev.scathiard.feedmepackages.domain.CellSettings(64,512,2,-1),21); a.sent(5,false);
+        a.timedOut(4); assertFalse(a.ready(100));
+        a.timedOut(5); assertTrue(a.ready(100)); assertEquals(2,a.value().batch());
+        assertNotEquals(a.context(),new CellControlDraft.Context(session,0,"stone",2));
+    }
     /** The panel shifts left as the grid widens, so "the same place" means the same offset inside the grid. */
     @Test void anUpgradeKeepsEveryExistingCellWhereThePlayerSawIt() {
         for (int level = 1; level < 5; level++) {
@@ -66,29 +268,22 @@ class PanelLayoutTest {
         assertTrue(narrow.compact()); assertEquals(18, narrow.bounds().width());
         assertTrue(narrow.cells().isEmpty());
     }
-    @Test void sliderStaysCenteredBelowItsCellAcrossRowsColumnsAndScrolling() {
-        for (int count : new int[]{9, 16, 24, 30, 36})
-            for (int height : new int[]{104, 208, 240, 480})
-                for (int left : new int[]{88, 200, 400})
-                    for (boolean book : new boolean[]{false, true})
-                        for (int selected = 0; selected < count; selected++) {
-                            var layout = PanelLayout.compute(height, left, 70, count, 2, selected, book);
-                            if (layout.compact()) {
-                                assertNull(layout.slider());
-                                continue;
-                            }
-                            int selectedSlot = selected;
-                            var cell = layout.cells().stream().filter(c -> c.slot() == selectedSlot)
-                                    .findFirst().orElseThrow().bounds();
-                            var slider = layout.slider();
-                            assertNotNull(slider);
-                            assertEquals(cell.y() + cell.height() + 2, slider.y());
-                            assertEquals(cell.x() * 2 + cell.width(), slider.x() * 2 + slider.width());
-                            assertTrue(layout.bounds().contains(slider.x(), slider.y()));
-                            assertTrue(layout.bounds().contains(slider.x() + slider.width() - 1,
-                                    slider.y() + slider.height() - 1));
-                            assertTrue(slider.y() + slider.height() <= height - PanelLayout.MARGIN);
-                        }
+    @Test void controlsStayOnScreenWithoutMovingAnyCacheCell() {
+        for (int count : new int[]{9,16,24,30,36}) for (int height : new int[]{104,208,240,480})
+            for (int left : new int[]{88,200,400}) for (boolean book : new boolean[]{false,true})
+                for (int selected=0;selected<count;selected++) {
+                    int width=left+180;
+                    var layout=PanelLayout.compute(height,left,70,count,2,selected,book).clampControls(width,height);
+                    if(layout.compact()) { assertNull(layout.slider()); continue; }
+                    var cell=cell(layout,selected).bounds(); var popup=layout.slider();
+                    assertEquals(144,popup.width()); assertEquals(57,popup.height());
+                    assertTrue(popup.x()>=4 && popup.x()+144<=width-4);
+                    assertTrue(popup.y()>=4 && popup.y()+57<=height-4);
+                    if (cell.y()+18+8+57<=height-4) assertEquals(cell.y()+26,popup.y());
+                    else assertEquals(Math.max(4,cell.y()-65),popup.y());
+                    var closed=PanelLayout.compute(height,left,70,count,layout.firstRow(),-1,book);
+                    assertEquals(closed.cells(),layout.cells(),"opening controls moved stock slots");
+                }
     }
     @Test void bottomRowPopupTakesInputBeforeTheReturnAddress() {
         var open = PanelLayout.compute(240, 200, 40, 9, 0, 8, false);
@@ -103,28 +298,19 @@ class PanelLayoutTest {
         var closed = PanelLayout.compute(240, 200, 40, 9, 0, -1, false);
         assertTrue(closed.returnAddressContains(x, y));
     }
-    @Test void visibleSliderArtworkIsCenteredAndStartsJustBelowTheCell() {
-        var layout = PanelLayout.compute(240, 200, 40, 9, 0, 8, false);
-        var cell = layout.cells().stream().filter(c -> c.slot() == 8).findFirst().orElseThrow().bounds();
-        var slider = layout.slider();
-        int trackWidth = slider.width() - 2 * PanelLayout.TRACK_INSET;
-        assertEquals(cell.x() * 2 + cell.width(),
-                (slider.x() + PanelLayout.TRACK_INSET) * 2 + trackWidth);
-        assertEquals(cell.y() + cell.height() + 2, slider.y() + PanelLayout.MAX_THUMB_Y);
-        assertEquals(cell.y() + cell.height() + 6, slider.y() + PanelLayout.TRACK_Y);
-        assertTrue(PanelLayout.MIN_THUMB_Y + 5 <= PanelLayout.SLIDER);
-        assertTrue(PanelLayout.LABEL_Y + 8 <= PanelLayout.SLIDER);
-    }
-    @Test void sliderEndpointValuesMapToThePaintedTrackPixels() {
-        var layout = PanelLayout.compute(240, 200, 40, 9, 0, 8, false);
-        var slider = layout.slider();
-        int tx = slider.x() + PanelLayout.TRACK_INSET;
-        int last = tx + slider.width() - 2 * PanelLayout.TRACK_INSET - 1;
-        int cap = 2;
-        assertEquals(tx, PanelLayout.sliderThumbPx(slider.x(), slider.width(), 0, cap));
-        assertEquals(last, PanelLayout.sliderThumbPx(slider.x(), slider.width(), cap, cap));
-        assertEquals(cap, PanelLayout.sliderValue(slider.x(), slider.width(), last, cap));
-        assertEquals(cap, PanelLayout.sliderValue(slider.x(), slider.width(), last + 1, cap));
+    @Test void controlsHaveEightPixelMarginsAndExactTrackEndpoints() {
+        var r=new PanelLayout.Rect(30,40,144,57);
+        var left=CellControlGeometry.field(r,0); var right=CellControlGeometry.field(r,3);
+        assertEquals(8,left.x()-r.x()); assertEquals(8,left.y()-r.y());
+        assertEquals(8,r.x()+r.width()-right.x()-right.width());
+        assertEquals(8,r.y()+r.height()-right.y()-right.height());
+        for(int cap:new int[]{2,128,4096}) {
+            assertEquals(r.x()+36,CellControlGeometry.thumb(r,0,cap));
+            assertEquals(r.x()+107,CellControlGeometry.thumb(r,cap,cap));
+            assertEquals(r.x()+107,CellControlGeometry.thumb(r,-1,cap));
+            assertEquals(cap,CellControlGeometry.draggedValue(0,71,cap));
+            assertEquals(0,CellControlGeometry.draggedValue(cap,-71,cap));
+        }
     }
     @Test void slotSourceRetainsTheCompleteOpaqueCellEvenWithoutPanelReferenceArea() throws Exception {
         try (var source = getClass().getResourceAsStream("/assets/create_feed_me_packages/textures/gui/slot_source.png")) {
@@ -147,13 +333,11 @@ class PanelLayoutTest {
         return a.x() < b.x() + b.width() && a.x() + a.width() > b.x() && a.y() < b.y() + b.height() && a.y() + a.height() > b.y();
     }
 
-    @Test void sliderMidpointPixelMapsToMidpointValue() {
-        int sliderX = 100;
-        int width = 36;
-        int groupCap = 32;
-        int midpoint = PanelLayout.sliderThumbPx(sliderX, width, groupCap / 2, groupCap);
-
-        assertEquals(16, PanelLayout.sliderValue(sliderX, width, midpoint, groupCap));
+    @Test void draggingStartsAtTheExactExistingValueWithoutAnInitialJump() {
+        assertEquals(65,CellControlGeometry.draggedValue(65,0,512));
+        assertEquals(72,CellControlGeometry.draggedValue(65,1,512));
+        assertEquals(0,CellControlGeometry.draggedValue(65,-100,512));
+        assertEquals(512,CellControlGeometry.draggedValue(65,100,512));
     }
 
     /** Ten future plugin coordinates (order: "为未来的的拓展性做考虑") must move nothing and stay coherent. */
@@ -455,10 +639,10 @@ class PanelLayoutTest {
     }
 
     /**
-     * Exactly the three sheets the user drew ship in the mod: the whole texture folder is enumerated, so a leftover
+     * The three user-drawn button sheets and each implemented feature sheet are enumerated, so a leftover
      * duplicate (the intermediate {@code button_transfer.png}) or any filler sheet fails the build.
      */
-    @Test void theModShipsExactlyTheThreeButtonSheets() throws Exception {
+    @Test void shippedGuiSheetsMatchTheCurrentFeatures() throws Exception {
         var sheet = PanelLayoutTest.class.getResource("/assets/create_feed_me_packages/textures/gui/button.png");
         assertNotNull(sheet, "the transfer sheet is missing");
         java.nio.file.Path gui;
@@ -472,8 +656,8 @@ class PanelLayoutTest {
                 .filter(name -> name.endsWith(".png"))
                 .sorted()
                 .toList();
-        assertEquals(List.of("button.png", "button_fold.png", "button_unfold.png", "panel.png", "slot_source.png"),
-                shipped, "the texture folder must hold exactly the three button sheets plus panel and slot art");
+        assertEquals(List.of("button.png", "button_fold.png", "button_unfold.png", "logistics_feedback.png", "pallet_slots.png", "panel.png", "slot_source.png"),
+                shipped, "the texture folder must hold the three buttons, logistics feedback, pallet slots, panel and slot art");
     }
     /**
      * The three button tooltips are capped at FOUR Chinese characters (user: "按钮说明删减到四个字"), which is what
@@ -493,7 +677,8 @@ class PanelLayoutTest {
                     key + " is longer than four characters: " + zhText);
             assertTrue(enText.trim().split("\\s+").length <= 2, key + " English text is not terse: " + enText);
         }
-        assertEquals(110, zh.size(), "no new lang key may be added (raise this number deliberately)");
+        for (String name : new String[]{"batch","limit","lower","upper","wheel","pending","reset","late","overshoot"})
+            assertNotNull(zh.get("gui.create_feed_me_packages.controls."+name),"Missing new cell-control tooltip: "+name);
         assertEquals(zh.keySet(), en.keySet(), "en_us and zh_cn must stay key-for-key identical");
     }
 
@@ -730,7 +915,7 @@ class PanelLayoutTest {
         for (String guard : List.of(
                 "if (!LogisticsPanel.visible()) {",
                 "if (layout.hidden()) {",
-                "if (waiting != 0) {",
+                "if (waiting != 0 || !pageReady()) {",
                 "if (!insidePanel) {",
                 "if (returnClose == ReturnClose.SUBMITTED) {",
                 "if (button != 0 && button != 1) {",
@@ -739,7 +924,7 @@ class PanelLayoutTest {
                 "if (inputLayout.foldButton().contains(x, y)) {",
                 "if (inputLayout.transferButton().contains(x, y)) {",
                 "if (inputLayout.address().contains(x, y)) {",
-                "if (inputLayout.totalRows() > inputLayout.visibleRows() && rail.contains(x, y)) {",
+                "if (maxScrollRow() > 0 && rail.contains(x, y)) {",
                 "if (!LogisticsPanel.active()) {",
                 "for (PanelLayout.CellBox box : inputLayout.cells()) {",
                 "LogisticsPanel.depositAt(-1, button)")) {

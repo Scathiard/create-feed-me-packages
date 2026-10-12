@@ -13,7 +13,7 @@ import java.util.*;
 /** Every operation re-resolves actual functional Curios slots. Client GUI state grants no access. */
 public final class AccessGate {
     private AccessGate() {}
-    public enum Status { ACTIVE, NOT_WORN, DISABLED, NETWORK_CONFLICT, CACHE_CONFLICT, INVALID_IDENTITY, STORAGE_LOCKED, MULTIPLE_TERMINALS }
+    public enum Status { ACTIVE, NOT_WORN, DISABLED, NETWORK_CONFLICT, CACHE_CONFLICT, INVALID_IDENTITY, STORAGE_LOCKED, MULTIPLE_TERMINALS, RETURN_HELD, RETURN_REFUND }
     public record Terminal(int slot, ItemStack stack, UUID cacheId, UUID network, boolean disabled) {}
     public record Result(Status status, CacheHandle handle, List<Terminal> terminals) {
         public Result { terminals = List.copyOf(terminals); }
@@ -51,33 +51,16 @@ public final class AccessGate {
             return new Result(Status.INVALID_IDENTITY, null, terminals);
         var ledger = CacheLedger.get(player.getServer());
         if (!ledger.problem().isEmpty()) return new Result(Status.STORAGE_LOCKED, null, terminals);
-        UUID cacheId;
-        if (stack.getItem() instanceof PendantItem pendant && pendant.personal()) {
-            UUID owner = stack.get(FmpRegistries.OWNER.get());
-            if (owner == null) {
-                // An ownerless personal pendant is a blank key: the first player to wear it becomes its owner.
-                // (Future idea: place such pendants, already stocked, in structure loot tables as treasure.)
-                stack.set(FmpRegistries.OWNER.get(), player.getUUID());
-                stack.set(FmpRegistries.OWNER_NAME.get(), player.getGameProfile().getName());
-                owner = player.getUUID();
-            } else if (!owner.equals(player.getUUID())) {
-                // A personal pendant is a key belonging to its crafter. A non-owner cannot touch the owner's
-                // cache: it degrades here to a fresh ordinary pendant.
-                UUID id = ledger.createOrdinary();
-                ItemStack ordinary = new ItemStack(FmpRegistries.PENDANT.get());
-                ordinary.set(FmpRegistries.IDENTITY.get(), id);
-                UUID network = stack.get(FmpRegistries.NETWORK.get()); if (network != null) ordinary.set(FmpRegistries.NETWORK.get(), network);
-                handler.getStacksHandler("necklace").ifPresent(stacks -> stacks.getStacks().setStackInSlot(context.index(), ordinary));
-                return resolve(player);
-            }
-            cacheId = ledger.personalOrCreate(player.getUUID());
-        } else {
-            cacheId = stack.get(FmpRegistries.IDENTITY.get());
-            if (cacheId == null) { cacheId = ledger.createOrdinary(); stack.set(FmpRegistries.IDENTITY.get(), cacheId); }
-            var record = ledger.find(cacheId);
-            if (record == null || record.owner() != null) return new Result(Status.INVALID_IDENTITY, null, terminals);
-        }
+        UUID cacheId = stack.get(FmpRegistries.IDENTITY.get());
+        if (cacheId == null) { cacheId = ledger.createOrdinary(); stack.set(FmpRegistries.IDENTITY.get(), cacheId); }
+        var record = ledger.find(cacheId);
+        if (!ledger.ordinaryEntry(cacheId, stack.get(FmpRegistries.RETIREMENT_RECEIPT.get())))
+            return new Result(Status.INVALID_IDENTITY, null, terminals);
         UUID network = stack.get(FmpRegistries.NETWORK.get());
+        var hold = ledger.returnEscrow(cacheId);
+        if (hold != null) return new Result(hold.rejected() ? Status.RETURN_REFUND : Status.RETURN_HELD,
+                new CacheHandle(cacheId, player.getUUID(), network), terminals);
+        CachePolicy.synchronize(ledger, new CacheHandle(cacheId, player.getUUID(), network));
         return new Result(Status.ACTIVE, new CacheHandle(cacheId, player.getUUID(), network),
                 List.of(new Terminal(context.index(), stack, cacheId, network, false)));
     }

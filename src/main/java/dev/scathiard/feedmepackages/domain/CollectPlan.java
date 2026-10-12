@@ -38,7 +38,8 @@ public final class CollectPlan {
     }
 
     /** One cache cell that already filters something: what it holds, and its own upper threshold. */
-    public record Target(int cell, MaterialVariant variant, int amount, int maximum) {
+    public record Target(int cell, MaterialVariant variant, int amount, int maximum, boolean itemUnits) {
+        public Target(int cell, MaterialVariant variant, int amount, int maximum) { this(cell, variant, amount, maximum, false); }
         public Target {
             if (cell < 0 || variant == null || amount < 0)
                 throw new IllegalArgumentException("Invalid target cell");
@@ -133,7 +134,7 @@ public final class CollectPlan {
 
     private static int threshold(Target target) {
         if (target.maximum() < 0) return Integer.MAX_VALUE;   // no return line: nothing can be above it
-        return target.maximum() * Math.max(1, target.variant().stackSize());
+        return target.itemUnits() ? target.maximum() : Math.multiplyExact(target.maximum(), Math.max(1, target.variant().stackSize()));
     }
     /** Stock already above the cell's own return line. */
     private static int aboveLine(Target target) {

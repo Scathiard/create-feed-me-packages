@@ -10,10 +10,17 @@ import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import java.util.*;
 
-/** Shared exact client preview for the vanilla recipe book; never a mutation. */
+/** Shared exact client preview for the vanilla book and optional recipe viewers; never a mutation. */
 public final class ClientCrafting {
     private ClientCrafting() {}
     public static CraftingService.Result check(Player player, RecipeHolder<CraftingRecipe> recipe, boolean maximum, boolean incrementExisting) {
+        return check(player, recipe, maximum, incrementExisting, 0);
+    }
+    public static CraftingService.Result checkBatches(Player player, RecipeHolder<CraftingRecipe> recipe, int additional) {
+        if (additional < 1) return CraftingService.Result.UNSUPPORTED;
+        return check(player, recipe, true, false, additional);
+    }
+    private static CraftingService.Result check(Player player, RecipeHolder<CraftingRecipe> recipe, boolean maximum, boolean incrementExisting, int additional) {
         if (!ClientMaterials.active()) return CraftingService.Result.INACTIVE;
         if (!CraftingService.supported(player.containerMenu) || !(player.containerMenu.getSlot(1).container instanceof CraftingContainer grid)) return CraftingService.Result.UNSUPPORTED;
         var inventory = MaterialTransaction.copies(player.getInventory().items);
@@ -23,7 +30,8 @@ public final class ClientCrafting {
         sources.addAll(inventory); sources.addAll(cache);
         int requested = !maximum && incrementExisting && recipe.value().matches(grid.asCraftInput(), player.level())
                 ? grid.getItems().stream().filter(s -> !s.isEmpty()).mapToInt(ItemStack::getCount).min().orElse(0) + 1 : 1;
-        var choice = CraftingPlanner.solve(recipe, grid.getWidth(), grid.getHeight(), grid.getMaxStackSize(), requested, maximum, sources, player.level());
+        int limit = additional > 0 ? CraftingPlanner.fillLimit(recipe, grid, player.level(), additional) : grid.getMaxStackSize();
+        var choice = CraftingPlanner.solve(recipe, grid.getWidth(), grid.getHeight(), limit, requested, maximum, sources, player.level());
         if (choice.error() != CraftingPlanner.Error.NONE) return switch (choice.error()) {
             case UNSUPPORTED -> CraftingService.Result.UNSUPPORTED; case TOO_COMPLEX -> CraftingService.Result.TOO_COMPLEX; default -> CraftingService.Result.MISSING;
         };

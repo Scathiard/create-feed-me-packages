@@ -2,11 +2,15 @@ package dev.scathiard.feedmepackages.client;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.simibubi.create.foundation.gui.AllGuiTextures;
+import dev.scathiard.feedmepackages.FeedMePackages;
+import java.io.IOException;
 import dev.scathiard.feedmepackages.client.PanelLayout;
 import dev.scathiard.feedmepackages.client.SupplyCreativeScreen;
 import dev.scathiard.feedmepackages.client.SupplyInventoryScreen;
 import dev.scathiard.feedmepackages.domain.CacheDropTarget;
+import dev.scathiard.feedmepackages.compat.maid.MaidMenus;
 import dev.scathiard.feedmepackages.domain.CacheGrid;
+import dev.scathiard.feedmepackages.domain.CacheViewport;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.item.PendantItem;
@@ -102,14 +106,20 @@ public final class LogisticsPanel {
     private static PanelPackets.Snapshot snapshot;
     private static PanelLayout layout;
     private static final Map<String, ItemStack> ICONS;
+    private static final Map<String, net.neoforged.neoforge.fluids.FluidStack> FLUID_ICONS = new HashMap<>();
     private static int tick;
     private static int lastQuery;
     private static int sequence;
     private static int waiting;
     private static int waitingSince;
     private static int firstRow;
+    private static int requestedFirstSlot;
+    private static int requestedColumnLimit = CacheViewport.COLUMNS;
+    private static int queuedScrollRow = -1;
     private static int selected;
-    private static int draftMinimum;
+    private static final Map<Integer, CellControlDraft> controlDrafts = new HashMap<>();
+    private static int dragStartValue;
+    private static CellControlDraft.Context dragContext;
     private static long serial;
     private static boolean draggingSlider;
     private static boolean draggingMaximum;
@@ -119,21 +129,11 @@ public final class LogisticsPanel {
     private static boolean dragMoved;
     /** A threshold change that could not be sent yet (an address submit was in flight). It is flushed
      *  as soon as that command settles, so "edit the address, then drag the slider" still works. */
-    private static int pendingThresholdSlot = -1;
-    private static int pendingThresholdMinimum = -2;
-    private static int pendingThresholdMaximum = -2;
     private static int capturedButton;
     private static int passthroughReleaseButton = -1;
-    /**
-     * Hidden state of the panel (user picked "完全隐藏，只留一个小入口"): while hidden the whole panel is not drawn
-     * and, crucially, it does not cover - or intercept - the area it used to occupy, so clicks land on whatever
-     * is underneath (JEI's bookmark column lives there). It changes <b>nothing</b> about the cells, the
-     * coordinate table, the ledger or the inventory screen position: unfolding shows exactly the same grid.
-     *
-     * <p>Kept in memory for the client session ("本次会话内记住"). The server-side preference action exists
-     * ({@code CacheActions.Action.PREFERENCE}) but is <b>rejected</b> by the server, so there is no cross-session
-     * path to carry it; inventing a client config file was not asked for and was not done.
-     */
+    /** Local view state only: folding never disables logistics or changes cache contents. */
+    private static final PanelVisibilityState VISIBILITY = new PanelVisibilityState(
+            MC.gameDirectory.toPath().resolve("config").resolve(PanelVisibilityState.FILE_NAME));
     private static boolean hidden;
     /** The sequence whose result must stay silent: the one-key collect (user's silence rule). */
     private static int silentCollectSequence;
@@ -179,16 +179,18 @@ public final class LogisticsPanel {
 
     private record Predict(UUID window, UUID session, int slot, String variant, int sequence, long baseSerial, int result) {}
     private enum QueuedClickKind {
-        COPY_ADDRESS, SCROLL, TOGGLE_SLOT, CLEAR_FILTER, DEPOSIT, TAKE_INVENTORY, TAKE_CURSOR
+        COPY_ADDRESS, SCROLL, TOGGLE_SLOT, CLEAR_FILTER, DEPOSIT, DEPOSIT_FLUID, TAKE_INVENTORY, TAKE_CURSOR
     }
     private record QueuedPanelClick(UUID window, UUID session, QueuedClickKind kind, int slot, int button, int row, String template) {}
-    private static int draftMaximum;
     private static Component feedback;
     private static int feedbackUntil;
     private static List<Component> tooltip;
     private static int mouseX;
     private static int mouseY;
-    private static Predicate<Screen> recipeOverlay;
+    private static final Map<String, Predicate<Screen>> recipeOverlays = new java.util.concurrent.ConcurrentHashMap<>();
+    private static int templateTarget = -1, templateSequence, earlyTemplateButton = -1;
+    private record BrowserDrag(Screen screen, double x, double y, TemplateBrowsers.Template template) {}
+    private static BrowserDrag browserDrag;
     private static boolean retainTransition;
     private static int overlayBottomInset;
     private static final ResourceLocation PANEL;
@@ -196,20 +198,27 @@ public final class LogisticsPanel {
     private LogisticsPanel() {
     }
 
-    public static void recipeOverlay(Predicate<Screen> predicate) {
-        recipeOverlay = Objects.requireNonNull(predicate);
+    public static void recipeOverlay(String browser, Predicate<Screen> predicate) {
+        recipeOverlays.put(browser, Objects.requireNonNull(predicate));
     }
+    private static boolean isRecipeOverlay(Screen candidate) { return recipeOverlays.values().stream().anyMatch(p -> p.test(candidate)); }
 
     public static void overlayBottomInset(int pixels) {
         overlayBottomInset = Math.clamp((long)pixels, (int)0, (int)64);
     }
 
     public static void register() {
+        try {
+            hidden = VISIBILITY.load();
+        } catch (IOException | SecurityException failure) {
+            hidden = false;
+            FeedMePackages.LOGGER.warn("Could not read panel visibility; starting expanded", failure);
+        }
         PanelNetwork.receiveOnClient(LogisticsPanel::receive);
         PanelNetwork.receiveCursorOnClient(LogisticsPanel::receiveCursor);
         IEventBus bus = NeoForge.EVENT_BUS;
         bus.addListener((ScreenEvent.Opening event) -> {
-            boolean bl = retainTransition = window != null && (event.getNewScreen() == screen || recipeOverlay.test(event.getNewScreen()));
+            boolean bl = retainTransition = window != null && (event.getNewScreen() == screen || isRecipeOverlay(event.getNewScreen()));
             if (LogisticsPanel.MC.player == null || event.getNewScreen() == null) {
                 return;
             }
@@ -229,9 +238,19 @@ public final class LogisticsPanel {
                 LogisticsPanel.updateLayout();
             }
         });
-        bus.addListener(LogisticsPanel::foreground);
+        bus.addListener(net.neoforged.bus.api.EventPriority.HIGHEST, LogisticsPanel::foreground);
         bus.addListener(LogisticsPanel::postRender);
-        bus.addListener((ScreenEvent.MouseButtonPressed.Pre event) -> {
+        // Observe the browser's press without consuming it: short clicks must still open recipes.
+        bus.addListener(net.neoforged.bus.api.EventPriority.HIGHEST,
+                (ScreenEvent.MouseButtonPressed.Pre event) -> {
+                    browserDrag = null;
+                    if (current(event.getScreen()) && recipeReady() && templateTarget < 0 && event.getButton() == 0
+                            && MC.player.containerMenu.getCarried().isEmpty() && !layout.bounds().contains(event.getMouseX(), event.getMouseY())) {
+                        var source = TemplateBrowsers.selection();
+                        if (!source.isEmpty()) browserDrag = new BrowserDrag(event.getScreen(), event.getMouseX(), event.getMouseY(), source);
+                    }
+                });
+        bus.addListener(net.neoforged.bus.api.EventPriority.HIGHEST, (ScreenEvent.MouseButtonPressed.Pre event) -> {
             if (LogisticsPanel.current(event.getScreen()) && LogisticsPanel.press(event.getMouseX(), event.getMouseY(), event.getButton())) {
                 event.setCanceled(true);
             }
@@ -241,6 +260,18 @@ public final class LogisticsPanel {
                 event.setCanceled(true);
             }
         });
+        // Run after browser input routing, including a consumed release, so its pending click
+        // is cleared normally. Only an actual drag ending inside a writable FMP cell is a drop.
+        bus.addListener(net.neoforged.bus.api.EventPriority.LOWEST, true,
+                (ScreenEvent.MouseButtonReleased.Pre event) -> {
+                    var drag = browserDrag; browserDrag = null;
+                    if (drag == null || event.getButton() != 0 || drag.screen() != event.getScreen()
+                            || MC.screen != event.getScreen() || !current(event.getScreen())
+                            || Math.pow(event.getMouseX() - drag.x(), 2) + Math.pow(event.getMouseY() - drag.y(), 2) < 64) return;
+                    for (var cell : visibleCells(event.getScreen())) if (cell.bounds().contains(event.getMouseX(), event.getMouseY())) {
+                        setTemplate(cell.slot(), drag.template()); return;
+                    }
+                });
         bus.addListener((ScreenEvent.MouseDragged.Pre event) -> {
             if (!LogisticsPanel.current(event.getScreen()) || !LogisticsPanel.visible()) {
                 return;
@@ -386,7 +417,23 @@ public final class LogisticsPanel {
     }
 
     private static boolean supported(Screen candidate) {
-        return candidate instanceof InventoryScreen || candidate instanceof CreativeModeInventoryScreen || candidate instanceof CraftingScreen;
+        return candidate instanceof InventoryScreen || candidate instanceof CreativeModeInventoryScreen || candidate instanceof CraftingScreen
+                || candidate instanceof AbstractContainerScreen<?> container && MaidMenus.supports(container.getMenu());
+    }
+
+    private static boolean maidPanel() { return screen != null && MaidMenus.supports(screen.getMenu()); }
+
+    /** Native maid pages have a left tab strip; reserve it as part of the host, not as free cache space. */
+    private static int panelAnchorX() {
+        int anchor = screen.getGuiLeft();
+        if (maidPanel()) {
+            for (var child : screen.children())
+                if (child instanceof AbstractWidget widget && widget.visible && widget.getX() < anchor
+                        && widget.getY() < screen.getGuiTop() + screen.getYSize()
+                        && widget.getY() + widget.getHeight() > screen.getGuiTop())
+                    anchor = widget.getX();
+        }
+        return anchor;
     }
 
     private static boolean current(Screen candidate) {
@@ -417,7 +464,7 @@ public final class LogisticsPanel {
         ++tick;
         if (MC.player == null || MC.getConnection() == null) pendingCursorChange = null;
 
-        boolean bl = overlay = recipeOverlay.test(LogisticsPanel.MC.screen) && window != null;
+        boolean bl = overlay = isRecipeOverlay(LogisticsPanel.MC.screen) && window != null;
         if (LogisticsPanel.MC.player == null || MC.getConnection() == null || !LogisticsPanel.supported(LogisticsPanel.MC.screen) && !overlay) {
             if (window != null) {
                 LogisticsPanel.close();
@@ -428,13 +475,16 @@ public final class LogisticsPanel {
             LogisticsPanel.mount((AbstractContainerScreen)LogisticsPanel.MC.screen);
         }
         if (waiting != 0 && tick - waitingSince > 60) {
+            for(var draft:controlDrafts.values()) draft.timedOut(waiting);
             waiting = 0;
             predict = null;   // Timeout is an unknown result: drop the display prediction only, and refresh.
             LogisticsPanel.notice("timeout");
         }
+        flushPendingThresholds();
+        if (queuedScrollRow >= 0 && pageReady() && waiting == 0) scrollToRow(queuedScrollRow);
         if (tick - lastQuery >= 10) {
             lastQuery = tick;
-            PacketDistributor.sendToServer((CustomPacketPayload)new PanelPackets.Query(window, LogisticsPanel.MC.player.containerMenu.containerId, true), (CustomPacketPayload[])new CustomPacketPayload[0]);
+            PacketDistributor.sendToServer((CustomPacketPayload)new PanelPackets.Query(window, LogisticsPanel.MC.player.containerMenu.containerId, true, requestedFirstSlot, requestedColumnLimit), (CustomPacketPayload[])new CustomPacketPayload[0]);
         }
     }
 
@@ -468,6 +518,9 @@ public final class LogisticsPanel {
     }
 
     private static void close() {
+        templateTarget = -1; templateSequence = 0; earlyTemplateButton = -1; browserDrag = null;
+        if(MC.getConnection()!=null && MC.player!=null && active() && window!=null) submitControls(true);
+        controlDrafts.clear();
         dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP_CLOSE_PREVIEW confirmed={} variant={} remaining={} carry={}",
                 previewConfirmed, previewVariant, previewRemaining, LogisticsPanel.MC.player == null ? null : LogisticsPanel.MC.player.containerMenu.getCarried());
         // 只撤销本次 本地 FMP 预览（客户端维护的 previewRemaining），绝不按 snapshot.reserved(全局合计)撤。
@@ -500,16 +553,16 @@ public final class LogisticsPanel {
         screen = null;
         window = null;
         snapshot = null;
+        CellFeedback.clear();
         layout = null;
         waiting = 0;
         predict = null;
         serial = -1L;
         selected = -1;
-        firstRow = 0;
+        firstRow = 0; requestedFirstSlot = 0; requestedColumnLimit = CacheViewport.COLUMNS; queuedScrollRow = -1;
         draggingSlider = false;
         draggingMaximum = false;
         dragMoved = false;
-        pendingThresholdSlot = -1;
         capturedButton = -1;
         passthroughReleaseButton = -1;
         returnEditing = false;
@@ -519,17 +572,19 @@ public final class LogisticsPanel {
         pendingReturnSession = null;
         pendingReturnBuffer = null;
         queuedReturnClick = null;
-        draftMaximum = -1;
         tooltip = List.of();
-        ICONS.clear();
+        ICONS.clear(); FLUID_ICONS.clear();
         feedback = null;
+    }
+    public static void beforeContainerClose(AbstractContainerScreen<?> closing) {
+        if(screen==closing && MC.getConnection()!=null && active() && window!=null) submitControls(true);
     }
 
     private static void receive(PanelPackets.Snapshot incoming) {
         if (incoming != null && pendingCursorChange != null
                 && pendingCursorChange.window.equals(incoming.window()) && pendingCursorChange.sequence == incoming.acknowledged()
                 && incoming.result() != CacheActions.Result.OK) pendingCursorChange = null;
-        if (incoming == null || window == null || MC.screen != screen && !recipeOverlay.test(MC.screen)
+        if (incoming == null || window == null || MC.screen != screen && !isRecipeOverlay(MC.screen)
                 || !window.equals(incoming.window())) return;
         // A later processed sequence also proves earlier bounded cleanup commands were handled.
         pendingReleases.keySet().removeIf(seq -> seq <= incoming.acknowledged());
@@ -562,10 +617,47 @@ public final class LogisticsPanel {
                 runQueuedReturn = true;
             }
         }
-        if (incoming.serial() <= serial) return;
+        if (incoming.serial() <= serial) {
+            if (incoming.acknowledged()!=0) for(var draft:controlDrafts.values()) if(currentDraft(draft))
+                draft.snapshot(settings(draftCell(draft)),incoming.acknowledged(),incoming.result()==CacheActions.Result.OK);
+            return;
+        }
+        if (incoming.status() == AccessGate.Status.ACTIVE && snapshot != null
+                && Objects.equals(snapshot.session(), incoming.session())) {
+            requestedFirstSlot = CacheViewport.first(incoming.totalSlots(), requestedFirstSlot, requestedColumnLimit);
+            if (incoming.firstSlot() != requestedFirstSlot || incoming.columnLimit() != requestedColumnLimit) return;
+        }
+        boolean changedPage = snapshot == null || !Objects.equals(snapshot.session(), incoming.session())
+                || snapshot.firstSlot() != incoming.firstSlot() || snapshot.columnLimit() != incoming.columnLimit()
+                || snapshot.totalSlots() != incoming.totalSlots();
+        if (changedPage) {
+            selected = -1; templateTarget = -1; predict = null; queuedReturnClick = null;
+            draggingSlider = false; draggingMaximum = false; dragContext = null;
+            if (snapshot == null || !Objects.equals(snapshot.session(), incoming.session())) {
+                firstRow = 0; queuedScrollRow = -1;
+            }
+        }
+        requestedFirstSlot = incoming.firstSlot(); requestedColumnLimit = incoming.columnLimit();
         boolean wasVisible = snapshot != null && snapshot.status() != AccessGate.Status.NOT_WORN;
         serial = incoming.serial();
+        CellFeedback.accept(snapshot, incoming, net.minecraft.Util.getMillis());
+        if (snapshot != null && !Objects.equals(snapshot.session(), incoming.session())) templateTarget = -1;
         snapshot = incoming;
+        if (templateSequence != 0 && incoming.acknowledged() == templateSequence) {
+            templateSequence = 0;
+            if (incoming.result() == CacheActions.Result.OK) templateTarget = -1;
+        }
+        if (!active() || templateTarget >= incoming.cells().size()
+                || templateTarget >= 0 && incoming.cells().get(templateTarget).amount() != 0) templateTarget = -1;
+        controlDrafts.entrySet().removeIf(entry -> !currentDraft(entry.getValue()));
+        if (dragContext != null && (snapshot.session() == null || !snapshot.session().equals(dragContext.session())
+                || !controlDrafts.containsKey(dragContext.slot()) || !controlDrafts.get(dragContext.slot()).context().equals(dragContext))) {
+            draggingSlider=false; draggingMaximum=false; dragContext=null;
+        }
+        for (var draft : controlDrafts.values()) {
+            var cell = draftCell(draft);
+            draft.snapshot(settings(cell), incoming.acknowledged(), incoming.result() == CacheActions.Result.OK);
+        }
         if (wasVisible && incoming.status() == AccessGate.Status.NOT_WORN) {
             screen.init(MC, LogisticsPanel.screen.width, LogisticsPanel.screen.height);
         }
@@ -582,13 +674,18 @@ public final class LogisticsPanel {
             draggingSlider = false;
             draggingMaximum = false;
         }
-        if (selected >= incoming.cells().size() || selected >= 0 && incoming.cells().get(selected).template().isEmpty()) {
+        if (selected >= incoming.cells().size() || selected >= 0 && (incoming.cells().get(selected).template().isEmpty() || !incoming.cells().get(selected).writable())) {
             selected = -1;
         }
         HashSet<String> present = new HashSet<String>();
         for (PanelPackets.CellView cell : incoming.cells()) {
             if (cell.template().isEmpty()) continue;
             present.add(cell.template());
+            if (cell.fluid()) {
+                try { FLUID_ICONS.put(cell.template(), dev.scathiard.feedmepackages.fluid.FluidVariantKey.decode(cell.template(), MC.player.registryAccess()).stack(MC.player.registryAccess(),1)); }
+                catch (IllegalArgumentException invalid) { notice("invalid_display"); }
+                continue;
+            }
             if (ICONS.containsKey(cell.template())) continue;
             try {
                 ICONS.put(cell.template(), ItemVariantKey.decode(cell.template(), (HolderLookup.Provider)LogisticsPanel.MC.player.registryAccess()).stack((HolderLookup.Provider)LogisticsPanel.MC.player.registryAccess(), 1));
@@ -597,7 +694,7 @@ public final class LogisticsPanel {
                 LogisticsPanel.notice("invalid_display");
             }
         }
-        ICONS.keySet().retainAll(present);
+        ICONS.keySet().retainAll(present); FLUID_ICONS.keySet().retainAll(present);
         LogisticsPanel.updateLayout();
         if (runQueuedReturn) {
             LogisticsPanel.runQueuedPanelClick();
@@ -606,26 +703,37 @@ public final class LogisticsPanel {
         LogisticsPanel.flushPendingThresholds();
     }
 
+    static boolean feedbackVisible(int slot) {
+        return layout != null && !hidden && !layout.compact() && layout.cells().stream().anyMatch(box -> box.slot() == slot);
+    }
     private static void updateLayout() {
         if (screen == null || snapshot == null || snapshot.status() == AccessGate.Status.NOT_WORN) {
             layout = null;
             return;
         }
         int count = LogisticsPanel.active() ? snapshot.cells().size() : 0;
-        CacheGrid grid = CacheGrid.forCount(count);
+        CacheGrid grid = snapshot.grid();
         if (hidden) {
+            CellFeedback.clear();
             // Fully hidden: only the entry square exists, at the place the fold button had. The inventory screen
             // is deliberately NOT moved - the entry must not jump, and the layout keeps the same anchor.
-            layout = PanelLayout.hidden(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop(), grid, LogisticsPanel.bookOpen());
+            layout = PanelLayout.hidden(LogisticsPanel.screen.height, panelAnchorX(), screen.getGuiTop(), grid, LogisticsPanel.bookOpen());
             firstRow = 0;
             return;
         }
         int availableColumns = Math.max(2, (LogisticsPanel.screen.width - screen.getXSize() - 12 - 2 * PanelLayout.SIDE) / PanelLayout.ROW);
-        int width = Math.min(PanelLayout.preferredWidth(grid), availableColumns * PanelLayout.ROW + 2 * PanelLayout.SIDE);
-        if (!LogisticsPanel.bookOpen() && screen.getGuiLeft() < width + 8 && LogisticsPanel.screen.width >= screen.getXSize() + width + 12) {
-            LogisticsPanel.shiftScreenTo(width + 8);
+        int width = Math.min(PanelLayout.preferredWidth(CacheGrid.window(snapshot.totalSlots(), 0, 6)), availableColumns * PanelLayout.ROW + 2 * PanelLayout.SIDE);
+        if (!LogisticsPanel.bookOpen() && panelAnchorX() < width + 8
+                && LogisticsPanel.screen.width >= screen.getXSize() + (screen.getGuiLeft() - panelAnchorX()) + width + 12) {
+            LogisticsPanel.shiftScreenTo(screen.getGuiLeft() + width + 8 - panelAnchorX());
         }
-        layout = PanelLayout.compute(LogisticsPanel.screen.height, screen.getGuiLeft(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
+        int nextColumns = Math.clamp((panelAnchorX() - (bookOpen() ? PanelLayout.BOOK_WIDTH : 0)
+                - PanelLayout.GAP - PanelLayout.MARGIN - 2 * PanelLayout.SIDE) / PanelLayout.ROW, 2, CacheViewport.COLUMNS);
+        if (active() && nextColumns != requestedColumnLimit && preparePageChange()) {
+            requestedColumnLimit = nextColumns; requestedFirstSlot = 0; firstRow = 0; queuedScrollRow = -1;
+            clearPageSelection(); lastQuery = tick - 10;
+        }
+        layout = PanelLayout.compute(LogisticsPanel.screen.height, panelAnchorX(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
         int availableHeight = LogisticsPanel.screen.height - overlayBottomInset;
         for (GuiEventListener child : screen.children()) {
             if (!(child instanceof AbstractWidget)) continue;
@@ -636,8 +744,9 @@ public final class LogisticsPanel {
             availableHeight = Math.min(availableHeight, widget.getY() - 2);
         }
         if (availableHeight != LogisticsPanel.screen.height) {
-            layout = PanelLayout.compute(availableHeight, screen.getGuiLeft(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
+            layout = PanelLayout.compute(availableHeight, panelAnchorX(), screen.getGuiTop(), grid, firstRow, LogisticsPanel.active() ? selected : -1, LogisticsPanel.bookOpen());
         }
+        layout = layout.clampControls(LogisticsPanel.screen.width, LogisticsPanel.screen.height);
         firstRow = layout.firstRow();
     }
 
@@ -646,18 +755,33 @@ public final class LogisticsPanel {
         int old = screen.getGuiLeft();
         if (old == next) return;
         int delta = next - old;
+        int hostLeft = panelAnchorX();
         ((ContainerScreenAccess)screen).fmp$setLeft(next);
         for (GuiEventListener child : screen.children()) {
             AbstractWidget widget;
-            if (!(child instanceof AbstractWidget) || (widget = (AbstractWidget)child).getX() < old || widget.getX() >= old + screen.getXSize()) continue;
+            if (!(child instanceof AbstractWidget) || (widget = (AbstractWidget)child).getX() < hostLeft || widget.getX() >= old + screen.getXSize() || followsMenuAnchor(widget)) continue;
             widget.setX(widget.getX() + delta);
         }
     }
 
+    private static boolean followsMenuAnchor(AbstractWidget widget) {
+        // Crafting Tweaks adjusts to the menu anchor in its own renderWidget.
+        // Moving it here as well displaces both its drawing and hitbox twice.
+        for (Class<?> type = widget.getClass(); type != null; type = type.getSuperclass())
+            if (type.getName().equals("net.blay09.mods.craftingtweaks.client.GuiTweakButton")) return true;
+        return false;
+    }
+
     /** Hide the panel (leaving only its entry) or bring it back. View state only - no cell, coordinate or ledger change. */
     private static void toggleHidden() {
+        templateTarget = -1; browserDrag = null;
         LogisticsPanel.hidden = !LogisticsPanel.hidden;
         LogisticsPanel.updateLayout();
+        try {
+            VISIBILITY.save(hidden);
+        } catch (IOException | SecurityException failure) {
+            FeedMePackages.LOGGER.warn("Could not save panel visibility; current session remains usable", failure);
+        }
     }
 
     private static void foreground(ContainerScreenEvent.Render.Foreground event) {
@@ -671,6 +795,16 @@ public final class LogisticsPanel {
         g.pose().pushPose();
         g.pose().translate((float)(-screen.getGuiLeft()), (float)(-screen.getGuiTop()), 0.0f);
         LogisticsPanel.render(g);
+        if (templateTarget >= 0) {
+            // This foreground hook runs before recipe-browser overlays. An overlay render type
+            // darkens the native inventory without writing depth that would hide later JEI/EMI.
+            g.fill(net.minecraft.client.renderer.RenderType.guiOverlay(), 0, 0, screen.width, screen.height, 0xb0000000);
+            g.flush();
+            layout.cells().stream().filter(c -> c.slot() == templateTarget).findFirst().ifPresent(c -> {
+                var r = c.bounds(); g.enableScissor(r.x(), r.y(), r.x() + r.width(), r.y() + r.height());
+                frame(g, layout.bounds()); renderCell(g, c); g.disableScissor();
+            });
+        }
         g.pose().popPose();
     }
 
@@ -680,6 +814,21 @@ public final class LogisticsPanel {
         }
         mouseX = event.getMouseX();
         mouseY = event.getMouseY();
+        if (browserDrag != null && browserDrag.screen() == screen
+                && Math.pow(mouseX - browserDrag.x(), 2) + Math.pow(mouseY - browserDrag.y(), 2) >= 64) {
+            var g = event.getGuiGraphics(); g.pose().pushPose(); g.pose().translate(0, 0, 400);
+            browserDrag.template().render(g, mouseX - 8, mouseY - 8); g.pose().popPose();
+        }
+
+        if (snapshot.fluidPreview().amount() > 0 && MC.player.containerMenu.getCarried().isEmpty()) {
+            var preview = snapshot.fluidPreview(); var g = event.getGuiGraphics();
+            try {
+                var fluid = dev.scathiard.feedmepackages.fluid.FluidVariantKey.decode(preview.template(), MC.player.registryAccess()).stack(MC.player.registryAccess(),1);
+                g.pose().pushPose(); g.pose().translate(0,0,400);
+                TemplateBrowsers.renderFluid(g,fluid,mouseX-8,mouseY-8); g.pose().popPose();
+                tooltip=List.of(fluid.getHoverName(),Component.literal(preview.amount()+" mB"),tr("fluid_preview"));
+            } catch (IllegalArgumentException invalid) { notice("invalid_display"); }
+        }
         if (layout.compact()) {
             tooltip = List.of();
             LogisticsPanel.button(event.getGuiGraphics(), layout.bounds().x(), layout.bounds().y(), "+", "expand");
@@ -702,11 +851,14 @@ public final class LogisticsPanel {
         LogisticsPanel.frame(g, b);
         PanelLayout.Rect copy = layout.address();
         String address = snapshot.address();
+        var maid = maidPanel() ? MaidMenus.target(screen.getMenu()) : null;
+        String caption = maid == null ? address : tr("maid_cache", maid.getName()).getString();
         int textWidth = copy.width() - 2;
-        String displayed = LogisticsPanel.MC.font.width(address) <= textWidth ? address : LogisticsPanel.MC.font.plainSubstrByWidth(address, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026";
+        String displayed = LogisticsPanel.MC.font.width(caption) <= textWidth ? caption : LogisticsPanel.MC.font.plainSubstrByWidth(caption, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026";
         LogisticsPanel.text(g, displayed, copy.x() + 1, copy.y() + 3, copy.contains(mouseX, mouseY) ? -9419222 : 0xFF000000);
         if (copy.contains(mouseX, mouseY)) {
-            tooltip = List.of(LogisticsPanel.tr("address", new Object[0]), Component.literal((String)address));
+            tooltip = maid == null ? List.of(tr("address"), Component.literal(address))
+                    : List.of(tr("maid_cache", maid.getName()), tr("address"), Component.literal(address));
         }
         if (!LogisticsPanel.active() || !snapshot.bound()) {
             LogisticsPanel.text(g, "!", x + 10, y + 20, -9352640);
@@ -740,11 +892,12 @@ public final class LogisticsPanel {
                 tooltip = List.of(feedback);
             }
         }
-        if (layout.totalRows() > layout.visibleRows()) {
+        int scrollRows = snapshot == null ? 0 : CacheGrid.rowsFor(snapshot.totalSlots(), snapshot.columnLimit());
+        if (scrollRows > layout.visibleRows()) {
             PanelLayout.Rect rail = layout.scrollbar();
             g.fill(rail.x(), rail.y(), rail.x() + rail.width(), rail.y() + rail.height(), -13619412);
-            int thumb = Math.max(7, rail.height() * layout.visibleRows() / layout.totalRows());
-            int offset = (rail.height() - thumb) * firstRow / Math.max(1, layout.totalRows() - layout.visibleRows());
+            int thumb = Math.max(7, rail.height() * layout.visibleRows() / scrollRows);
+            int offset = (rail.height() - thumb) * scrollRow() / Math.max(1, scrollRows - layout.visibleRows());
             g.fill(rail.x(), rail.y() + offset, rail.x() + rail.width(), rail.y() + offset + thumb, -4152474);
         }
         if (!layout.compact()) {
@@ -760,6 +913,12 @@ public final class LogisticsPanel {
      * client-owned cursor), so the button stays live.
      */
     private static void renderTransferButton(GuiGraphics g) {
+        if (maidPanel()) {
+            var r = layout.maidPickupButton();
+            iconButton(g, r, BUTTON_TEXTURE, snapshot.maidPickup() ? "maid_pickup_on" : "maid_pickup_off", active());
+            if (r.width() > 0) mark(g, new PanelLayout.Rect(r.x() + 9, r.y() + 2, 3, 3),
+                    snapshot.maidPickup() ? 0xff76ed77 : 0xff696969);
+        }
         LogisticsPanel.iconButton(g, layout.transferButton(), BUTTON_TEXTURE, "collect_button",
                 LogisticsPanel.collectEnabled());
     }
@@ -850,7 +1009,8 @@ public final class LogisticsPanel {
         int y = r.y();
         renderSlot(g, x, y);
         ItemStack icon = ICONS.getOrDefault(cell.template(), ItemStack.EMPTY);
-        if (!icon.isEmpty()) {
+        var fluidIcon = FLUID_ICONS.getOrDefault(cell.template(), net.neoforged.neoforge.fluids.FluidStack.EMPTY);
+        if (!icon.isEmpty() || !fluidIcon.isEmpty()) {
             // Display "in-cell" quantity = cache amount minus the live cursor preview (P). During the
             // pre-confirmation wait a client-side prediction overrides this one cell so the number
             // changes immediately; a matching ack clears the prediction and the authoritative value
@@ -862,9 +1022,9 @@ public final class LogisticsPanel {
             if (display == 0) {
                 g.setColor(1.0f, 1.0f, 1.0f, 0.45f);
             }
-            g.renderItem(icon, x + 1, y + 1);
+            if (cell.fluid()) TemplateBrowsers.renderFluid(g,fluidIcon,x+1,y+1); else g.renderItem(icon, x + 1, y + 1);
             g.setColor(1.0f, 1.0f, 1.0f, 1.0f);
-            String amount = Integer.toString(display);
+            String amount = cell.fluid() ? CellControlArtwork.fluidQuantity(display) : Integer.toString(display);
             float scale = Math.min(1.0f, 16.0f / (float)LogisticsPanel.MC.font.width(amount));
             g.pose().pushPose();
             PoseStack poseStack = g.pose();
@@ -876,6 +1036,8 @@ public final class LogisticsPanel {
             g.drawString(LogisticsPanel.MC.font, amount, 0, 0, display == 0 ? -6909823 : -661306, true);
             g.pose().popPose();
         }
+        CellFeedback.render(g, box.slot(), x, y);
+        if (!cell.writable()) LogisticsPanel.overlay(g, x + 1, y + 16, 16, 1, 0xFFAA7777);
         boolean hover = r.contains(mouseX, mouseY);
         if (cell.residual()) {
             LogisticsPanel.overlay(g, x + 1, y + 13, 3, 3, -8206747);
@@ -883,40 +1045,41 @@ public final class LogisticsPanel {
                 tooltip = List.of(LogisticsPanel.tr("residual", new Object[0]));
             }
         }
-        if (!cell.template().isEmpty() && cell.minimum() >= 0 && cell.amount() < cell.minimum() * cell.stackSize()) {
+        if (cell.writable() && !cell.template().isEmpty() && cell.minimum() >= 0 && cell.amount() < cell.minimum()) {
             int color = cell.pending() > 0 ? -8206747 : -7105653;
-            LogisticsPanel.overlay(g, x + 3, y + 1, 1, 3, color);
-            LogisticsPanel.overlay(g, x + 1, y + 3, 5, 1, color);
-            LogisticsPanel.overlay(g, x + 2, y + 4, 3, 1, color);
+            renderStatusArrow(g, x + 1, y + 1, color, false);
         }
-        if (!cell.template().isEmpty() && cell.maximum() >= 0 && cell.amount() > cell.maximum() * cell.stackSize()) {
+        if (cell.writable() && !cell.template().isEmpty() && cell.maximum() >= 0 && cell.amount() > cell.maximum()) {
             int color = cell.returnState() == dev.scathiard.feedmepackages.logistics.ReturnService.RETURN_SENT ? -2058918 : -6909823;
-            LogisticsPanel.overlay(g, x + 1, y + 1, 5, 1, color);
-            LogisticsPanel.overlay(g, x + 2, y + 2, 3, 1, color);
-            LogisticsPanel.overlay(g, x + 3, y + 3, 1, 3, color);
+            renderStatusArrow(g, x + 1, y + 1, color, true);
         }
-        if (hover && !cell.template().isEmpty()) {
+        if (hover && cell.writable() && !cell.template().isEmpty()) {
             LogisticsPanel.overlay(g, box.dot().x(), box.dot().y() + 1, 4, 4, -2047362);
         }
         if (hover) {
             tooltip = new ArrayList<Component>();
-            if (!icon.isEmpty()) {
-                tooltip.addAll(Screen.getTooltipFromItem((Minecraft)MC, (ItemStack)icon));
+            if (!icon.isEmpty() || !fluidIcon.isEmpty()) {
+                if (cell.fluid()) tooltip.add(fluidIcon.getHoverName()); else tooltip.addAll(Screen.getTooltipFromItem((Minecraft)MC, (ItemStack)icon));
                 int display = Math.max(0, cell.amount() - cell.reserved());
                 if (predict != null && predict.slot() == box.slot() && predict.window().equals(window))
                     display = Math.max(0, predict.result());
-                tooltip.add(LogisticsPanel.tr("stock", display, snapshot.groupCapacity() * cell.stackSize()));
-                if (cell.stackSize() > 1) {
+                tooltip.add(LogisticsPanel.tr(cell.fluid() ? "fluid_stock" : "stock", display, snapshot.groupCapacity() * cell.stackSize()));
+                if (!cell.fluid() && cell.stackSize() > 1) {
                     tooltip.add(LogisticsPanel.tr("stock_groups", cell.amount() / cell.stackSize(), snapshot.groupCapacity()));
                 }
                 if (display == 0 && cell.reserved() > 0) tooltip.add(LogisticsPanel.tr("held_preview", new Object[0]));
             }
-            if (cell.minimum() >= 0 && cell.amount() < cell.minimum() * cell.stackSize() && mouseX < x + 7 && mouseY < y + 7) {
+            if (cell.writable() && !cell.template().isEmpty()) tooltip.add(tr("clear_filter_hint"));
+            if (cell.fluid()) tooltip.add(tr("fluid_take"));
+            if (cell.fluid() || cell.template().isEmpty()) tooltip.add(tr("fluid_deposit"));
+            if (cell.amount() == 0 && TemplateBrowsers.available()) tooltip.add(tr("template_hint",ClientBootstrap.SELECT_TEMPLATE.getTranslatedKeyMessage()));
+            if (cell.writable() && cell.minimum() >= 0 && cell.amount() < cell.minimum() && mouseX < x + 7 && mouseY < y + 7) {
                 tooltip = List.of(LogisticsPanel.tr(cell.pending() > 0 ? "requested" : "shortage", new Object[0]));
             }
-            if (box.dot().contains(mouseX, mouseY) && !cell.template().isEmpty()) {
+            if (cell.writable() && box.dot().contains(mouseX, mouseY) && !cell.template().isEmpty()) {
                 tooltip = List.of(LogisticsPanel.tr("configure", new Object[0]));
             }
+            if (!cell.writable()) tooltip.add(tr("result.read_only"));
         }
     }
 
@@ -936,10 +1099,6 @@ public final class LogisticsPanel {
         com.mojang.blaze3d.systems.RenderSystem.disableBlend();
     }
 
-    private static int thumbPx(int sliderX, int width, int value, int groupCap) {
-        return PanelLayout.sliderThumbPx(sliderX, width, value, groupCap);
-    }
-
     private static void panelBlit(GuiGraphics g, int sx, int sy, int sw, int sh, int u, int v, int w, int h) {
         // All pieces are pixel-sized. A partial repeat is cropped, never scaled.
         if (sw > 0 && sh > 0) {
@@ -953,63 +1112,57 @@ public final class LogisticsPanel {
         }
     }
 
+    private static dev.scathiard.feedmepackages.domain.CellSettings settings(PanelPackets.CellView cell) {
+        return new dev.scathiard.feedmepackages.domain.CellSettings(cell.minimum(), cell.maximum(), cell.batch(), cell.pendingLimit());
+    }
+    private static PanelPackets.CellView draftCell(CellControlDraft draft) {
+        return snapshot.cells().get(snapshot.grid().localSlot(draft.context().slot()));
+    }
+    private static boolean currentDraft(CellControlDraft draft) {
+        var c = draft.context();
+        if (snapshot == null || !Objects.equals(snapshot.session(), c.session())) return false;
+        int local = snapshot.grid().localSlot(c.slot());
+        if (local < 0) return false;
+        var cell = snapshot.cells().get(local);
+        return cell.writable() && c.filter().equals(cell.template()) && c.filterRevision() == cell.filterRevision();
+    }
+    private static CellControlDraft controls() {
+        if (!pageReady() || selected < 0 || selected >= snapshot.cells().size()) return null;
+        var cell = snapshot.cells().get(selected);
+        if (!cell.writable()) return null;
+        int storageSlot = snapshot.grid().storageSlot(selected);
+        var ctx = new CellControlDraft.Context(snapshot.session(), storageSlot, cell.template(), cell.filterRevision());
+        var draft = controlDrafts.get(storageSlot);
+        if (draft == null || !ctx.equals(draft.context())) {
+            draft = new CellControlDraft(ctx, settings(cell)); controlDrafts.put(storageSlot, draft);
+        }
+        return draft;
+    }
+    private static int cellCapacity() { return Math.multiplyExact(snapshot.groupCapacity(), snapshot.cells().get(selected).stackSize()); }
     private static void renderSlider(GuiGraphics g) {
-        int maxN;
-        int minN;
-        PanelLayout.Rect r = layout.slider();
-        PanelPackets.CellView cell = snapshot.cells().get(selected);
-        int groupCap = snapshot.groupCapacity();
-        int x = r.x();
-        int y = r.y();
-        int w = r.width();
-        int n = minN = draggingSlider ? draftMinimum : cell.minimum();
-        if (minN < 0) {
-            minN = 0;
+        var draft = controls(); if (draft == null) return;
+        var cell = snapshot.cells().get(selected); var r = layout.slider();
+        var parcel = new ItemStack(net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
+                ResourceLocation.fromNamespaceAndPath("create", "cardboard_package_10x8")));
+        CellControlArtwork.render(g, r, draft.value(), cellCapacity(), cell.pending(), parcel, cell.fluid());
+        if (!r.contains(mouseX, mouseY)) return;
+        tooltip = List.of();
+        for (int field=0;field<5;field++) if (CellControlGeometry.field(r,field).contains(mouseX,mouseY)) {
+            if (cell.fluid()) {
+                tooltip = field == 4 ? List.of(tr("controls.fluid_pending", cell.pending()), tr("controls.reset"))
+                        : field < 2 ? List.of(tr("controls.fluid_reserved"))
+                        : List.of(tr(field == 2 ? "controls.lower" : "controls.upper"), tr("controls.fluid_step"));
+                break;
+            }
+            tooltip = field == 4 ? List.of(tr("controls.pending",cell.pending()),tr("controls.reset"),tr("controls.late"))
+                    : List.of(tr("controls."+new String[]{"batch","limit","lower","upper"}[field]),tr("controls.wheel"));
+            if (field == 0 && draft.value().lower()>0 && draft.value().upper() >= 0
+                    && (long)draft.value().lower()-1+draft.value().batch() > draft.value().upper())
+                tooltip = List.of(tr("controls.batch"),tr("controls.wheel"),tr("controls.overshoot"));
+            if ((field==0 || field==1) && draft.value().pendingLimit()>=0 && draft.value().pendingLimit()<draft.value().batch())
+                tooltip=List.of(tr(field==0?"controls.batch":"controls.limit"),tr("controls.wheel"),tr("controls.conflict"));
+            break;
         }
-        int n2 = maxN = draggingMaximum ? draftMaximum : cell.maximum();
-        if (maxN < 0) {
-            maxN = groupCap;
-        }
-        int minAt = LogisticsPanel.thumbPx(x, w, minN, groupCap);
-        int maxAt = LogisticsPanel.thumbPx(x, w, maxN, groupCap);
-        g.pose().pushPose();
-        g.pose().translate(0.0f, 0.0f, 250.0f);
-        int tx = x + PanelLayout.TRACK_INSET;
-        int ty = y + PanelLayout.TRACK_Y;
-        int trackW = w - 2 * PanelLayout.TRACK_INSET;
-        LogisticsPanel.panelBlit(g, tx, ty, 4, 5, 0, 1, 4, 5);
-        int midX = tx + 4;
-        int midEnd = tx + trackW - 4;
-        while (midX + 3 <= midEnd) {
-            LogisticsPanel.panelBlit(g, midX, ty, 3, 5, 17, 1, 3, 5);
-            midX += 3;
-        }
-        if (midX < midEnd) {
-            LogisticsPanel.panelBlit(g, midX, ty, midEnd - midX, 5, 17, 1, 3, 5);
-        }
-        LogisticsPanel.panelBlit(g, midEnd, ty, 4, 5, 36, 1, 4, 5);
-        // Left endpoint = small triangle below the track; right endpoint = triangle above the track,
-        // so both stay draggable even when they are at the same position.
-        LogisticsPanel.panelBlit(g, minAt - 2, y + PanelLayout.MIN_THUMB_Y, 5, 5, 0, 15, 5, 5);
-        LogisticsPanel.panelBlit(g, maxAt - 2, y + PanelLayout.MAX_THUMB_Y, 5, 5, 7, 11, 5, 5);
-        String minLabel = String.valueOf(minN * cell.stackSize());
-        float s1 = Math.min(8.0f / 9.0f, (w - 8) / 2.0f / (float)LogisticsPanel.MC.font.width(minLabel));
-        g.pose().pushPose();
-        g.pose().translate((float)(x + 3), (float)(y + PanelLayout.LABEL_Y), 190.0f);
-        g.pose().scale(s1, s1, 1.0f);
-        g.drawString(LogisticsPanel.MC.font, minLabel, 0, 0, -1713994, false);
-        g.pose().popPose();
-        String maxLabel = String.valueOf(maxN * cell.stackSize());
-        float s2 = Math.min(8.0f / 9.0f, (w - 8) / 2.0f / (float)LogisticsPanel.MC.font.width(maxLabel));
-        g.pose().pushPose();
-        g.pose().translate((float)(x + w - 3) - (float)LogisticsPanel.MC.font.width(maxLabel) * s2, (float)(y + PanelLayout.LABEL_Y), 190.0f);
-        g.pose().scale(s2, s2, 1.0f);
-        g.drawString(LogisticsPanel.MC.font, maxLabel, 0, 0, -2058918, false);
-        g.pose().popPose();
-        if (r.contains(mouseX, mouseY) && mouseY < y + PanelLayout.TRACK_Y + 3) {
-            tooltip = List.of(LogisticsPanel.tr(mouseX <= minAt ? "minimum_help" : "maximum_help", new Object[0]));
-        }
-        g.pose().popPose();
     }
 
     private static void renderReturnBar(GuiGraphics g) {
@@ -1076,6 +1229,14 @@ public final class LogisticsPanel {
         g.pose().popPose();
     }
 
+    /** A complete 5x5 arrow, mirrored vertically without changing its item-overlay layer. */
+    private static void renderStatusArrow(GuiGraphics g, int x, int y, int color, boolean up) {
+        overlay(g, x + 2, up ? y : y + 4, 1, 1, color);
+        overlay(g, x + 1, up ? y + 1 : y + 3, 3, 1, color);
+        overlay(g, x, y + 2, 5, 1, color);
+        overlay(g, x + 2, up ? y + 3 : y, 1, 2, color);
+    }
+
     private static void overlay(GuiGraphics g, int x, int y, int w, int h, int color) {
         g.pose().pushPose();
         g.pose().translate(0.0f, 0.0f, BUTTON_Z);
@@ -1132,8 +1293,8 @@ public final class LogisticsPanel {
             return new QueuedPanelClick(window, snapshot.session(), QueuedClickKind.COPY_ADDRESS, -1, button, -1, "");
         }
         PanelLayout.Rect rail = inputLayout.scrollbar();
-        if (inputLayout.totalRows() > inputLayout.visibleRows() && rail.contains(x, y)) {
-            int row = (int)Math.round((y - rail.y()) * (inputLayout.totalRows() - inputLayout.visibleRows())
+        if (maxScrollRow() > 0 && rail.contains(x, y)) {
+            int row = (int)Math.round((y - rail.y()) * maxScrollRow()
                     / Math.max(1, rail.height() - 1));
             return new QueuedPanelClick(window, snapshot.session(), QueuedClickKind.SCROLL, -1, button, row, "");
         }
@@ -1143,14 +1304,14 @@ public final class LogisticsPanel {
         for (PanelLayout.CellBox box : inputLayout.cells()) {
             if (!box.bounds().contains(x, y)) continue;
             PanelPackets.CellView cell = snapshot.cells().get(box.slot());
-            if (box.dot().contains(x, y) && !cell.template().isEmpty() && LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
+            if (cell.writable() && box.dot().contains(x, y) && !cell.template().isEmpty() && LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
                 return new QueuedPanelClick(window, snapshot.session(), QueuedClickKind.TOGGLE_SLOT, box.slot(), button, -1, cell.template());
             }
             if (button == 1 && Screen.hasControlDown()) {
                 return new QueuedPanelClick(window, snapshot.session(), QueuedClickKind.CLEAR_FILTER, box.slot(), button, -1, cell.template());
             }
             if (!LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
-                return new QueuedPanelClick(window, snapshot.session(), QueuedClickKind.DEPOSIT, box.slot(), button, -1, cell.template());
+                return new QueuedPanelClick(window, snapshot.session(), Screen.hasAltDown() || cell.fluid() ? QueuedClickKind.DEPOSIT_FLUID : QueuedClickKind.DEPOSIT, box.slot(), button, -1, cell.template());
             }
             return new QueuedPanelClick(window, snapshot.session(), Screen.hasShiftDown() ? QueuedClickKind.TAKE_INVENTORY : QueuedClickKind.TAKE_CURSOR, box.slot(), button, -1, cell.template());
         }
@@ -1170,9 +1331,7 @@ public final class LogisticsPanel {
             return;
         }
         if (click.kind() == QueuedClickKind.SCROLL) {
-            firstRow = click.row();
-            selected = -1;
-            LogisticsPanel.updateLayout();
+            scrollToRow(click.row());
             return;
         }
         if (!LogisticsPanel.active() || click.slot() < 0 || click.slot() >= snapshot.cells().size()) {
@@ -1191,12 +1350,15 @@ public final class LogisticsPanel {
         }
         switch (click.kind()) {
             case CLEAR_FILTER -> LogisticsPanel.send(CacheActions.Action.CLEAR_FILTER, click.slot(), 0, -1, "");
+            case DEPOSIT_FLUID -> LogisticsPanel.send(CacheActions.Action.DEPOSIT_FLUID, click.slot(), 0, 0, "");
             case DEPOSIT -> LogisticsPanel.send(CacheActions.Action.DEPOSIT, click.slot(), click.button() == 1 ? 1 : 0, -1, "");
             case TAKE_INVENTORY -> {
+                if (cell.fluid()) { send(CacheActions.Action.TAKE_FLUID,click.slot(),8000,0,""); break; }
                 ItemStack item = ICONS.getOrDefault(cell.template(), ItemStack.EMPTY);
                 LogisticsPanel.send(CacheActions.Action.TAKE_INVENTORY, click.slot(), click.button() == 1 ? 1 : item.getMaxStackSize(), -1, "");
             }
             case TAKE_CURSOR -> {
+                if (cell.fluid()) { send(CacheActions.Action.TAKE_FLUID,click.slot(),1000,0,""); break; }
                 ItemStack item = ICONS.getOrDefault(cell.template(), ItemStack.EMPTY);
                 LogisticsPanel.send(CacheActions.Action.TAKE_CURSOR, click.slot(), click.button() == 1 ? 1 : item.getMaxStackSize(), -1, "");
             }
@@ -1218,8 +1380,45 @@ public final class LogisticsPanel {
             LogisticsPanel.toggleHidden();
             return true;
         }
-        if (waiting != 0) {
+        if (templateTarget >= 0) {
+            if (button == 1 || button == 2) { templateTarget = -1; capturedButton = button; return true; }
+            var template = TemplateBrowsers.selection();
+            if (button == 0 && !template.isEmpty()) {
+                setTemplate(templateTarget, template); capturedButton = button; return true;
+            }
+            if (layout.bounds().contains(x, y)) { capturedButton = button; return true; }
+            return false;
+        }
+        if (ClientBootstrap.SELECT_TEMPLATE.matchesMouse(button) && beginTemplate(x, y)) { capturedButton = button; return true; }
+        if (active() && layout.slider() != null && layout.slider().contains(x,y)) {
+            closeReturnEditorForClick(x,y,layout);
             capturedButton = button;
+            if (button == 0) {
+                if (CellControlGeometry.field(layout.slider(),4).contains(x,y))
+                    send(CacheActions.Action.RESET_REQUEST,selected,0,0,"");
+                else tryStartSliderDrag(layout,x,y);
+            }
+            return true;
+        }
+        if (waiting != 0 || !pageReady()) {
+            capturedButton = button;
+            return true;
+        }
+        if (active() && snapshot.fluidPreview().amount() > 0) {
+            capturedButton=button;
+            if (button != 0 || !MC.player.containerMenu.getCarried().isEmpty()) {
+                send(CacheActions.Action.RELEASE_FLUID,-1,snapshot.fluidPreview().sequence(),0,""); return true;
+            }
+            for (var slot : screen.getMenu().slots) {
+                int index=slot.getSlotIndex();
+                if (slot.container != MC.player.getInventory() || index<0 || index>=36 || !slot.isActive() || !slot.mayPickup(MC.player)) continue;
+                if (!new PanelLayout.Rect(screen.getGuiLeft()+slot.x,screen.getGuiTop()+slot.y,16,16).contains(x,y) || slot.getItem().isEmpty()) continue;
+                try { send(CacheActions.Action.PLACE_FLUID,snapshot.fluidPreview().slot(),index,snapshot.fluidPreview().sequence(),ItemVariantKey.of(slot.getItem(),MC.player.registryAccess()).encoded()); }
+                catch (IllegalArgumentException invalid) { notice("result.invalid_item"); }
+                return true;
+            }
+            if (layout.cells().stream().anyMatch(c->snapshot.grid().storageSlot(c.slot())==snapshot.fluidPreview().slot() && c.bounds().contains(x,y)))
+                send(CacheActions.Action.RELEASE_FLUID,-1,snapshot.fluidPreview().sequence(),0,"");
             return true;
         }
         PanelLayout inputLayout = layout;
@@ -1271,6 +1470,13 @@ public final class LogisticsPanel {
             LogisticsPanel.toggleHidden();
             return true;
         }
+        if (maidPanel() && inputLayout.maidPickupButton().contains(x, y)) {
+            if (active()) {
+                playButtonClick();
+                send(CacheActions.Action.MAID_PICKUP, -1, snapshot.maidPickup() ? 0 : 1, -1, "");
+            }
+            return true;
+        }
         if (inputLayout.transferButton().contains(x, y)) {
             if (!LogisticsPanel.collectEnabled()) {
                 // Disabled (greyed out): the press is swallowed but stays SILENT - no click sound at all. This
@@ -1291,11 +1497,9 @@ public final class LogisticsPanel {
         // The one-key collect button sits in the right-hand cap. It is answered before the scrollbar rail so
         // its band is not stolen by the 2-pixel rail; elsewhere the rail behaves as before.
         PanelLayout.Rect rail = inputLayout.scrollbar();
-        if (inputLayout.totalRows() > inputLayout.visibleRows() && rail.contains(x, y)) {
-            firstRow = (int) Math.round((y - rail.y()) * (inputLayout.totalRows() - inputLayout.visibleRows())
-                    / Math.max(1, rail.height() - 1));
-            selected = -1;
-            LogisticsPanel.updateLayout();
+        if (maxScrollRow() > 0 && rail.contains(x, y)) {
+            scrollToRow((int) Math.round((y - rail.y()) * maxScrollRow()
+                    / Math.max(1, rail.height() - 1)));
             return true;
         }
         if (!LogisticsPanel.active()) {
@@ -1309,7 +1513,7 @@ public final class LogisticsPanel {
         for (PanelLayout.CellBox box : inputLayout.cells()) {
             if (!box.bounds().contains(x, y)) continue;
             PanelPackets.CellView cell = snapshot.cells().get(box.slot());
-            if (box.dot().contains(x, y) && !cell.template().isEmpty() && LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
+            if (cell.writable() && box.dot().contains(x, y) && !cell.template().isEmpty() && LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
                 selected = selected == box.slot() ? -1 : box.slot();
                 LogisticsPanel.updateLayout();
                 return true;
@@ -1318,6 +1522,8 @@ public final class LogisticsPanel {
                 LogisticsPanel.send(CacheActions.Action.CLEAR_FILTER, box.slot(), 0, -1, "");
             } else if (!LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
                 LogisticsPanel.depositAt(box.slot(), button);
+            } else if (cell.fluid()) {
+                send(CacheActions.Action.TAKE_FLUID,box.slot(),Screen.hasShiftDown()?8000:1000,0,"");
             } else {
                 ItemStack item = ICONS.getOrDefault(cell.template(), ItemStack.EMPTY);
                 LogisticsPanel.send(Screen.hasShiftDown() ? CacheActions.Action.TAKE_INVENTORY : CacheActions.Action.TAKE_CURSOR, box.slot(), button == 1 ? 1 : item.getMaxStackSize(), -1, "");
@@ -1349,6 +1555,9 @@ public final class LogisticsPanel {
      * doing nothing.
      */
     private static void depositAt(int aimed, int button) {
+        if (aimed >= 0 && (Screen.hasAltDown() || snapshot.cells().get(aimed).fluid())) {
+            send(CacheActions.Action.DEPOSIT_FLUID,aimed,0,0,""); return;
+        }
         int first = button == 1 ? 1 : 0;
         String carried;
         try {
@@ -1367,11 +1576,9 @@ public final class LogisticsPanel {
             cells.add(new CacheDropTarget.Cell(cell.template(),
                     cell.amount() >= groupCapacity * Math.max(1, cell.stackSize())));
         CacheDropTarget.Target target = CacheDropTarget.resolveDrop(cells, aimed, carried);
-        if (!target.hasTarget()) {
-            LogisticsPanel.notice("result.no_space");
-            return;
-        }
-        LogisticsPanel.send(CacheActions.Action.DEPOSIT, target.slot(), first, -1, "");
+        // The current page is only a hint: an existing matching cell may be off-screen.
+        LogisticsPanel.send(CacheActions.Action.DEPOSIT, target.hasTarget() ? target.slot() : -1,
+                first, CacheActions.AUTO_DEPOSIT, "");
     }
 
     private static boolean release(double x, double y, int button) {
@@ -1383,40 +1590,15 @@ public final class LogisticsPanel {
             passthroughReleaseButton = -1;
             return false;
         }
-        if (waiting != 0) {
-            if (capturedButton == button) {
-                capturedButton = -1;
-            }
-            return true;
+        if (draggingSlider || draggingMaximum) {
+            boolean maximum = draggingMaximum;
+            if (dragMoved || Math.abs(x - dragOriginX) >= 2.0) updateSliderDrag(x,maximum);
+            draggingSlider = false; draggingMaximum = false;
+            var draft = controls(); if (draft != null && dragMoved) { draft.immediate(); flushPendingThresholds(); }
+            dragMoved = false; capturedButton = -1; return true;
         }
-        if (draggingSlider) {
-            // "Moved" is decided by the release position too: a real drag may deliver no intermediate
-            // MouseDragged event, while press-and-release in place must keep the stored value.
-            boolean moved = dragMoved || Math.abs(x - dragOriginX) >= 2.0;
-            if (moved) {
-                LogisticsPanel.setDraft(x);
-            }
-            draggingSlider = false;
-            dragMoved = false;
-            if (moved) {
-                LogisticsPanel.sendMinimum(draftMinimum);
-            }
-            capturedButton = -1;
-            return true;
-        }
-        if (draggingMaximum) {
-            boolean moved = dragMoved || Math.abs(x - dragOriginX) >= 2.0;
-            if (moved) {
-                LogisticsPanel.setDraftMaximum(x);
-            }
-            draggingMaximum = false;
-            dragMoved = false;
-            if (moved) {
-                LogisticsPanel.sendMaximum(draftMaximum);
-            }
-            capturedButton = -1;
-            return true;
-        }
+        if (layout.slider() != null && layout.slider().contains(x,y)) { capturedButton = -1; return true; }
+        if (waiting != 0 || !pageReady()) { capturedButton = -1; return true; }
         if (capturedButton == button) {
             capturedButton = -1;
             return true;
@@ -1437,21 +1619,74 @@ public final class LogisticsPanel {
     }
 
     private static boolean scroll(double x, double y, double amount) {
-        if (!LogisticsPanel.visible() || !layout.bounds().contains(x, y)) {
-            return false;
+        if (templateTarget >= 0 && layout != null && layout.bounds().contains(x, y)) return true;
+        if (!visible()) return false;
+        if (!layout.hidden() && layout.slider() != null && layout.slider().contains(x,y)) {
+            var draft=controls(); if (draft==null || amount==0 || draggingSlider || draggingMaximum) return true;
+            var value=draft.value(); boolean fluid=snapshot.cells().get(selected).fluid(); int step=fluid?8000:Screen.hasShiftDown()?snapshot.cells().get(selected).stackSize():1;
+            int direction=amount>0?1:-1, cap=cellCapacity(), nine=9*snapshot.cells().get(selected).stackSize();
+            int lower=value.lower(),upper=value.upper(),batch=value.batch(),limit=value.pendingLimit();
+            if(!fluid && CellControlGeometry.field(layout.slider(),0).contains(x,y)) batch=CellControlDraft.wheel(batch,direction,step,1,nine,false);
+            else if(!fluid && CellControlGeometry.field(layout.slider(),1).contains(x,y)) limit=CellControlDraft.wheel(limit,direction,step,1,nine,true);
+            else if(CellControlGeometry.field(layout.slider(),2).contains(x,y)) {
+                lower=CellControlDraft.wheel(Math.max(0,lower),direction,step,0,upper<0?cap:upper,false,!fluid); if(lower==0) lower=-1;
+            } else if(CellControlGeometry.field(layout.slider(),3).contains(x,y)) upper=CellControlDraft.wheel(upper,direction,step,Math.max(0,lower),cap,true,!fluid);
+            draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(lower,upper,batch,limit),tick);
+            return true; // Includes wheel-at-boundary and the blank area: never scroll the backing grid.
         }
-        if (waiting != 0 || layout.compact()) {
-            return true;
-        }
-        if (layout.slider() == null || !layout.slider().contains(x, y)) {
-            firstRow += amount > 0.0 ? -1 : 1;
-            selected = -1;
-            LogisticsPanel.updateLayout();
-        }
+        if(!layout.bounds().contains(x,y)) return false;
+        if(waiting!=0 || layout.compact() || layout.hidden()) return true;
+        if (amount != 0) scrollToRow((queuedScrollRow >= 0 ? queuedScrollRow : scrollRow()) + (amount > 0 ? -1 : 1));
         return true;
     }
 
+    private static boolean pageReady() {
+        return snapshot != null && requestedFirstSlot == snapshot.firstSlot() && requestedColumnLimit == snapshot.columnLimit();
+    }
+    private static int scrollRow() {
+        return requestedFirstSlot / CacheGrid.columnsFor(snapshot.totalSlots(), requestedColumnLimit) + firstRow;
+    }
+    private static int maxScrollRow() {
+        return snapshot == null || layout == null ? 0 : Math.max(0,
+                CacheGrid.rowsFor(snapshot.totalSlots(), snapshot.columnLimit()) - layout.visibleRows());
+    }
+    private static void clearPageSelection() {
+        selected = -1; templateTarget = -1; predict = null; queuedReturnClick = null;
+        draggingSlider = false; draggingMaximum = false; dragContext = null; CellFeedback.clear();
+    }
+    private static boolean preparePageChange() {
+        if (waiting != 0 || cursorPending || pendingCursorChange != null || previewRemaining > 0
+                || draggingSlider || draggingMaximum || !pageReady()) return false;
+        if (controlDrafts.values().stream().anyMatch(CellControlDraft::dirty)) {
+            submitControls(true); return false;
+        }
+        return true;
+    }
+    private static void scrollToRow(int requestedRow) {
+        if (!active() || layout == null || layout.hidden() || layout.compact()) return;
+        int row = Math.clamp(requestedRow, 0, maxScrollRow());
+        queuedScrollRow = row;
+        if (!preparePageChange()) return;
+        queuedScrollRow = -1;
+        int columns = CacheGrid.columnsFor(snapshot.totalSlots(), requestedColumnLimit);
+        int base = requestedFirstSlot / columns;
+        int localMax = Math.max(0, layout.totalRows() - layout.visibleRows());
+        clearPageSelection();
+        if (row >= base && row <= base + localMax) {
+            firstRow = row - base; updateLayout(); return;
+        }
+        int lastBase = CacheViewport.lastFirst(snapshot.totalSlots(), requestedColumnLimit) / columns;
+        int nextBase = Math.clamp(row - localMax, 0, lastBase);
+        requestedFirstSlot = nextBase * columns;
+        firstRow = row - nextBase; lastQuery = tick - 10;
+    }
+
     private static boolean key(int key, int scan, int modifiers) {
+        if (templateTarget >= 0 && key == org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE) { templateTarget = -1; return true; }
+        if (ClientBootstrap.SELECT_TEMPLATE.matches(key, scan)) {
+            if (templateTarget >= 0) { templateTarget = -1; return true; }
+            return beginTemplate(TemplateBrowsers.cursorX(), TemplateBrowsers.cursorY());
+        }
         return LogisticsPanel.visible() && waiting != 0 && key != 256;
     }
 
@@ -1489,130 +1724,82 @@ public final class LogisticsPanel {
         return true;
     }
 
-    /** Start dragging an endpoint when the press hit one. Records the origin and the current value;
-     *  the value only changes once the pointer really moves, so press-and-release in place keeps it. */
     private static boolean tryStartSliderDrag(PanelLayout inputLayout, double x, double y) {
-        PanelLayout.Rect slider = inputLayout.slider();
-        if (slider == null || !slider.contains(x, y) || selected < 0 || snapshot == null
-                || selected >= snapshot.cells().size()) {
-            return false;
-        }
-        int groupCap = snapshot.groupCapacity();
-        PanelPackets.CellView cell = snapshot.cells().get(selected);
-        int minAt = LogisticsPanel.thumbPx(slider.x(), slider.width(), cell.minimum() < 0 ? 0 : cell.minimum(), groupCap);
-        int maxAt = LogisticsPanel.thumbPx(slider.x(), slider.width(), cell.maximum() < 0 ? groupCap : cell.maximum(), groupCap);
-        // Hitboxes hug the triangles: upper band = right endpoint, lower band = left endpoint.
-        if (y >= slider.y() + PanelLayout.MIN_THUMB_Y && y < slider.y() + PanelLayout.MIN_THUMB_Y + 5 && Math.abs(x - minAt) <= 3) {
-            draggingSlider = true;
-            dragOriginX = x;
-            dragMoved = false;
-            draftMinimum = Math.max(0, cell.minimum());
-            return true;
-        }
-        if (y >= slider.y() + PanelLayout.MAX_THUMB_Y && y < slider.y() + PanelLayout.MAX_THUMB_Y + 5 && Math.abs(x - maxAt) <= 3) {
-            draggingMaximum = true;
-            dragOriginX = x;
-            dragMoved = false;
-            draftMaximum = cell.maximum();
+        var r=inputLayout.slider(); var draft=controls(); if(r==null || draft==null) return false;
+        int low=CellControlGeometry.thumb(r,Math.max(0,draft.value().lower()),cellCapacity());
+        int high=CellControlGeometry.thumb(r,draft.value().upper(),cellCapacity());
+        if (y>=r.y()+40 && y<r.y()+47 && Math.abs(x-low)<=4) draggingSlider=true;
+        else if(y>=r.y()+32 && y<r.y()+39 && Math.abs(x-high)<=4) draggingMaximum=true;
+        else return false;
+        dragOriginX=x; dragMoved=false;
+        dragContext=draft.context();
+        dragStartValue=draggingMaximum?(draft.value().upper()<0?cellCapacity():draft.value().upper()):Math.max(0,draft.value().lower());
+        return true;
+    }
+    private static void updateSliderDrag(double x, boolean maximum) {
+        var draft=controls(); if(draft==null || layout.slider()==null || !dragMoved && Math.abs(x-dragOriginX)<2) return;
+        dragMoved=true; var value=draft.value(); int cap=cellCapacity();
+        int next=CellControlGeometry.draggedValue(dragStartValue,x-dragOriginX,cap);
+        if (snapshot.cells().get(selected).fluid()) next=Math.clamp(Math.round(next/8000f)*8000,0,cap);
+        int lower=value.lower(),upper=value.upper();
+        if(maximum) upper=next>=cap?-1:Math.max(next,Math.max(0,lower));
+        else { lower=Math.min(next,upper<0?cap:upper); if(lower==0) lower=-1; }
+        draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(lower,upper,value.batch(),value.pendingLimit()),tick);
+    }
+    private static void flushPendingThresholds() {
+        if(snapshot==null || !active() || waiting!=0 || cursorPending || pendingCursorChange!=null || draggingSlider || draggingMaximum) return;
+        submitControls(false);
+    }
+    private static void submitControls(boolean closing) {
+        controlDrafts.entrySet().removeIf(e -> !currentDraft(e.getValue()));
+        var drafts=controlDrafts.values().stream().filter(d->closing?d.dirty():d.ready(tick)).toList();
+        if(drafts.isEmpty() || waiting != 0)return;
+        var changes=drafts.stream().map(d->new CacheActions.SettingsChange(d.context().slot(),d.context().filterRevision(),d.value(),draftCell(d).fluid())).toList();
+        waiting=++sequence;waitingSince=tick;
+        PacketDistributor.sendToServer(new PanelPackets.SettingsBatch(window,snapshot.session(),waiting,changes));
+        for(var draft:drafts)draft.sentAll(waiting);
+    }
+
+    public static boolean recipeReady() {
+        return LogisticsPanel.active() && pageReady() && waiting == 0 && window != null;
+    }
+
+    public static boolean templateTarget(int slot) {
+        return recipeReady() && slot >= 0 && slot < snapshot.cells().size() && snapshot.cells().get(slot).writable() && snapshot.cells().get(slot).amount() == 0
+                && snapshot.fluidPreview().amount() == 0 && MC.player.containerMenu.getCarried().isEmpty() && (templateTarget < 0 || templateTarget == slot);
+    }
+    private static boolean beginTemplate(double x, double y) {
+        if (!active() || !pageReady() || waiting != 0 || layout == null || hidden || layout.compact() || returnEditing || snapshot.fluidPreview().amount()>0 || !MC.player.containerMenu.getCarried().isEmpty()) return false;
+        for (var cell : layout.cells()) if (cell.bounds().contains(x, y)) {
+            if (!snapshot.cells().get(cell.slot()).writable()) notice("result.read_only");
+            else if (snapshot.cells().get(cell.slot()).amount() != 0) notice("result.filter_occupied");
+            else if (!TemplateBrowsers.available()) notice("template_no_browser");
+            else { templateTarget = cell.slot(); selected = -1; updateLayout(); notice("template_choose"); }
             return true;
         }
         return false;
     }
-
-    /** Apply a drag position only after the pointer actually moved; a press that never moves must not
-     *  rewrite the value just because the hit test rounded to a neighbouring pixel. */
-    private static void updateSliderDrag(double x, boolean maximum) {
-        if (!dragMoved && Math.abs(x - dragOriginX) < 2.0) {
-            return;
-        }
-        dragMoved = true;
-        if (maximum) {
-            LogisticsPanel.setDraftMaximum(x);
-        } else {
-            LogisticsPanel.setDraft(x);
-        }
+    public static boolean earlyTemplateInput(int button, int action) {
+        if (action == 0 && earlyTemplateButton == button) { earlyTemplateButton = -1; return true; }
+        if (action != 1 || templateTarget < 0 || !current(MC.screen) || !visible()) return false;
+        if (button == 1 || button == 2) { templateTarget = -1; earlyTemplateButton = button; return true; }
+        if (button != 0) return false;
+        var template = TemplateBrowsers.selection();
+        if (template.isEmpty()) return false; // Search, paging and empty space keep their normal routing.
+        setTemplate(templateTarget, template); earlyTemplateButton = button; return true;
     }
-
-    private static void setDraft(double x) {
-        if (layout.slider() == null) {
-            return;
-        }
-        int groupCap = snapshot.groupCapacity();
-        int min = PanelLayout.sliderValue(layout.slider().x(), layout.slider().width(), x, groupCap);
-        int cap = snapshot.cells().get(selected).maximum();
-        if (cap < 0) {
-            cap = groupCap;
-        }
-        if (draggingMaximum) {
-            cap = draftMaximum;
-        }
-        draftMinimum = Math.min(min, cap);
+    public static boolean setTemplate(int slot, ItemStack template) {
+        return setTemplate(slot, TemplateBrowsers.Template.of(template));
     }
-
-    private static void setDraftMaximum(double x) {
-        if (layout.slider() == null) {
-            return;
-        }
-        int groupCap = snapshot.groupCapacity();
-        double relative = x - (double)layout.slider().x() - PanelLayout.TRACK_INSET;
-        int span = PanelLayout.sliderTrackSpan(layout.slider().width());
-        if (relative > span) {
-            draftMaximum = -1;
-            return;
-        }
-        int max = PanelLayout.sliderValue(layout.slider().x(), layout.slider().width(), x, groupCap);
-        int lower = snapshot.cells().get(selected).minimum();
-        if (lower < 0) {
-            lower = 0;
-        }
-        if (draggingSlider) {
-            lower = draftMinimum;
-        }
-        draftMaximum = Math.max(max, lower);
-    }
-
-    private static void sendThresholds(int min, int max) {
-        if (selected < 0 || !LogisticsPanel.active()) {
-            return;
-        }
-        // An address submit (or another command) may still be in flight; keep the player's change and
-        // flush it when that command settles instead of dropping it silently.
-        if (waiting != 0 || cursorPending || pendingCursorChange != null) {
-            pendingThresholdSlot = selected;
-            pendingThresholdMinimum = min;
-            pendingThresholdMaximum = max;
-            return;
-        }
-        LogisticsPanel.send(CacheActions.Action.THRESHOLDS, selected, min < 0 ? 0 : min, max, "");
-    }
-
-    /** Send a slider change that had to wait for an in-flight command. Never blocks or retries by
-     *  itself; it is called whenever a pending reply settles. */
-    private static void flushPendingThresholds() {
-        if (pendingThresholdSlot < 0 || snapshot == null || !LogisticsPanel.active()
-                || waiting != 0 || cursorPending || pendingCursorChange != null) {
-            return;
-        }
-        int slot = pendingThresholdSlot;
-        int min = pendingThresholdMinimum;
-        int max = pendingThresholdMaximum;
-        pendingThresholdSlot = -1;
-        if (slot >= snapshot.cells().size() || snapshot.cells().get(slot).template().isEmpty()) {
-            return;
-        }
-        LogisticsPanel.send(CacheActions.Action.THRESHOLDS, slot, min < 0 ? 0 : min, max, "");
-    }
-
-    private static void sendMinimum(int minimum) {
-        LogisticsPanel.sendThresholds(minimum, snapshot.cells().get(selected).maximum());
-    }
-
-    private static void sendMaximum(int maximum) {
-        LogisticsPanel.sendThresholds(snapshot.cells().get(selected).minimum(), maximum);
-    }
-
-    public static boolean recipeReady() {
-        return LogisticsPanel.active() && waiting == 0 && window != null;
+    public static boolean setTemplate(int slot, TemplateBrowsers.Template template) {
+        if (!templateTarget(slot) || template == null || template.isEmpty()) return false;
+        try {
+            boolean fluid = !template.fluid().isEmpty();
+            String encoded = fluid ? dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(template.fluid(), MC.player.registryAccess()).encoded()
+                    : ItemVariantKey.of(template.item(), MC.player.registryAccess()).encoded();
+            if (!send(fluid ? CacheActions.Action.SET_FLUID_GHOST : CacheActions.Action.SET_GHOST, slot, 0, -1, encoded)) return false;
+            templateSequence = waiting; return true;
+        } catch (IllegalArgumentException invalid) { notice("result.invalid_item"); return false; }
     }
 
     public static boolean fillRecipe(ResourceLocation recipe, boolean maximum) {
@@ -1621,22 +1808,22 @@ public final class LogisticsPanel {
 
     public static List<PanelLayout.CellBox> visibleCells(Screen candidate) {
         if (!LogisticsPanel.current(candidate) || !LogisticsPanel.active() || layout == null
-                || layout.compact() || layout.hidden() || waiting != 0) {
+                || layout.compact() || layout.hidden() || waiting != 0 || !pageReady()) {
             return List.of();
         }
         return layout.cells();
     }
 
     public static List<PanelLayout.Rect> exclusions(Screen candidate) {
-        return LogisticsPanel.current(candidate) && LogisticsPanel.visible() ? List.of(layout.bounds()) : List.of();
+        return LogisticsPanel.current(candidate) && LogisticsPanel.visible() ? (layout.slider()==null ? List.of(layout.bounds()) : List.of(layout.bounds(),layout.slider())) : List.of();
     }
 
     private static boolean send(CacheActions.Action action, int slot, int first, int second, String template) {
         ItemStack held;
-        if (snapshot == null || snapshot.session() == null || waiting != 0 || cursorPending || pendingCursorChange != null || window == null) {
+        if (snapshot == null || snapshot.session() == null || waiting != 0 || cursorPending || pendingCursorChange != null || window == null || !pageReady()) {
             return false;
         }
-        boolean creative = screen instanceof CreativeModeInventoryScreen && (action == CacheActions.Action.DEPOSIT || action == CacheActions.Action.TAKE_CURSOR);
+        boolean creative = screen instanceof CreativeModeInventoryScreen && (action == CacheActions.Action.DEPOSIT || action == CacheActions.Action.TAKE_CURSOR || action == CacheActions.Action.DEPOSIT_FLUID);
         String cursor = "";
         int count = 0;
         if (creative && !(held = LogisticsPanel.MC.player.containerMenu.getCarried()).isEmpty()) {
@@ -1649,7 +1836,13 @@ public final class LogisticsPanel {
                 return false;
             }
         }
-        CacheActions.Intent intent = new CacheActions.Intent(snapshot.session(), snapshot.revision(), action, slot, first, second, template);
+        boolean cellAction = switch (action) {
+            case SET_GHOST, SET_FLUID_GHOST, DEPOSIT, DEPOSIT_FLUID, TAKE_CURSOR, TAKE_INVENTORY, TAKE_FLUID,
+                    CLEAR_FILTER, THRESHOLDS, SUPPLY_SETTINGS, RESET_REQUEST -> true;
+            default -> false;
+        };
+        CacheActions.Intent intent = new CacheActions.Intent(snapshot.session(), snapshot.revision(), action,
+                cellAction && slot >= 0 ? snapshot.grid().storageSlot(slot) : slot, first, second, template);
         waiting = ++sequence;
         waitingSince = tick;
         // The one-key collect is silent on every non-OK result (user's silence rule): its answer is only ever
@@ -1659,7 +1852,7 @@ public final class LogisticsPanel {
         if (creative) {
             cursorSession = snapshot.session(); cursorOperation = waiting;
             cursorExpected = MC.player.containerMenu.getCarried().copy(); cursorPending = true;
-            if (action == CacheActions.Action.DEPOSIT) pendingCursorChange = new PendingCursorChange(window, cursorSession, waiting, cursorExpected);
+            if (action == CacheActions.Action.DEPOSIT || action == CacheActions.Action.DEPOSIT_FLUID) pendingCursorChange = new PendingCursorChange(window, cursorSession, waiting, cursorExpected);
             if (action == CacheActions.Action.TAKE_CURSOR) {
                 previewSeq = waiting; previewRemaining = 0; previewVariant = null; previewConfirmed = false;
             } else if (!previewConfirmed) previewSeq = 0;
@@ -1710,9 +1903,7 @@ public final class LogisticsPanel {
         serial = -1L;
         capturedButton = -1;
         returnBuffer = "";
-        draftMaximum = -1;
         tooltip = List.of();
-        recipeOverlay = candidate -> false;
         PANEL = ResourceLocation.fromNamespaceAndPath((String)"create_feed_me_packages", (String)"textures/gui/panel.png");
     }
 }

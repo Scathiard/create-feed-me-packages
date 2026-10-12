@@ -11,15 +11,30 @@ public final class DispatchScope implements AutoCloseable {
     private final CacheLedger ledger;
     private final HolderLookup.Provider registries;
     private final ParcelSeal route;
+    private final boolean fluid;
+    private long fluidUnits;
     public DispatchScope(CacheLedger ledger, HolderLookup.Provider registries, ParcelSeal route) {
-        if (CURRENT.get() != null) throw new IllegalStateException("Nested FMP dispatch");
-        this.ledger = ledger; this.registries = registries; this.route = route; CURRENT.set(this);
+        this(ledger, registries, route, false);
     }
+    public static DispatchScope fluid(CacheLedger ledger, HolderLookup.Provider registries, ParcelSeal route) {
+        return new DispatchScope(ledger, registries, route, true);
+    }
+    private DispatchScope(CacheLedger ledger, HolderLookup.Provider registries, ParcelSeal route, boolean fluid) {
+        if (CURRENT.get() != null) throw new IllegalStateException("Nested FMP dispatch");
+        this.ledger = ledger; this.registries = registries; this.route = route; this.fluid = fluid; CURRENT.set(this);
+    }
+    public long fluidUnits() { return fluidUnits; }
     public static void onCreated(ItemStack box) {
         DispatchScope scope = CURRENT.get(); if (scope == null) return;
         ParcelSeal seal = new ParcelSeal(UUID.randomUUID(), scope.route.cacheId(), scope.route.playerId(), scope.route.requestId(),
                 scope.route.variant(), scope.route.filterRevision(), scope.route.address(), false, "");
-        ParcelAuthentication.apply(scope.ledger, scope.registries, box, seal);
+        if (scope.fluid) {
+            var contents = dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(box);
+            if (contents.isEmpty() || !com.simibubi.create.content.logistics.box.PackageItem.getAddress(box).equals(seal.address())
+                    || !dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(contents, scope.registries).encoded().equals(seal.variant())) return;
+            ParcelAuthentication.applyFluid(scope.ledger, scope.registries, box, seal);
+            scope.fluidUnits = Math.addExact(scope.fluidUnits, contents.getAmount());
+        } else if (ParcelEnvelope.items(box)) ParcelAuthentication.apply(scope.ledger, scope.registries, box, seal);
     }
     @Override public void close() { if (CURRENT.get() != this) throw new IllegalStateException("Dispatch scope mismatch"); CURRENT.remove(); }
 }

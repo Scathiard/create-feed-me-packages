@@ -24,21 +24,12 @@ import net.neoforged.neoforge.items.ItemStackHandler;
 
 import java.util.List;
 
-/**
- * F-1 regression probe: our Create: Storage hooks must actually MATCH their injection points. The earlier
- * build declared the hook parameter as {@code ItemStackHandler} while their LVT says {@code IItemHandler}/
- * {@code IItemHandlerModifiable}, so Mixin matched nothing and the wrapper never ran (and no {@code FMP compat:}
- * line ever appeared).
- *
- * <p>This test calls their two server-side transfer methods reflectively (no compile dependency on their mod)
- * and asserts that our one-shot {@code hooked …} lines were emitted - i.e. the injections are applied and the
- * types match. On a run without that mod the test reports itself as skipped and passes.
- */
+/** Verifies actual optional method descriptors by observing a pure count and one exact paid placement. */
 @GameTestHolder(FeedMePackages.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class FxntInjectionProbeTests {
     @GameTest(template = "empty")
-    public static void theirTransferArgumentsAreWrappedByOurHooks(GameTestHelper helper) throws Exception {
+    public static void nativeTransferMethodsExposeOnlyPaidSources(GameTestHelper helper) throws Exception {
         if (!ModList.get().isLoaded("fxntstorage")) {
             FeedMePackages.LOGGER.info("FMP compat probe: skipped (fxntstorage is not installed)");
             helper.succeed();
@@ -48,6 +39,8 @@ public final class FxntInjectionProbeTests {
         // Real crafting menu (their placement writes into these slots) and a matching cache cell to debit.
         var relative = new BlockPos(1, 1, 1); helper.setBlock(relative, Blocks.CRAFTING_TABLE);
         player.containerMenu = new CraftingMenu(37, player.getInventory(), ContainerLevelAccess.create(helper.getLevel(), helper.absolutePos(relative)));
+        player.setPos(helper.absoluteVec(new net.minecraft.world.phys.Vec3(1.5, 1, 2)));
+        helper.assertTrue(player.containerMenu.stillValid(player), "Native workbench fixture is out of range");
         var handle = AccessGate.resolve(player).handle(); var ledger = CacheLedger.get(player.getServer()); var record = ledger.find(handle.cacheId());
         var edit = record.state().edit(); var stone = new net.minecraft.world.item.ItemStack(Items.STONE);
         var key = ItemVariantKey.of(stone, player.registryAccess()); edit.filter(0, key); edit.insert(0, key, 8);
@@ -57,26 +50,26 @@ public final class FxntInjectionProbeTests {
         var packet = packetClass.getDeclaredConstructor(ResourceLocation.class, List.class, boolean.class, int.class)
                 .newInstance(ResourceLocation.withDefaultNamespace("oak_planks"), List.of(), false, 0);
 
-        // Their read-only count method: the third argument is IItemHandler (LVT slot 3 "backpack").
         var count = packetClass.getDeclaredMethod("getMaxCraftableItems", List.class, Inventory.class, IItemHandler.class);
         count.setAccessible(true);
-        // Their own code may legitimately refuse a fake handler; what this test proves is that OUR hooks ran.
-        try { count.invoke(packet, List.of(), player.getInventory(), new ItemStackHandler(200)); }
-        catch (Throwable refusal) { FeedMePackages.LOGGER.info("FMP compat probe: their count method answered with {}", refusal.getClass().getSimpleName()); }
-
-        // Their placement method: the fifth argument is IItemHandlerModifiable (LVT slot 5 "itemHandler").
         var place = packetClass.getDeclaredMethod("collectAndPlace", Ingredient.class, int.class, int.class,
                 Inventory.class, IItemHandlerModifiable.class, List.class);
         place.setAccessible(true);
-        try { place.invoke(packet, Ingredient.of(Items.STONE), 0, 1, player.getInventory(), new ItemStackHandler(200), List.of()); }
-        catch (Throwable refusal) { FeedMePackages.LOGGER.info("FMP compat probe: their placement answered with {}", refusal.getClass().getSimpleName()); }
-
-        helper.assertTrue(CompatLog.hasLogged("hooked:getMaxCraftableItems"),
-                "our IItemHandler hook never fired - the injection point does not match their LVT");
-        helper.assertTrue(CompatLog.hasLogged("hooked:collectAndPlace"),
-                "our Inventory hook never fired - the injection point does not match their method");
-        int after = CacheLedger.get(player.getServer()).find(handle.cacheId()).state().cells().get(0).amount();
-        FeedMePackages.LOGGER.info("FMP compat probe: their collectAndPlace ran; cache cell 0 {} -> {} (before={})", stoneBefore, after, stoneBefore);
+        var wanted = Ingredient.of(Items.STONE);
+        try (var scope = new dev.scathiard.feedmepackages.compat.fxntstorage.FxntTransferContext(
+                List.of(wanted), null, false, dev.scathiard.feedmepackages.network.TransferOrigin.Viewer.JEI)) {
+            int available = ((Number) count.invoke(packet, List.of(wanted), player.getInventory(), new ItemStackHandler(200))).intValue();
+            helper.assertTrue(available == 8 && ledger.find(handle.cacheId()).state().cells().get(0).amount() == 8,
+                    "Native count did not expose all exact sources purely");
+            boolean placed = (boolean) place.invoke(packet, wanted, 0, 1, player.getInventory(),
+                    new ItemStackHandler(200), List.of(player.containerMenu.getSlot(1)));
+            var output = player.containerMenu.getSlot(1).getItem();
+            helper.assertTrue(placed && output.is(Items.STONE) && output.getCount() == 1
+                    && ledger.find(handle.cacheId()).state().cells().get(0).amount() == 7,
+                    "Native placement must materialize and debit exactly one item");
+        }
+        helper.assertTrue(dev.scathiard.feedmepackages.compat.fxntstorage.FxntTransferContext.current() == null,
+                "Native transfer leaked its scope");
         helper.succeed();
     }
 }

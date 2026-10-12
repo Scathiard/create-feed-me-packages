@@ -24,7 +24,9 @@ public final class PanelNetwork {
     private static final Map<ServerPlayer, Window> WINDOWS = new WeakHashMap<>();
     private static final Map<ServerPlayer, Budget> BUDGETS = new WeakHashMap<>();
     private static final class Window {
-        final UUID id; final int menu; long serial, cursorSerial; int lastSequence;
+        final UUID id; final int menu; long serial, cursorSerial; int lastSequence, firstSlot, columnLimit=6;
+        dev.scathiard.feedmepackages.logistics.LogisticsSignals.Viewer feedback;
+        void closeFeedback() { if (feedback != null) { feedback.close(); feedback = null; } }
         CacheActions.Result lastResult = CacheActions.Result.OK;
         Window(UUID id, int menu) { this.id = id; this.menu = menu; }
     }
@@ -37,7 +39,7 @@ public final class PanelNetwork {
         }
     }
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("4");
+        var registrar = event.registrar("9-converged-maid-pickup");
         registrar.playToServer(PanelPackets.Query.TYPE, PanelPackets.Query.CODEC, (packet, context) -> {
             var reply = query((ServerPlayer) context.player(), packet); if (reply != null) context.reply(reply);
         });
@@ -45,30 +47,44 @@ public final class PanelNetwork {
             var reply = command((ServerPlayer) context.player(), packet); if (reply != null) context.reply(reply);
         });
         registrar.playToClient(PanelPackets.Snapshot.TYPE, PanelPackets.Snapshot.CODEC, (packet, context) -> clientReceiver.accept(packet));
+        registrar.playToServer(PanelPackets.SettingsBatch.TYPE,PanelPackets.SettingsBatch.CODEC,(packet,context)->{
+            var reply=settings((ServerPlayer)context.player(),packet);if(reply!=null)context.reply(reply);
+        });
         registrar.playToClient(PanelPackets.CursorUpdate.TYPE, PanelPackets.CursorUpdate.CODEC, (packet, context) -> cursorReceiver.accept(packet));
     }
-    public static void forget(ServerPlayer player) { WINDOWS.remove(player); BUDGETS.remove(player); CacheActions.close(player); }
+    public static void forget(ServerPlayer player) { var window = WINDOWS.remove(player); if (window != null) window.closeFeedback(); BUDGETS.remove(player); CacheActions.close(player); }
+    public static PanelPackets.Snapshot settings(ServerPlayer player,PanelPackets.SettingsBatch packet) {
+        var window=WINDOWS.get(player);
+        if(window==null || !window.id.equals(packet.window()) || window.menu!=player.containerMenu.containerId)return null;
+        boolean allowed=BUDGETS.computeIfAbsent(player,p->new Budget()).action(player.tickCount);
+        if(packet.sequence()<=window.lastSequence)return allowed?snapshot(player,window,packet.sequence(),CacheActions.Result.STALE):null;
+        window.lastSequence=packet.sequence();
+        var result=allowed?CacheActions.settings(player,packet.session(),packet.changes()):CacheActions.Result.TOO_COMPLEX;
+        window.lastResult=result;return allowed?snapshot(player,window,packet.sequence(),result):null;
+    }
     public static PanelPackets.Snapshot query(ServerPlayer player, PanelPackets.Query packet) {
         var window = WINDOWS.get(player);
         if (!packet.open()) {
-            if (window != null && window.id.equals(packet.window())) { WINDOWS.remove(player); CacheActions.close(player); }
+            if (window != null && window.id.equals(packet.window())) { window.closeFeedback(); WINDOWS.remove(player); CacheActions.close(player); }
             return null;
         }
         if (!BUDGETS.computeIfAbsent(player, p -> new Budget()).query(player.tickCount)) return null;
-        if (packet.menu() != player.containerMenu.containerId) return null;
+        if (packet.menu() != player.containerMenu.containerId || packet.firstSlot()<0 || packet.firstSlot()>dev.scathiard.feedmepackages.domain.CacheCapacity.MAX_SLOTS || packet.columnLimit()<2 || packet.columnLimit()>6) return null;
         if (window == null || !window.id.equals(packet.window()) || window.menu != packet.menu()) {
+            if (window != null) window.closeFeedback();
             CacheActions.close(player); window = new Window(packet.window(), packet.menu()); WINDOWS.put(player, window);
         }
+        window.firstSlot=packet.firstSlot();window.columnLimit=packet.columnLimit();
         return snapshot(player, window, window.lastSequence, window.lastResult);
     }
     public static PanelPackets.Snapshot command(ServerPlayer player, PanelPackets.Command packet) {
         var window = WINDOWS.get(player);
-        boolean ownsInput = packet.creativeCursor() && packet.intent().action() == CacheActions.Action.DEPOSIT;
+        boolean ownsInput = packet.creativeCursor() && (packet.intent().action() == CacheActions.Action.DEPOSIT || packet.intent().action() == CacheActions.Action.DEPOSIT_FLUID);
         if (window == null || !window.id.equals(packet.window()) || window.menu != player.containerMenu.containerId)
             return ownsInput ? refusal(packet, CacheActions.Result.STALE) : null;
         boolean replyAllowed = BUDGETS.computeIfAbsent(player, p -> new Budget()).action(player.tickCount);
         var action = packet.intent().action();
-        boolean cleanup = action == CacheActions.Action.RELEASE_PREVIEW || action == CacheActions.Action.CREATIVE_BEGIN
+        boolean cleanup = action == CacheActions.Action.RELEASE_PREVIEW || action == CacheActions.Action.RELEASE_FLUID || action == CacheActions.Action.CREATIVE_BEGIN
                 || action == CacheActions.Action.CREATIVE_END;
         if (packet.sequence() <= window.lastSequence)
             return replyAllowed ? snapshot(player, window, packet.sequence(), CacheActions.Result.STALE) : null;
@@ -119,32 +135,55 @@ public final class PanelNetwork {
     private static PanelPackets.Snapshot snapshot(ServerPlayer player, Window window, int ack, CacheActions.Result result) {
         var view = CacheActions.snapshot(player); var access = view.access(); var record = view.record();
         if (access.terminals().size() > PanelPackets.MAX_TERMINALS) {
+            window.closeFeedback();
             CacheActions.close(player);
             return new PanelPackets.Snapshot(window.id, null, ++window.serial, ack, CacheActions.Result.INVALID_REQUEST,
                     AccessGate.Status.INVALID_IDENTITY, -1, 0, 0, false, false, false, "", "", "", List.of(), List.of());
         }
         var terminals = access.terminals().stream().map(t -> new PanelPackets.TerminalView(t.slot(),
-                ((PendantItem)t.stack().getItem()).personal(), t.disabled(), t.network() == null ? "" : t.network().toString())).toList();
+                false, t.disabled(), t.network() == null ? "" : t.network().toString())).toList();
         List<PanelPackets.CellView> cells = new ArrayList<>();
         String residualItem = "";
         String returnAddress = access.active() && access.handle() != null
                 ? dev.scathiard.feedmepackages.storage.CacheLedger.get(player.getServer()).returnAddress(access.handle().cacheId()) : null;
+        if (record == null) window.closeFeedback();
         if (record != null) {
-            for (int i = 0; i < record.state().cells().size(); i++) {
+            if (window.feedback == null || !window.feedback.matches(record.state().id())) {
+                window.closeFeedback(); window.feedback = new dev.scathiard.feedmepackages.logistics.LogisticsSignals.Viewer(record.state().id());
+            }
+            window.firstSlot=dev.scathiard.feedmepackages.domain.CacheViewport.first(record.state().cells().size(),window.firstSlot,window.columnLimit);
+            var grid=dev.scathiard.feedmepackages.domain.CacheGrid.window(record.state().cells().size(),window.firstSlot,window.columnLimit);
+            window.feedback.page(grid.storageSlots());
+            for (int i : grid.storageSlots()) {
+                var fluidCell = record.fluids().state().cells().get(i);
+                if (fluidCell.filter() != null) {
+                    String template = fluidCell.filter().encoded();
+                    int reserved = (int)Math.min(Integer.MAX_VALUE, dev.scathiard.feedmepackages.interaction.FluidActions.reserved(access.handle().cacheId(), i));
+                    cells.add(new PanelPackets.CellView(template, fluidCell.amount(), fluidCell.settings().lower(), fluidCell.settings().upper(),
+                            record.fluids().state().pending(i), reserved, fluidCell.filter().stackSize(), record.fluids().hasResidual(fluidCell.filter()),
+                            dev.scathiard.feedmepackages.logistics.ReturnService.dispatchState(access.handle(), returnAddress, i, "fluid:" + template, fluidCell.settings().upper()),
+                            1, -1, fluidCell.filterRevision(), window.feedback.get(i), true, record.fluids().state().writable(i)));
+                    continue;
+                }
                 var cell = record.state().cells().get(i);
                 boolean slotResidual = cell.filter() != null && !record.residual(cell.filter()).isEmpty();
                 int reserved = cell.filter() == null ? 0 : dev.scathiard.feedmepackages.interaction.CursorReservations.reserved(access.handle().cacheId(), i);
                 String template = cell.filter() == null ? "" : cell.filter().encoded();
-                cells.add(new PanelPackets.CellView(template, cell.amount(), cell.minimum(), cell.maximum(), record.state().pending(i), reserved, cell.filter() == null ? 1 : cell.filter().stackSize(), slotResidual,
-                        dev.scathiard.feedmepackages.logistics.ReturnService.dispatchState(access.handle(), returnAddress, i, template, cell.maximum())));
+                cells.add(new PanelPackets.CellView(template, cell.amount(), cell.settings().lower(), cell.settings().upper(), record.state().pending(i), reserved, cell.filter() == null ? 1 : cell.filter().stackSize(), slotResidual,
+                        dev.scathiard.feedmepackages.logistics.ReturnService.dispatchState(access.handle(), returnAddress, i, template, cell.settings().upper()), cell.settings().batch(), cell.settings().pendingLimit(), cell.filterRevision(), window.feedback.get(i), false, record.state().writable(i)));
             }
             for (var box : record.residuals().values())
                 if (!box.isEmpty()) { residualItem = BuiltInRegistries.ITEM.getKey(box.getItem()).toString(); break; }
         }
+        var fluid = dev.scathiard.feedmepackages.interaction.FluidActions.preview(player);
         return new PanelPackets.Snapshot(window.id, view.session(), ++window.serial, ack, result, access.status(),
                 record == null ? -1 : record.state().revision(), record == null ? 0 : record.state().level(),
-                record == null ? 0 : CacheLevel.of(record.state().level()).capacity(), record != null && record.owner() != null,
-                view.cacheFirst(), access.active() && access.handle().networkId() != null, SupplyService.address(player),
-                returnAddress == null ? "" : returnAddress, residualItem, cells, terminals);
+                record == null ? 0 : Math.multiplyExact(record.state().capacity().groups(),64), record != null && record.owner() != null,
+                view.cacheFirst(), access.active() && access.handle().networkId() != null, dev.scathiard.feedmepackages.interaction.PanelAccess.address(player),
+                returnAddress == null ? "" : returnAddress, residualItem, cells, terminals,
+                new PanelPackets.FluidPreviewView(fluid.slot(), fluid.template(), fluid.amount(), fluid.sequence()),
+                record==null?0:window.firstSlot,record==null?0:record.state().cells().size(),window.columnLimit,
+                access.active() && dev.scathiard.feedmepackages.compat.maid.MaidPickup.enabled(
+                        dev.scathiard.feedmepackages.compat.maid.MaidMenus.target(player.containerMenu)));
     }
 }

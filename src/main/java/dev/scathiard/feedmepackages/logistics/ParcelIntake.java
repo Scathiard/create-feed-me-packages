@@ -21,8 +21,7 @@ public final class ParcelIntake {
 
     public static Plan simulate(CacheState<ItemVariantKey> state, ItemStack box, ItemVariantKey requested,
                                 UUID requestId, boolean alreadyArrived, HolderLookup.Provider registries) {
-        if (box.getCount() != 1 || !PackageItem.isPackage(box)
-                || box.getOrDefault(AllDataComponents.PACKAGE_CONTENTS, ItemContainerContents.EMPTY).getSlots() > 9)
+        if (!ParcelEnvelope.items(box))
             throw new IllegalArgumentException("Invalid native package shape");
         var contents = PackageItem.getContents(box); var edit = state.edit();
         NonNullList<ItemStack> remainder = NonNullList.withSize(contents.getSlots(), ItemStack.EMPTY);
@@ -36,7 +35,7 @@ public final class ParcelIntake {
             catch (IllegalArgumentException unsupported) { remainder.set(index, item); anyRemainder = true; continue; }
             if (key.equals(requested)) arrived = Math.addExact(arrived, item.getCount());
             int slot = state.find(key);
-            if (slot >= 0) {
+            if (slot >= 0 && dev.scathiard.feedmepackages.service.CachePolicy.admits(key,registries)) {
                 int accepted = edit.insert(slot, key, item.getCount());
                 item.shrink(accepted); moved = Math.addExact(moved, accepted);
             }

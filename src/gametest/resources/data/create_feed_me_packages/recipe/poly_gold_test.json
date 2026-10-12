@@ -1,0 +1,6 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [{"item": "minecraft:stone_bricks"}],
+  "result": {"id": "minecraft:gold_nugget", "count": 1}
+}

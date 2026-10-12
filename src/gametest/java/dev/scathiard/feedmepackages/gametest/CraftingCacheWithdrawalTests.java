@@ -512,12 +512,12 @@ public final class CraftingCacheWithdrawalTests {
      */
     @GameTest(template = "empty")
     public static void aHigherSchemaLedgerLocksTheCacheAndTheMaterialView(GameTestHelper helper) {
-        helper.assertTrue(CacheLedger.SCHEMA == 8, "This baseline is expected to be schema 8, not " + CacheLedger.SCHEMA);
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
         var server = helper.getLevel().getServer();
         var storage = server.overworld().getDataStorage();
         var healthy = CacheLedger.get(server);
-        var fromNewer = new CompoundTag(); fromNewer.putInt("schema", 10);
+        int unknownSchema = CacheLedger.SCHEMA + 1;
+        var fromNewer = new CompoundTag(); fromNewer.putInt("schema", unknownSchema);
         var locked = CacheLedger.load(fromNewer, helper.getLevel().registryAccess());
         boolean refused = !locked.problem().isEmpty();
         // The message can name the refused file's own schema, and the lock re-writes the original data
@@ -531,8 +531,8 @@ public final class CraftingCacheWithdrawalTests {
             var message = MaterialHints.next(player);
             hinted = message.active(); empty = message.templates().isEmpty() && message.amounts().isEmpty();
         } finally { storage.set(CacheLedger.NAME, healthy); }
-        helper.assertTrue(refused && status.equals("STORAGE_LOCKED") && !hinted && empty && sourceSchema == 10,
-                "A schema-10 ledger must lock the cache and leave the client without a material view: refused=" + refused
+        helper.assertTrue(refused && status.equals("STORAGE_LOCKED") && !hinted && empty && sourceSchema == unknownSchema,
+                "An unknown schema must lock the cache and leave the client without a material view: refused=" + refused
                         + ", status=" + status + ", hintsActive=" + hinted + ", empty=" + empty + ", sourceSchema=" + sourceSchema);
         helper.assertTrue(AccessGate.resolve(player).status() == AccessGate.Status.ACTIVE && MaterialHints.next(player).active(),
                 "Swapping the healthy ledger back must restore the cache (otherwise this test poisons the world)");
