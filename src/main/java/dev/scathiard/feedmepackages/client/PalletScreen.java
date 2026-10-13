@@ -38,7 +38,7 @@ public final class PalletScreen extends Screen {
             candidates = PalletClient.candidates();
             initialized = true;
         }
-        search = new EditBox(font, Math.max(12, width / 2 - 100), 30, Math.min(200, width - 24), 18,
+        search = new EditBox(font, Math.max(12, width / 2 - 100), height / 2 + 22, Math.min(200, width - 24), 18,
                 Component.translatable("gui.create_feed_me_packages.pallet.search"));
         search.setMaxLength(80);
         search.setBordered(false);
@@ -78,7 +78,7 @@ public final class PalletScreen extends Screen {
         pointerX=minecraft.mouseHandler.xpos()*width/minecraft.getWindow().getScreenWidth();
         pointerY=minecraft.mouseHandler.ypos()*height/minecraft.getWindow().getScreenHeight();
     }
-    private PalletArtwork.Arc arcLayout() { return PalletArtwork.arc(width, height); }
+    private PalletLayout.Arc arcLayout() { return PalletLayout.arc(width, height); }
     private ItemStack gridTarget(double x, double y) {
         for (var tile : layout().tiles())
             if (tile.contains(x, y) && inStock(shown.get(tile.index()))) return shown.get(tile.index());
@@ -120,20 +120,21 @@ public final class PalletScreen extends Screen {
         if (spiral) {
             drawArc(g);
         } else {
-            g.drawCenteredString(font, title, width / 2, 12, PalletArtwork.BRASS);
+            g.drawCenteredString(font, title, width / 2, height / 2 + 4, PalletArtwork.BRASS);
             var view = layout(); first = view.first();
             for (var tile : view.tiles()) {
                 var item = shown.get(tile.index());
                 if (inStock(item)) drawTile(g, item, tile.x(), tile.y());
             }
-            if (!focus.isEmpty()) g.renderTooltip(font, focus, mouseX, mouseY);
+            var hovered = gridTarget(mouseX,mouseY);
+            if (!hovered.isEmpty()) g.renderTooltip(font, hovered, mouseX, mouseY);
         }
         long count = shown.stream().filter(this::inStock).count();
         var label = Component.translatable("gui.create_feed_me_packages.pallet.help", ClientBootstrap.PALLET_MODE.getTranslatedKeyMessage(),
                 Component.translatable("gui.create_feed_me_packages.pallet." + (spiral ? "spiral" : "grid")), count);
         g.drawCenteredString(font, label, width / 2, height - 22, 0xffeeeeee);
         if(spiral) g.drawCenteredString(font, Component.translatable("gui.create_feed_me_packages.pallet.drag"),width/2,height-35,0xffd4bd82);
-        if (count == 0) g.drawCenteredString(font, Component.translatable("gui.create_feed_me_packages.pallet.empty"), width / 2, height / 2 + 12, 0xffcccccc);
+        if (count == 0) g.drawCenteredString(font, Component.translatable("gui.create_feed_me_packages.pallet.empty"), width / 2, height - 60, 0xffcccccc);
     }
     private void drawArc(GuiGraphics g) {
         long now=System.nanoTime(); navigation.advance((now-frameTime)/1e9); frameTime=now;

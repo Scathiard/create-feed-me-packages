@@ -3,22 +3,38 @@ package dev.scathiard.feedmepackages.domain;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Grid pagination and a continuous spiral use the same stable item indices. */
+/** Visual geometry is independent of gesture gain and stable inventory indices. */
 public final class PalletLayout {
     private PalletLayout() {}
     public record Tile(int index, int x, int y) {
         public boolean contains(double px, double py) { return px >= x && px < x + 24 && py >= y && py < y + 24; }
     }
     public record View(List<Tile> tiles, int first, int step, int maximum) {}
+    public record Arc(double unit, double outer, double inner, double cx, double cy, double pixelsPerCell) {
+        public double x(double radius,double angle) { return cx+Math.sin(angle)*radius; }
+        public double y(double radius,double angle) { return cy-Math.cos(angle)*radius; }
+        public double mid() { return (inner+outer)/2; }
+    }
+    public static Arc arc(int width,int height) {
+        validate(0,width,height);
+        // r006: 114-unit band across a 1076-unit chord. Fit the complete arc, pointer,
+        // rack and caption into the lower half, leaving space for the footer.
+        double unit=Math.max(.05,Math.min(1,Math.min(width/1120.0,(height/2.0-48)/310.0)));
+        double outer=538*unit/Math.sin(.66),top=height/2.0+8+7*unit;
+        // Retain test.65 drag sensitivity; shrinking the artwork must not change the gesture.
+        double gain=85*Math.min(width/560.0,height/260.0);
+        return new Arc(unit,outer,outer-114*unit,width/2.0,outer+top,gain);
+    }
     public record SpiralTile(int index, double x, double y, double size, float opacity, boolean current) {}
     public record SpiralView(List<SpiralTile> tiles, double centerX, double centerY, double radius) {}
 
     public static View grid(int size, int offset, int width, int height) {
         validate(size, width, height);
         var tiles = new ArrayList<Tile>();
-        int columns = Math.max(1, Math.min(8, (width - 32) / 26)), rows = Math.max(1, Math.min(6, (height - 96) / 26));
+        int y = height / 2 + 46;
+        int columns = Math.max(1, Math.min(8, (width - 32) / 26)), rows = Math.max(1, Math.min(6, (height - y - 32) / 26));
         int maximum = Math.max(0, (int) Math.ceil(size / (double) columns) - rows) * columns;
-        int first = Math.clamp(offset / columns * columns, 0, maximum), x = (width - columns * 26) / 2, y = 60;
+        int first = Math.clamp(offset / columns * columns, 0, maximum), x = (width - columns * 26) / 2;
         for (int i = 0; i < Math.min(columns * rows, size - first); i++)
             tiles.add(new Tile(first + i, x + i % columns * 26, y + i / columns * 26));
         return new View(List.copyOf(tiles), first, columns, maximum);

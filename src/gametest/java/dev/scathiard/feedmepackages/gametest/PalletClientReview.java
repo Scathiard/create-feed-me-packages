@@ -41,6 +41,8 @@ public final class PalletClientReview {
             case 0 -> {
                 net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.bus.api.EventPriority.LOWEST,
                         false, net.neoforged.neoforge.client.event.ScreenEvent.Render.Post.class, PalletClientReview::rendered);
+                net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(net.neoforged.bus.api.EventPriority.LOWEST,
+                        false,net.neoforged.neoforge.client.event.RenderTooltipEvent.Pre.class,PalletClientReview::tooltipRendered);
                 server(PalletClientReview::setup); next();
             }
             case 1 -> {
@@ -53,6 +55,7 @@ public final class PalletClientReview {
                 for(String name:List.of("whole","fixed","tray_slide","jaw_left","jaw_right","outlet_gate","fallback"))
                     require(MC.getModelManager().getModel(PalletRenderer.modelId(name))!=MC.getModelManager().getMissingModel(),"Missing pallet model "+name);
                 TemplateClientReview.capture("pallet-arc-default");
+                verifyVisualContract();
                 // Prime the native post-grab first-move rule before starting the measured gesture.
                 moveGui(MC.getWindow().getGuiScaledWidth() / 2.0, MC.getWindow().getGuiScaledHeight() / 2.0);
                 moves = 0; next();
@@ -201,7 +204,7 @@ public final class PalletClientReview {
             }
             case 30 -> {
                 require(MC.player.getMainArm()==net.minecraft.world.entity.HumanoidArm.LEFT,"Left hand option did not reach the player");
-                TemplateClientReview.capture("pallet-left-hand-model");
+                verifyHandBody();TemplateClientReview.capture("pallet-left-hand-model");
                 MC.options.mainHand().set(net.minecraft.world.entity.HumanoidArm.RIGHT);MC.options.broadcastOptions();
                 MC.options.setCameraType(CameraType.THIRD_PERSON_FRONT);next();
             }
@@ -215,13 +218,90 @@ public final class PalletClientReview {
                 require(!PalletClient.feedPose(0).cargo(),"Resource reload replayed stale cargo");
                 TemplateClientReview.capture("pallet-after-resource-reload");next();
             }
-            case 33 -> {
+            case 33 -> { server(PalletClientReview::setup);next(); }
+            case 34 -> {
+                if(PalletClient.candidates().size()!=34 || !Objects.equals(cache,ClientMaterials.cacheId())) return false;
+                MC.options.guiScale().set(1);MC.resizeDisplay();button(2,true);next();
+            }
+            case 35 -> { verifyVisualContract();TemplateClientReview.capture("pallet-arc-scale1");key(org.lwjgl.glfw.GLFW.GLFW_KEY_TAB);next(); }
+            case 36 -> {
+                verifyGridBounds();TemplateClientReview.capture("pallet-grid-scale1");key(org.lwjgl.glfw.GLFW.GLFW_KEY_TAB);
+                MC.options.guiScale().set(3);MC.resizeDisplay();next();
+            }
+            case 37 -> { verifyVisualContract();TemplateClientReview.capture("pallet-arc-scale3");key(org.lwjgl.glfw.GLFW.GLFW_KEY_TAB);next(); }
+            case 38 -> { verifyGridBounds();TemplateClientReview.capture("pallet-grid-scale3");key(org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE);button(2,false);MC.options.guiScale().set(2);MC.resizeDisplay();next(); }
+            case 39 -> {
                 FeedMePackages.LOGGER.info("FMP_PALLET_CLIENT_PASSED defaultMiddle=true defaultArc=true forwardSteps=69 reverseSteps=70 nativeWrap=true nativeReverse=true nativeBlur=true keyboardAndMouseRebind=true horizontalDrag=true hysteresis=true escapeCancel=true brassArcHighlight=true authoritativeFeed=true gridSearch=true nativePlace=true nativeMiningWithTool=true");
-                FeedMePackages.LOGGER.info("FMP_PALLET_MODELS_CLIENT_PASSED bakedParts=7 inventory=true leftHand=true thirdPerson=true resourceReload=true");
+                FeedMePackages.LOGGER.info("FMP_PALLET_MODELS_CLIENT_PASSED bakedParts=7 inventory=true leftHand=true thirdPerson=true resourceReload=true fixedBody=true lowerHalf=true guiScales=1,2,3");
                 return true;
             }
         }
         return false;
+    }
+    private static void tooltipRendered(net.neoforged.neoforge.client.event.RenderTooltipEvent.Pre event) {
+        if(!(MC.screen instanceof PalletScreen)) return;
+        try {
+            if(spiral()) return;
+            var method=PalletScreen.class.getDeclaredMethod("gridTarget",double.class,double.class);method.setAccessible(true);
+            var target=(ItemStack)method.invoke(MC.screen,MC.mouseHandler.xpos()/MC.getWindow().getGuiScale(),MC.mouseHandler.ypos()/MC.getWindow().getGuiScale());
+            require(!target.isEmpty(),"Grid showed the prior selection tooltip without hovering a tile");
+        } catch(ReflectiveOperationException | RuntimeException failure) { renderFailure=new IllegalStateException("Grid tooltip hover check failed",failure); }
+    }
+    private static void verifyGridBounds() throws ReflectiveOperationException {
+        require(!spiral(),"Expected grid after mode switch");
+        var method=PalletScreen.class.getDeclaredMethod("layout");method.setAccessible(true);
+        var grid=(PalletLayout.View)method.invoke(MC.screen);
+        require(!grid.tiles().isEmpty(),"Resize lost the available candidates");
+        for(var tile:grid.tiles()) require(tile.y()>=MC.screen.height/2 && tile.y()+24<MC.screen.height-22,"Grid escaped lower half");
+        var field=PalletScreen.class.getDeclaredField("search");field.setAccessible(true);
+        var search=(net.minecraft.client.gui.components.EditBox)field.get(MC.screen);
+        require(search.getY()-4>=MC.screen.height/2,"Search escaped lower half");
+        FeedMePackages.LOGGER.info("FMP_PALLET_GRID_CHECK scale={} tiles={} lowerHalf=true",MC.getWindow().getGuiScale(),grid.tiles().size());
+    }
+    /** Calls the native first-person path, then compares emitted fixed-body vertices. */
+    private static void verifyVisualContract() throws ReflectiveOperationException {
+        var method=PalletScreen.class.getDeclaredMethod("arcLayout");method.setAccessible(true);
+        var arc=method.invoke(MC.screen);
+        double outer=coordinate(arc,"outer"),inner=coordinate(arc,"inner"),cy=coordinate(arc,"cy"),unit=coordinate(arc,"unit");
+        double top=cy-outer-7*unit;
+        double thickness=(outer-inner)/(2*outer*Math.sin(.66));
+        verifyHandBody();
+        FeedMePackages.LOGGER.info("FMP_PALLET_LAYOUT_CHECK top={} midline={} bandWidthRatio={}",top,MC.screen.height/2.0,thickness);
+        require(top>=MC.screen.height/2.0 && thickness<=.11,"Pallet geometry crosses midline or band is too thick");
+    }
+    private static void verifyHandBody() throws ReflectiveOperationException {
+        var idle=handVertices(FmpRegistries.POCKET_PALLET.toStack(),0,0);
+        var swing=handVertices(FmpRegistries.POCKET_PALLET.toStack(),.5f,0);
+        var lowered=handVertices(FmpRegistries.POCKET_PALLET.toStack(),0,.75f);
+        boolean stableSwing=sameVertices(idle,swing),stableUse=sameVertices(idle,lowered);
+        FeedMePackages.LOGGER.info("FMP_PALLET_BODY_CHECK arm={} stableSwing={} stableUse={}",MC.player.getMainArm(),stableSwing,stableUse);
+        require(stableSwing && stableUse,"Pallet fixed-body vertices moved during vanilla hand animation");
+        require(!sameVertices(handVertices(new ItemStack(Items.STONE),0,0),handVertices(new ItemStack(Items.STONE),.5f,.75f)),
+                "Native ordinary item animation was suppressed");
+    }
+    private static List<Float> handVertices(ItemStack stack,float swing,float equip) throws ReflectiveOperationException {
+        var vertices=new ArrayList<Float>();
+        var consumer=new com.mojang.blaze3d.vertex.VertexConsumer() {
+            @Override public com.mojang.blaze3d.vertex.VertexConsumer addVertex(float x,float y,float z) {
+                if(vertices.size()<72){vertices.add(x);vertices.add(y);vertices.add(z);}return this;
+            }
+            @Override public com.mojang.blaze3d.vertex.VertexConsumer setColor(int r,int g,int b,int a){return this;}
+            @Override public com.mojang.blaze3d.vertex.VertexConsumer setUv(float u,float v){return this;}
+            @Override public com.mojang.blaze3d.vertex.VertexConsumer setUv1(int u,int v){return this;}
+            @Override public com.mojang.blaze3d.vertex.VertexConsumer setUv2(int u,int v){return this;}
+            @Override public com.mojang.blaze3d.vertex.VertexConsumer setNormal(float x,float y,float z){return this;}
+        };
+        var method=net.minecraft.client.renderer.ItemInHandRenderer.class.getDeclaredMethod("renderArmWithItem",
+                net.minecraft.client.player.AbstractClientPlayer.class,float.class,float.class,InteractionHand.class,float.class,
+                ItemStack.class,float.class,com.mojang.blaze3d.vertex.PoseStack.class,net.minecraft.client.renderer.MultiBufferSource.class,int.class);
+        method.setAccessible(true);
+        method.invoke(MC.gameRenderer.itemInHandRenderer,MC.player,0f,0f,InteractionHand.MAIN_HAND,swing,stack,equip,
+                new com.mojang.blaze3d.vertex.PoseStack(),(net.minecraft.client.renderer.MultiBufferSource)type->consumer,15728880);
+        require(vertices.size()==72,"Native renderer did not emit fixed-body geometry");return vertices;
+    }
+    private static boolean sameVertices(List<Float> a,List<Float> b) {
+        for(int i=0;i<a.size();i++)if(Math.abs(a.get(i)-b.get(i))>0.00001)return false;
+        return true;
     }
     private static void setup(ServerPlayer p) {
         p.getInventory().clearContent();p.setGameMode(GameType.SURVIVAL);TestPlayers.necklace(p).setStackInSlot(0,FmpRegistries.PENDANT.toStack());
@@ -242,8 +322,13 @@ public final class PalletClientReview {
     }
     private static void rendered(net.neoforged.neoforge.client.event.ScreenEvent.Render.Post event) {
         if (!highlightPending || !(event.getScreen() instanceof PalletScreen)) return;
-        highlightPending = false;
         try {
+            var navField=PalletScreen.class.getDeclaredField("navigation");navField.setAccessible(true);
+            var nav=(PalletSelector)navField.get(MC.screen);
+            // The selected frame fades while moving. Measure its real resting border,
+            // not a pixel accidentally covered by the old oversized center pointer.
+            if(Math.abs(nav.position()-nav.anchor())>0.00001) return;
+            highlightPending = false;
             var method=PalletScreen.class.getDeclaredMethod("arcLayout");method.setAccessible(true);
             var view=method.invoke(MC.screen);
             double unit=coordinate(view,"unit"),outer=coordinate(view,"outer"),inner=coordinate(view,"inner"),cx=coordinate(view,"cx"),cy=coordinate(view,"cy");
@@ -274,7 +359,7 @@ public final class PalletClientReview {
     }
     private static double pixelsPerCell() throws ReflectiveOperationException {
         var method=PalletScreen.class.getDeclaredMethod("arcLayout");method.setAccessible(true);
-        return 85*coordinate(method.invoke(MC.screen),"unit");
+        return coordinate(method.invoke(MC.screen),"pixelsPerCell");
     }
     private static void requireFocus(int index) throws ReflectiveOperationException {
         var field = PalletScreen.class.getDeclaredField("focus"); field.setAccessible(true);

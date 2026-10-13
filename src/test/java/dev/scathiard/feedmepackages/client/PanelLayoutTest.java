@@ -7,6 +7,35 @@ import java.util.HashSet;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PanelLayoutTest {
+    @Test void selectorArtworkFitsBelowMidlineAtEverySupportedScaleWithoutChangingGestureGain() {
+        for(int[] size:new int[][]{{320,240},{427,240},{640,400},{854,480},{1280,720},{1920,1080},{2560,720}}) {
+            int w=size[0],h=size[1];var a=dev.scathiard.feedmepackages.domain.PalletLayout.arc(w,h);
+            assertTrue(a.cy()-a.outer()-7*a.unit()>=h/2.0,"Top pointer crosses midline");
+            assertTrue(a.x(a.outer()+4*a.unit(),-.66)>=0 && a.x(a.outer()+4*a.unit(),.66)<=w);
+            assertTrue(a.y(a.inner()-13*a.unit(),.66)<h-35,"Rack overlaps footer");
+            assertTrue(a.cy()-a.inner()+54*a.unit()+13<h-35,"Caption overlaps footer");
+            assertEquals(114/1076.0,(a.outer()-a.inner())/(2*a.outer()*Math.sin(.66)),1e-9);
+            assertEquals(85*Math.min(w/560.0,h/260.0),a.pixelsPerCell(),1e-9);
+        }
+    }
+    @Test void lowerGridKeepsEveryCandidateReachableWithoutCrossingTheHeaderOrFooter() {
+        for(int[] size:new int[][]{{320,240},{427,240},{640,400},{854,480},{1280,720},{1920,1080}}) {
+            for(int count:new int[]{0,1,34,80,4096}) {
+                var seen=new HashSet<Integer>();int offset=0;
+                while(true) {
+                    var view=dev.scathiard.feedmepackages.domain.PalletLayout.grid(count,offset,size[0],size[1]);
+                    for(var tile:view.tiles()) {
+                        assertTrue(tile.y()>=size[1]/2+46 && tile.y()+24<size[1]-22);
+                        assertTrue(tile.x()>=0 && tile.x()+24<=size[0]);seen.add(tile.index());
+                    }
+                    if(view.first()==view.maximum())break;
+                    offset=view.first()+view.step();
+                }
+                assertEquals(count,seen.size());
+            }
+        }
+    }
+
     @Test void arcDetentsWrapReverseAndConfirmBeforeTheDisplaySettles() {
         var nav=new dev.scathiard.feedmepackages.domain.PalletSelector(34,0);
         nav.drag(.57);assertEquals(0,nav.selected());

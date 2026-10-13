@@ -34,6 +34,15 @@ public final class PalletRenderer extends BlockEntityWithoutLevelRenderer {
     }
     @SubscribeEvent public static void extensions(RegisterClientExtensionsEvent event) {
         event.registerItem(new IClientItemExtensions() {
+            @Override public boolean applyForgeHandTransform(PoseStack pose,net.minecraft.client.player.LocalPlayer player,
+                    HumanoidArm arm,ItemStack stack,float partial,float equip,float swing) {
+                if(arm!=player.getMainArm() || !player.getMainHandItem().is(FmpRegistries.POCKET_PALLET.get())) return false;
+                // Keep the machine housing at the vanilla resting position. Native swing and
+                // creative-use lowering must not stack on the authored tray/jaw animation.
+                // The old item still lowers normally when the player switches away.
+                pose.translate(arm==HumanoidArm.RIGHT?.56f:-.56f,-.52f,-.72f);
+                return true;
+            }
             @Override public BlockEntityWithoutLevelRenderer getCustomRenderer() {
                 if(instance==null) instance=new PalletRenderer();
                 return instance;
