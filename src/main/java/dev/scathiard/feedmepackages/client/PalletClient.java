@@ -16,6 +16,22 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import java.util.*;
 
 public final class PalletClient {
+    private static double feedStarted = -1;
+    private static long stockVersion = -1, feedReceipts;
+    private static boolean cargo;
+    private static ItemStack confirmed = ItemStack.EMPTY;
+    private static dev.scathiard.feedmepackages.domain.PalletFeedPose interrupted;
+    private static double time(float partial) {
+        var level=Minecraft.getInstance().level;
+        return level==null ? 0 : (level.getGameTime()+partial)/20.0;
+    }
+    public static void resetMotion() { feedStarted=-1; cargo=false; stockVersion=-1; interrupted=null; }
+    public static long feedReceipts() { return feedReceipts; }
+    public static ItemStack displayed() { return confirmed.copy(); }
+    public static dev.scathiard.feedmepackages.domain.PalletFeedPose feedPose(float partial) {
+        return dev.scathiard.feedmepackages.domain.PalletFeedPose.interrupted(interrupted,feedStarted<0 ? -1 : time(partial)-feedStarted,cargo);
+    }
+    private static void animate(boolean next) { interrupted=feedPose(0);cargo=next; stockVersion=ClientMaterials.version(); feedStarted=time(0); }
     private PalletClient() {}
     private static UUID cache;
     private static ItemStack selected = ItemStack.EMPTY;
@@ -25,12 +41,21 @@ public final class PalletClient {
         PalletService.clientUse(PalletClient::use);
         PalletNetwork.receiveOnClient(message -> {
             if (Minecraft.getInstance().player == null) return;
-            if (Objects.equals(cache, message.cache()) && sequence == message.sequence())
+            if (Objects.equals(cache, message.cache()) && sequence == message.sequence()) {
                 selected = message.encoded().isEmpty() ? ItemStack.EMPTY : ItemVariantKey.decode(message.encoded(), Minecraft.getInstance().player.registryAccess())
                         .stack(Minecraft.getInstance().player.registryAccess(), 1);
+                if(!ItemStack.isSameItemSameComponents(confirmed,selected)) animate(!selected.isEmpty());
+                confirmed=selected.copy();
+            }
+        });
+        PalletNetwork.receiveFeedOnClient(message -> {
+            var mc=Minecraft.getInstance(); var choice=message.selection();
+            if(mc.player==null || !PalletService.holding(mc.player) || !Objects.equals(cache,choice.cache()) || sequence!=choice.sequence()
+                    || selected.isEmpty() || !ItemVariantKey.of(selected,mc.player.registryAccess()).encoded().equals(choice.encoded())) return;
+            feedReceipts++; animate(message.hasNext());
         });
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post event) -> sync());
-        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> { cache = null; selected = ItemStack.EMPTY; sequence = 0; });
+        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> { cache = null; selected = confirmed = ItemStack.EMPTY; sequence = 0; resetMotion(); });
         NeoForge.EVENT_BUS.addListener((InputEvent.MouseButton.Pre event) -> {
             if (event.getAction() == org.lwjgl.glfw.GLFW.GLFW_PRESS &&
                     open(InputConstants.Type.MOUSE.getOrCreate(event.getButton()))) event.setCanceled(true);
@@ -72,7 +97,14 @@ public final class PalletClient {
     }
     public static void sync() {
         UUID next = ClientMaterials.cacheId();
-        if (!Objects.equals(cache, next)) { cache = next; selected = ItemStack.EMPTY; }
+        if (!Objects.equals(cache, next)) { cache = next; selected = confirmed = ItemStack.EMPTY; resetMotion(); }
+        var player=Minecraft.getInstance().player;
+        if(player==null || !PalletService.holding(player) || !ClientMaterials.active()) { resetMotion(); return; }
+        if(stockVersion!=ClientMaterials.version()) {
+            boolean nextCargo=!selected.isEmpty() && ClientMaterials.stacks().stream().anyMatch(s->ItemStack.isSameItemSameComponents(s,selected));
+            if(!cargo && nextCargo && stockVersion>=0) { interrupted=feedPose(0);feedStarted=time(0); }
+            cargo=nextCargo;stockVersion=ClientMaterials.version();
+        }
     }
     public static UUID cache() { sync(); return cache; }
     public static ItemStack selected() { sync(); return selected.copy(); }

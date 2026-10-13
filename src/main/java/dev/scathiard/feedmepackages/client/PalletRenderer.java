@@ -1,0 +1,79 @@
+package dev.scathiard.feedmepackages.client;
+
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
+import dev.scathiard.feedmepackages.FeedMePackages;
+import dev.scathiard.feedmepackages.consumption.PalletService;
+import dev.scathiard.feedmepackages.registry.FmpRegistries;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.*;
+import net.minecraft.client.renderer.entity.ItemRenderer;
+import net.minecraft.client.resources.model.*;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.entity.HumanoidArm;
+import net.minecraft.world.item.*;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.ModelEvent;
+import net.neoforged.neoforge.client.extensions.common.*;
+import java.util.*;
+
+/** r005 authored parts; dynamic cargo and motion are strictly local first-person display. */
+@EventBusSubscriber(modid=FeedMePackages.MOD_ID,bus=EventBusSubscriber.Bus.MOD,value=Dist.CLIENT)
+public final class PalletRenderer extends BlockEntityWithoutLevelRenderer {
+    private static final List<String> PARTS=List.of("fixed","tray_slide","jaw_left","jaw_right","outlet_gate");
+    private static PalletRenderer instance;
+    private PalletRenderer() { super(Minecraft.getInstance().getBlockEntityRenderDispatcher(),Minecraft.getInstance().getEntityModels()); }
+    public static ModelResourceLocation modelId(String name) {
+        return ModelResourceLocation.standalone(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID,"item/pocket_pallet/"+name));
+    }
+    @SubscribeEvent public static void models(ModelEvent.RegisterAdditional event) {
+        event.register(modelId("whole"));event.register(modelId("fallback"));
+        PARTS.forEach(name->event.register(modelId(name)));
+    }
+    @SubscribeEvent public static void extensions(RegisterClientExtensionsEvent event) {
+        event.registerItem(new IClientItemExtensions() {
+            @Override public BlockEntityWithoutLevelRenderer getCustomRenderer() {
+                if(instance==null) instance=new PalletRenderer();
+                return instance;
+            }
+        },FmpRegistries.POCKET_PALLET.get());
+    }
+    @SubscribeEvent public static void reloaded(ModelEvent.BakingCompleted event) { PalletClient.resetMotion(); }
+    @Override public void renderByItem(ItemStack stack,ItemDisplayContext context,PoseStack pose,MultiBufferSource buffers,int light,int overlay) {
+        var mc=Minecraft.getInstance();var manager=mc.getModelManager();
+        var whole=manager.getModel(modelId("whole"));var missing=manager.getMissingModel();
+        if(whole==missing) { draw(manager.getModel(modelId("fallback")),stack,pose,buffers,light,overlay);return; }
+        boolean local=context.firstPerson() && mc.player!=null && PalletService.holding(mc.player)
+                && ((context==ItemDisplayContext.FIRST_PERSON_RIGHT_HAND)==(mc.player.getMainArm()==HumanoidArm.RIGHT));
+        if(!local || PARTS.stream().anyMatch(name->manager.getModel(modelId(name))==missing)) {
+            draw(whole,stack,pose,buffers,light,overlay);return;
+        }
+        var motion=PalletClient.feedPose(mc.getTimer().getGameTimeDeltaPartialTick(false));
+        draw(manager.getModel(modelId("fixed")),stack,pose,buffers,light,overlay);
+        part("tray_slide",0,0,motion.tray(),stack,pose,buffers,light,overlay);
+        part("jaw_left",-motion.jaws(),0,0,stack,pose,buffers,light,overlay);
+        part("jaw_right",motion.jaws(),0,0,stack,pose,buffers,light,overlay);
+        pose.pushPose();pose.translate(8/16.0,10.7/16.0,1.1/16.0);
+        pose.mulPose(Axis.XP.rotationDegrees((float)motion.gate()));pose.translate(-8/16.0,-10.7/16.0,-1.1/16.0);
+        draw(manager.getModel(modelId("outlet_gate")),stack,pose,buffers,light,overlay);pose.popPose();
+        var cargo=PalletClient.displayed();
+        if(motion.cargo() && !cargo.isEmpty()) {
+            pose.pushPose();pose.translate(8/16.0,8.9/16.0,motion.cargoZ()/16.0);pose.scale(3/16f,3/16f,3/16f);
+            mc.getItemRenderer().renderStatic(cargo,ItemDisplayContext.NONE,light,overlay,pose,buffers,mc.level,0);
+            pose.popPose();
+        }
+    }
+    private static void part(String name,double x,double y,double z,ItemStack stack,PoseStack pose,MultiBufferSource buffers,int light,int overlay) {
+        pose.pushPose();pose.translate(x/16,y/16,z/16);
+        draw(Minecraft.getInstance().getModelManager().getModel(modelId(name)),stack,pose,buffers,light,overlay);pose.popPose();
+    }
+    private static void draw(BakedModel model,ItemStack stack,PoseStack pose,MultiBufferSource buffers,int light,int overlay) {
+        // ItemRenderer has already applied the authored display transform and (-.5,-.5,-.5).
+        // Drawing baked quads directly avoids invoking this custom renderer recursively.
+        for(var pass:model.getRenderPasses(stack,true)) for(var type:pass.getRenderTypes(stack,true))
+            Minecraft.getInstance().getItemRenderer().renderModelLists(pass,stack,light,overlay,pose,
+                    ItemRenderer.getFoilBufferDirect(buffers,type,true,stack.hasFoil()));
+    }
+}

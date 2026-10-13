@@ -55,7 +55,7 @@ public final class CellControlDraft {
         switch (field) {
             case 0 -> {
                 batch=Math.max(1,requested);
-                if(lower>0 && upper>=0) {
+                if(lower>0 && upper>=0 && batch>1) {
                     int room=capacity-lower;
                     if(room<1 || returns>room)return s;
                     batch=Math.min(batch,room);
@@ -64,7 +64,7 @@ public final class CellControlDraft {
             }
             case 1 -> {
                 returns=Math.max(1,requested);
-                if(lower>0 && upper>=0) {
+                if(lower>0 && upper>=0 && batch>1) {
                     int room=upper-1;
                     if(room<1 || batch>room)return s;
                     returns=Math.min(returns,room);
@@ -74,7 +74,7 @@ public final class CellControlDraft {
             case 2 -> {
                 lower=requested<=0?-1:Math.min(requested,capacity);
                 if(lower>0 && upper>=0) {
-                    int ceiling=upper-Math.max(batch,returns);
+                    int ceiling=upper-CellSettings.minimumStockGap(batch,returns);
                     if(ceiling<1)return s;
                     lower=Math.min(lower,ceiling);
                 }
@@ -82,7 +82,7 @@ public final class CellControlDraft {
             case 3 -> {
                 upper=requested<0?-1:Math.min(requested,capacity);
                 if(upper>=0 && lower>0) {
-                    long floor=(long)lower+Math.max(batch,returns);
+                    long floor=(long)lower+CellSettings.minimumStockGap(batch,returns);
                     if(floor>capacity)return s;
                     upper=Math.max(upper,(int)floor);
                 }

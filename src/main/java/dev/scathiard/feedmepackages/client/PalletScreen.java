@@ -1,26 +1,23 @@
 package dev.scathiard.feedmepackages.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
-import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.consumption.PalletService;
 import dev.scathiard.feedmepackages.domain.PalletLayout;
-import dev.scathiard.feedmepackages.domain.PalletSpiral;
+import dev.scathiard.feedmepackages.domain.PalletSelector;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import java.util.*;
 
 /** A held selection binding owns this gesture; neither the attack binding nor the inventory cursor does. */
 public final class PalletScreen extends Screen {
-    private static final ResourceLocation SLOTS = ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "textures/gui/pallet_slots.png");
     private final UUID cache;
     private final InputConstants.Key openingKey;
     private boolean spiral, initialized;
     private EditBox search;
-    private PalletSpiral navigation;
+    private PalletSelector navigation;
     private int first;
     private long version = -1;
     private String query = "";
@@ -28,6 +25,7 @@ public final class PalletScreen extends Screen {
     private List<ItemStack> candidates = List.of(), shown = List.of(), available = List.of();
     private ItemStack focus = ItemStack.EMPTY;
     private double pointerX = Double.NaN, pointerY = Double.NaN;
+    private long frameTime;
 
     public PalletScreen(boolean spiral) {
         super(Component.translatable("item.create_feed_me_packages.pocket_pallet"));
@@ -43,6 +41,7 @@ public final class PalletScreen extends Screen {
         search = new EditBox(font, Math.max(12, width / 2 - 100), 30, Math.min(200, width - 24), 18,
                 Component.translatable("gui.create_feed_me_packages.pallet.search"));
         search.setMaxLength(80);
+        search.setBordered(false);
         search.setValue(query);
         search.setHint(Component.translatable("gui.create_feed_me_packages.pallet.search"));
         search.setResponder(value -> { query = value; first = 0; filter(); });
@@ -69,25 +68,30 @@ public final class PalletScreen extends Screen {
     private void filter() {
         String needle = query.toLowerCase(Locale.ROOT);
         shown = candidates.stream().filter(stack -> stack.getHoverName().getString().toLowerCase(Locale.ROOT).contains(needle)).toList();
-        navigation = new PalletSpiral(shown.size(), Math.max(0, indexOf(PalletClient.selected())));
-        focus = ItemStack.EMPTY;
-        pointerX = pointerY = Double.NaN;
+        navigation = new PalletSelector(shown.size(), Math.max(0, indexOf(PalletClient.selected())));
+        updateFocus();
+        anchorPointer();
+        frameTime = System.nanoTime();
     }
     private PalletLayout.View layout() { return PalletLayout.grid(shown.size(), first, width, height); }
-    private PalletLayout.SpiralView spiralLayout() {
-        return PalletLayout.spiral(shown.size(), navigation.position(), navigation.phase(), width, height);
+    private void anchorPointer() {
+        pointerX=minecraft.mouseHandler.xpos()*width/minecraft.getWindow().getScreenWidth();
+        pointerY=minecraft.mouseHandler.ypos()*height/minecraft.getWindow().getScreenHeight();
     }
+    private PalletArtwork.Arc arcLayout() { return PalletArtwork.arc(width, height); }
     private ItemStack gridTarget(double x, double y) {
         for (var tile : layout().tiles())
             if (tile.contains(x, y) && inStock(shown.get(tile.index()))) return shown.get(tile.index());
         return ItemStack.EMPTY;
     }
     private void point(double x, double y) {
-        if (Double.compare(pointerX, x) == 0 && Double.compare(pointerY, y) == 0) return;
+        double delta = Double.isNaN(pointerX) ? 0 : pointerX - x;
         pointerX = x; pointerY = y;
         if (!spiral) { focus = gridTarget(x, y); return; }
-        var view = spiralLayout();
-        navigation.move(x - view.centerX(), y - view.centerY());
+        navigation.drag(delta / arcLayout().pixelsPerCell());
+        updateFocus();
+    }
+    private void updateFocus() {
         int selected = navigation.selected();
         focus = selected >= 0 && inStock(shown.get(selected)) ? shown.get(selected) : ItemStack.EMPTY;
     }
@@ -98,28 +102,25 @@ public final class PalletScreen extends Screen {
     }
     @Override public void tick() {
         refresh();
-        if (minecraft.player == null || !PalletService.holding(minecraft.player) || !ClientMaterials.active()
+        if (spiral) updateFocus();
+        if (!minecraft.isWindowActive() || minecraft.player == null || !PalletService.holding(minecraft.player) || !ClientMaterials.active()
                 || !Objects.equals(cache, PalletClient.cache())) onClose();
     }
-    @Override public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
+    @Override public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float partial) {
         g.flush();
         renderBlurredBackground(partial);
+        if(!spiral) {
+            g.fill(search.getX()-4,search.getY()-4,search.getX()+search.getWidth()+4,search.getY()+14,0x40202a2e);
+            g.renderOutline(search.getX()-4,search.getY()-4,search.getWidth()+8,18,search.isFocused()?PalletArtwork.BRASS:PalletArtwork.STEEL);
+        }
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(new net.neoforged.neoforge.client.event.ScreenEvent.BackgroundRendered(this,g));
+    }
+    @Override public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
         super.render(g, mouseX, mouseY, partial);
-        g.drawCenteredString(font, title, width / 2, 12, 0xffffffff);
         if (spiral) {
-            var view = spiralLayout();
-            PalletLayout.SpiralTile highlighted = null;
-            for (var tile : view.tiles()) {
-                var item = shown.get(tile.index());
-                if (!inStock(item)) continue;
-                if (tile.current() && !focus.isEmpty() && ItemStack.isSameItemSameComponents(focus, item)) highlighted = tile;
-                else drawSpiralTile(g, tile, item, false);
-            }
-            // Draw the full-bright current occurrence last, above the surrounding spiral.
-            if (highlighted != null) drawSpiralTile(g, highlighted, focus, true);
-            g.fill((int) view.centerX() - 1, (int) view.centerY() - 1, (int) view.centerX() + 1, (int) view.centerY() + 1, 0xffb6a58b);
-            if (!focus.isEmpty()) g.drawCenteredString(font, focus.getHoverName(), width / 2, height - 42, 0xffffffff);
+            drawArc(g);
         } else {
+            g.drawCenteredString(font, title, width / 2, 12, PalletArtwork.BRASS);
             var view = layout(); first = view.first();
             for (var tile : view.tiles()) {
                 var item = shown.get(tile.index());
@@ -131,33 +132,52 @@ public final class PalletScreen extends Screen {
         var label = Component.translatable("gui.create_feed_me_packages.pallet.help", ClientBootstrap.PALLET_MODE.getTranslatedKeyMessage(),
                 Component.translatable("gui.create_feed_me_packages.pallet." + (spiral ? "spiral" : "grid")), count);
         g.drawCenteredString(font, label, width / 2, height - 22, 0xffeeeeee);
+        if(spiral) g.drawCenteredString(font, Component.translatable("gui.create_feed_me_packages.pallet.drag"),width/2,height-35,0xffd4bd82);
         if (count == 0) g.drawCenteredString(font, Component.translatable("gui.create_feed_me_packages.pallet.empty"), width / 2, height / 2 + 12, 0xffcccccc);
     }
-    private void drawSpiralTile(GuiGraphics g, PalletLayout.SpiralTile tile, ItemStack item, boolean current) {
-        g.pose().pushPose();
-        g.pose().translate(tile.x() - tile.size() / 2, tile.y() - tile.size() / 2, current ? 200 : 0);
-        float scale = (float) (tile.size() / 24);
-        g.pose().scale(scale, scale, 1);
-        float brightness = current ? 1 : tile.opacity() * .6f;
-        g.setColor(brightness, brightness, brightness, current ? 1 : tile.opacity());
-        drawTile(g, item, 0, 0, current);
-        g.setColor(1, 1, 1, 1);
-        g.pose().popPose();
+    private void drawArc(GuiGraphics g) {
+        long now=System.nanoTime(); navigation.advance((now-frameTime)/1e9); frameTime=now;
+        var a=arcLayout();
+        if (!shown.isEmpty()) for(long occurrence=(long)Math.floor(navigation.position())-5;
+                occurrence<=(long)Math.ceil(navigation.position())+5;occurrence++) {
+            double rel=occurrence-navigation.position(), angle=rel*PalletArtwork.STEP;
+            double left=angle-PalletArtwork.STEP/2+PalletArtwork.GAP/2, right=angle+PalletArtwork.STEP/2-PalletArtwork.GAP/2;
+            if(right < -PalletArtwork.HALF_ARC || left > PalletArtwork.HALF_ARC) continue;
+            boolean current=occurrence==navigation.anchor();
+            var item=shown.get((int)Math.floorMod(occurrence,(long)shown.size()));
+            double alpha=Math.clamp(1-Math.abs(rel)*.145,.18,1);
+            PalletArtwork.arcFrame(g,a,left,right,current,alpha);
+            // Only complete icon envelopes are drawn at the viewport edges; neighbouring icons never overlap.
+            if(inStock(item) && Math.abs(angle)<PalletArtwork.HALF_ARC-.045) {
+                float size=(float)(50*a.unit());
+                g.pose().pushPose(); g.pose().translate(a.x(a.mid(),angle)-size/2,a.y(a.mid(),angle)-size/2,0);
+                g.pose().scale(size/16,size/16,1); g.setColor((float)alpha,(float)alpha,(float)alpha,1);
+                g.renderItem(item,0,0); g.setColor(1,1,1,1); g.pose().popPose();
+            }
+        }
+        PalletArtwork.sector(g,a,a.outer()+2*a.unit(),a.outer()+4*a.unit(),-.66,.66,PalletArtwork.STEEL);
+        PalletArtwork.sector(g,a,a.inner()-8*a.unit(),a.inner()-5*a.unit(),-.66,.66,PalletArtwork.BRASS);
+        PalletArtwork.marker(g,a);
+        PalletArtwork.drive(g,a,navigation.position());
+        if(!focus.isEmpty()) {
+            long amount=ClientMaterials.stacks().stream().filter(s->ItemStack.isSameItemSameComponents(s,focus)).mapToLong(ItemStack::getCount).sum();
+            int y=(int)(a.cy()-a.inner()+54*a.unit());
+            String label=font.plainSubstrByWidth(focus.getHoverName().getString(),width-80)+" ×"+amount;
+            int w=font.width(label)+14, x=(width-w)/2;
+            g.fill(x,y-4,x+w,y+13,0xb0202a2e);g.renderOutline(x,y-4,w,17,PalletArtwork.BRASS);
+            g.drawCenteredString(font,label,width/2,y,0xfff0e8d7);
+        }
     }
     private void drawTile(GuiGraphics g, ItemStack item, int x, int y) {
         drawTile(g, item, x, y, !focus.isEmpty() && ItemStack.isSameItemSameComponents(focus, item));
     }
     private void drawTile(GuiGraphics g, ItemStack item, int x, int y, boolean current) {
-        int textureX = current ? 24 : PalletClient.selected(item) ? 48 : 0;
-        g.blit(SLOTS, x, y, textureX, 0, 24, 24, 72, 24);
+        PalletArtwork.gridFrame(g,x,y,current,PalletClient.selected(item));
         g.renderItem(item, x + 4, y + 4);
-        if (current) {
-            g.renderOutline(x - 2, y - 2, 28, 28, 0xff352618);
-            g.renderOutline(x - 1, y - 1, 26, 26, 0xffffce55);
-            g.renderOutline(x, y, 24, 24, 0xfffff0b0);
-        }
     }
     private void confirm(double x, double y) {
+        if(!minecraft.isWindowActive() || minecraft.player==null || !PalletService.holding(minecraft.player)
+                || !ClientMaterials.active() || !Objects.equals(cache,PalletClient.cache())) { onClose(); return; }
         refresh(); point(x, y);
         if (inStock(focus)) PalletClient.choose(focus);
         onClose();
@@ -171,7 +191,8 @@ public final class PalletScreen extends Screen {
         return super.mouseClicked(x, y, button);
     }
     @Override public boolean mouseScrolled(double x, double y, double horizontal, double vertical) {
-        if (!spiral) {
+        if (spiral) { navigation.step(vertical<0 ? 1 : vertical>0 ? -1 : (int)Math.signum(horizontal)); updateFocus(); }
+        else {
             var view = layout();
             first = Math.clamp(view.first() - (int) Math.signum(vertical) * view.step(), 0, view.maximum());
             focus = gridTarget(x, y);
@@ -181,6 +202,9 @@ public final class PalletScreen extends Screen {
     @Override public boolean keyPressed(int key, int scan, int modifiers) {
         if (openingKey.equals(InputConstants.getKey(key, scan))) return true;
         if (ClientBootstrap.PALLET_MODE.matches(key, scan)) { toggle(); return true; }
+        if (spiral && (key==org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT || key==org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT)) {
+            navigation.step(key==org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT ? 1 : -1);updateFocus();return true;
+        }
         if (!search.isFocused() && minecraft.options.keyInventory.matches(key, scan)) { onClose(); return true; }
         if (!search.isFocused()) for (int i = 0; i < 9; i++)
             if (minecraft.options.keyHotbarSlots[i].matches(key, scan)) {
@@ -211,6 +235,8 @@ public final class PalletScreen extends Screen {
             if (index >= 0) first = index / layout().step() * layout().step();
         }
         focus = inStock(previous) ? previous : ItemStack.EMPTY;
+        anchorPointer();
+        if(spiral) updateFocus();
     }
     @Override public void removed() { PalletClient.releaseKey(openingKey); }
     @Override public void onClose() {

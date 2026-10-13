@@ -30,6 +30,7 @@ public final class PalletClientReview {
     private static boolean highlightPending, highlightVerified;
     private static RuntimeException renderFailure;
     private static BlockPos placed, broken;
+    private static long receipts;
     private static final Minecraft MC = Minecraft.getInstance();
     public static boolean tick() throws ReflectiveOperationException {
         ticks++;
@@ -49,18 +50,20 @@ public final class PalletClientReview {
             }
             case 2 -> {
                 require(MC.screen instanceof PalletScreen && spiral(), "Default middle button did not open spiral mode");
-                TemplateClientReview.capture("pallet-spiral-default");
+                for(String name:List.of("whole","fixed","tray_slide","jaw_left","jaw_right","outlet_gate","fallback"))
+                    require(MC.getModelManager().getModel(PalletRenderer.modelId(name))!=MC.getModelManager().getMissingModel(),"Missing pallet model "+name);
+                TemplateClientReview.capture("pallet-arc-default");
                 // Prime the native post-grab first-move rule before starting the measured gesture.
                 moveGui(MC.getWindow().getGuiScaledWidth() / 2.0, MC.getWindow().getGuiScaledHeight() / 2.0);
-                moveSpiral(0); moves = 0; next();
+                moves = 0; next();
             }
             case 3 -> {
-                // Let the real client dispatch each pointer sample, rather than invoking the angular model.
+                // Native wheel reaches all items without dragging beyond a physical window edge.
                 moves++;
-                if (moves <= 207) { moveSpiral(moves / 3.0); return false; }
-                if (moves == 208) { requireFocus(1); TemplateClientReview.capture("pallet-spiral-forward-wraps"); return false; }
-                if (moves <= 418) { moveSpiral(69 - (moves - 208) / 3.0); return false; }
-                requireFocus(33); TemplateClientReview.capture("pallet-spiral-reverse-wraps"); next();
+                if(moves<=69){scroll(-1);return false;}
+                if(moves==70){requireFocus(1);TemplateClientReview.capture("pallet-arc-forward-wraps");return false;}
+                if(moves<=140){scroll(1);return false;}
+                requireFocus(33);TemplateClientReview.capture("pallet-arc-reverse-wraps");next();
             }
             case 4 -> { button(2, false); next(); }
             case 5 -> {
@@ -71,22 +74,20 @@ public final class PalletClientReview {
             case 6 -> {
                 if (moves++ == 0) {
                     double cx = MC.getWindow().getGuiScaledWidth() / 2.0, cy = MC.getWindow().getGuiScaledHeight() / 2.0;
-                    moveGui(cx, cy); moveGui(cx + 1, cy);
-                    moveGui(cx + Math.cos(PalletSpiral.STEP), cy + Math.sin(PalletSpiral.STEP));
-                    requireFocus(0);
-                    moveGui(cx, cy); requireFocus(0);
+                    moveGui(cx,cy);moveGui(cx-pixelsPerCell()*.59,cy);requireFocus(0);
+                    moveGui(cx-pixelsPerCell()*.50,cy);requireFocus(0);
                     highlightPending = true; changed = ticks; return false;
                 }
                 if (!highlightVerified) return false;
                 button(2, false); next();
             }
             case 7 -> {
-                require(PalletClient.selected().is(blocks.get(0)), "Center release canceled the new small-radius choice");
+                require(PalletClient.selected().is(blocks.get(0)), "Release canceled the horizontal drag choice");
                 server(p -> require(PalletService.choice(p).key().stack(p.registryAccess(), 1).is(blocks.get(0)),
-                        "Small-radius center release did not reach the server"));
+                        "Horizontal detent release did not reach the server"));
                 button(2, true);
                 moveGui(MC.getWindow().getGuiScaledWidth() / 2.0, MC.getWindow().getGuiScaledHeight() / 2.0);
-                moveSpiral(0); moveSpiral(1); requireFocus(1);
+                moveGui(MC.getWindow().getGuiScaledWidth()/2.0-pixelsPerCell(),MC.getWindow().getGuiScaledHeight()/2.0);requireFocus(1);
                 key(org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE); button(2, false);
                 require(MC.screen == null && PalletClient.selected().is(blocks.get(0)), "Escape failed to cancel a different candidate");
                 ClientBootstrap.PALLET_MODE.setKey(com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM.getOrCreate(org.lwjgl.glfw.GLFW.GLFW_KEY_R));
@@ -127,7 +128,7 @@ public final class PalletClientReview {
             }
             case 15 -> {
                 require(MC.screen instanceof PalletScreen && spiral(), "Rebound mouse key did not open retained spiral mode");
-                moveSpiral(0); button(4, false);
+                button(4, false);
                 require(MC.screen == null && PalletClient.selected().is(Items.STONE), "Rebound mouse release did not confirm");
                 ClientBootstrap.PALLET_SELECT.setKey(com.mojang.blaze3d.platform.InputConstants.Type.MOUSE.getOrCreate(2));
                 ClientBootstrap.PALLET_MODE.setKey(com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM.getOrCreate(org.lwjgl.glfw.GLFW.GLFW_KEY_TAB));
@@ -137,10 +138,11 @@ public final class PalletClientReview {
                 MC.player.setYRot(0); MC.player.setXRot(40);
                 require(MC.hitResult instanceof BlockHitResult, "Native ray missed placement support");
                 var hit = (BlockHitResult) MC.hitResult; placed = hit.getBlockPos().relative(hit.getDirection());
-                button(1, true); next();
+                receipts=PalletClient.feedReceipts();button(1, true); next();
             }
             case 17 -> { button(1, false); next(); }
             case 18 -> {
+                require(PalletClient.feedReceipts()==receipts+1,"Committed placement did not emit exactly one feed receipt");
                 server(p -> {
                     require(p.level().getBlockState(placed).is(Blocks.STONE), "Native right click did not place selected stone");
                     var r = CacheLedger.get(p.getServer()).find(cache);
@@ -156,6 +158,8 @@ public final class PalletClientReview {
             }
             case 20 -> { button(1, false); next(); }
             case 21 -> {
+                require(PalletClient.feedReceipts()==receipts+1,"Empty placement emitted a fake feed receipt");
+                require(!PalletClient.feedPose(0).cargo(),"Empty cache still displays cargo");
                 server(p -> {
                     var r = CacheLedger.get(p.getServer()).find(cache);
                     require(r.state().cells().getFirst().amount() == 0 && r.state().cells().get(1).amount() == 7
@@ -189,7 +193,31 @@ public final class PalletClientReview {
                         "Native mining remained blocked while holding the tool")); next();
             }
             case 28 -> {
-                FeedMePackages.LOGGER.info("FMP_PALLET_CLIENT_PASSED defaultMiddle=true defaultSpiral=true forwardSteps=69 reverseSteps=70 nativeWrap=true nativeReverse=true nativeBlur=true keyboardAndMouseRebind=true smallRadius=true centerRetainsChoice=true escapeCancel=true fullBrightDoubleOutline=true gridSearch=true nativePlace=true nativeMiningWithTool=true");
+                MC.setScreen(new net.minecraft.client.gui.screens.inventory.InventoryScreen(MC.player));next();
+            }
+            case 29 -> {
+                TemplateClientReview.capture("pallet-inventory-model");MC.setScreen(null);
+                MC.options.mainHand().set(net.minecraft.world.entity.HumanoidArm.LEFT);MC.options.broadcastOptions();next();
+            }
+            case 30 -> {
+                require(MC.player.getMainArm()==net.minecraft.world.entity.HumanoidArm.LEFT,"Left hand option did not reach the player");
+                TemplateClientReview.capture("pallet-left-hand-model");
+                MC.options.mainHand().set(net.minecraft.world.entity.HumanoidArm.RIGHT);MC.options.broadcastOptions();
+                MC.options.setCameraType(CameraType.THIRD_PERSON_FRONT);next();
+            }
+            case 31 -> {
+                TemplateClientReview.capture("pallet-third-person-model");MC.options.setCameraType(CameraType.FIRST_PERSON);
+                work=MC.reloadResourcePacks();next();
+            }
+            case 32 -> {
+                for(String name:List.of("whole","fixed","tray_slide","jaw_left","jaw_right","outlet_gate"))
+                    require(MC.getModelManager().getModel(PalletRenderer.modelId(name))!=MC.getModelManager().getMissingModel(),"Resource reload lost model "+name);
+                require(!PalletClient.feedPose(0).cargo(),"Resource reload replayed stale cargo");
+                TemplateClientReview.capture("pallet-after-resource-reload");next();
+            }
+            case 33 -> {
+                FeedMePackages.LOGGER.info("FMP_PALLET_CLIENT_PASSED defaultMiddle=true defaultArc=true forwardSteps=69 reverseSteps=70 nativeWrap=true nativeReverse=true nativeBlur=true keyboardAndMouseRebind=true horizontalDrag=true hysteresis=true escapeCancel=true brassArcHighlight=true authoritativeFeed=true gridSearch=true nativePlace=true nativeMiningWithTool=true");
+                FeedMePackages.LOGGER.info("FMP_PALLET_MODELS_CLIENT_PASSED bakedParts=7 inventory=true leftHand=true thirdPerson=true resourceReload=true");
                 return true;
             }
         }
@@ -216,25 +244,21 @@ public final class PalletClientReview {
         if (!highlightPending || !(event.getScreen() instanceof PalletScreen)) return;
         highlightPending = false;
         try {
-            var method = PalletScreen.class.getDeclaredMethod("spiralLayout"); method.setAccessible(true);
-            var view = (PalletLayout.SpiralView) method.invoke(MC.screen);
-            var tile = view.tiles().stream().filter(PalletLayout.SpiralTile::current).findFirst().orElseThrow();
+            var method=PalletScreen.class.getDeclaredMethod("arcLayout");method.setAccessible(true);
+            var view=method.invoke(MC.screen);
+            double unit=coordinate(view,"unit"),outer=coordinate(view,"outer"),inner=coordinate(view,"inner"),cx=coordinate(view,"cx"),cy=coordinate(view,"cy");
             event.getGuiGraphics().flush();
-            try (var pixels = Screenshot.takeScreenshot(MC.getMainRenderTarget())) {
-                double scale = MC.getWindow().getGuiScale(), unit = tile.size() / 24;
-                double left = tile.x() - tile.size() / 2, top = tile.y() - tile.size() / 2;
-                double[][] points = {{12,-.5},{-.5,12},{24.5,12},{12,24.5},{12,.5},{.5,12},{23.5,12},{12,23.5}};
-                for (int i = 0; i < points.length; i++) {
-                    int argb = i < 4 ? 0xffffce55 : 0xfffff0b0;
-                    int expected = (argb & 0xff00ff00) | ((argb & 255) << 16) | ((argb >>> 16) & 255);
-                    int actual = pixels.getPixelRGBA((int)((left + points[i][0] * unit) * scale),
-                            (int)((top + points[i][1] * unit) * scale));
-                    require(actual == expected, "Current spiral outline is dimmed/covered at sample " + i + ": " + Integer.toHexString(actual));
+            try(var pixels=Screenshot.takeScreenshot(MC.getMainRenderTarget())) {
+                double scale=MC.getWindow().getGuiScale();
+                double[][] points={{cx,cy-outer+1.5*unit},{cx,cy-inner-1.5*unit}};
+                for(int i=0;i<points.length;i++) {
+                    int actual=pixels.getPixelRGBA((int)(points[i][0]*scale),(int)(points[i][1]*scale));
+                    require(actual==0xff7dc1df,"Arc brass border covered/dimmed at sample "+i+": "+Integer.toHexString(actual));
                 }
             }
-            TemplateClientReview.capture("pallet-strong-highlight-no-deadzone");
+            TemplateClientReview.capture("pallet-brass-highlight");
             highlightVerified = true;
-            FeedMePackages.LOGGER.info("FMP_PALLET_HIGHLIGHT_PASSED fullBrightDoubleOutline=true samples=8");
+            FeedMePackages.LOGGER.info("FMP_PALLET_HIGHLIGHT_PASSED annularBrass=true samples=2");
         } catch (ReflectiveOperationException | RuntimeException failure) {
             renderFailure = new IllegalStateException("Pallet highlight framebuffer check failed", failure);
         }
@@ -245,18 +269,12 @@ public final class PalletClientReview {
         var method=PalletScreen.class.getDeclaredMethod("layout");method.setAccessible(true);var layout=(PalletLayout.View)method.invoke(MC.screen);
         var tile=layout.tiles().stream().filter(t->t.index()==index).findFirst().orElseThrow();moveGui(tile.x()+12,tile.y()+12);button(2,false);
     }
-    private static void moveSpiral(double steps) throws ReflectiveOperationException {
-        var method = PalletScreen.class.getDeclaredMethod("spiralLayout"); method.setAccessible(true);
-        var view = (PalletLayout.SpiralView) method.invoke(MC.screen);
-        double radius = view.radius(), angle = steps * PalletSpiral.STEP;
-        moveGui(view.centerX() + Math.cos(angle) * radius, view.centerY() + Math.sin(angle) * radius);
-        if (stage == 3 && steps == Math.rint(steps) && ((int) steps) % 34 == 0) requireFocus(0);
-        if (steps == 0 || Math.round(steps * 3) % 12 == 0 || steps == 33) {
-            var state = PalletScreen.class.getDeclaredField("navigation"); state.setAccessible(true);
-            var navigation = (PalletSpiral) state.get(MC.screen);
-            FeedMePackages.LOGGER.info("FMP_PALLET_POINTER inputSteps={} position={} selected={} mouseX={} mouseY={}",
-                    steps, navigation.position(), navigation.selected(), MC.mouseHandler.xpos(), MC.mouseHandler.ypos());
-        }
+    private static double coordinate(Object record,String name) throws ReflectiveOperationException {
+        var method=record.getClass().getDeclaredMethod(name);method.setAccessible(true);return ((Number)method.invoke(record)).doubleValue();
+    }
+    private static double pixelsPerCell() throws ReflectiveOperationException {
+        var method=PalletScreen.class.getDeclaredMethod("arcLayout");method.setAccessible(true);
+        return 85*coordinate(method.invoke(MC.screen),"unit");
     }
     private static void requireFocus(int index) throws ReflectiveOperationException {
         var field = PalletScreen.class.getDeclaredField("focus"); field.setAccessible(true);

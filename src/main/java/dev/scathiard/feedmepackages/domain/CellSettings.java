@@ -39,9 +39,14 @@ public record CellSettings(int lower, int upper, int batch, int pendingLimit, in
         return Math.toIntExact(target);
     }
 
-    /** Both automatic directions need enough room for either configured batch. */
+    /** Exact-shortage replenishment cannot cross the return line, regardless of its batch minimum. */
+    public static int minimumStockGap(int batch, int returnBatch) {
+        return batch == 1 ? 0 : Math.max(batch, returnBatch);
+    }
+
+    /** Larger replenishment batches retain the configured stock-interval protection. */
     public boolean conflicting() {
-        return lower > 0 && upper >= 0 && (long) upper - lower < Math.max(batch, returnBatch);
+        return lower > 0 && upper >= 0 && (long) upper - lower < minimumStockGap(batch, returnBatch);
     }
 
     /** A carrier drawn from this very cell must not pull the retained stock below the return line. */

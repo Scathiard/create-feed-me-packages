@@ -16,8 +16,23 @@ import java.util.function.Consumer;
 public final class PalletNetwork {
     private PalletNetwork() {}
     private static Consumer<Selection> client = selection -> {};
+    private static Consumer<Feed> feedClient = feed -> {};
+    private static final Map<ServerPlayer, Integer> SEQUENCES = new WeakHashMap<>();
     private static final Map<ServerPlayer, long[]> LIMITS = new WeakHashMap<>();
     public static void receiveOnClient(Consumer<Selection> receiver) { client = Objects.requireNonNull(receiver); }
+    public static void receiveFeedOnClient(Consumer<Feed> receiver) { feedClient = Objects.requireNonNull(receiver); }
+    /** Cosmetic receipt from a committed native placement; contains no spendable material. */
+    public record Feed(Selection selection, boolean hasNext) implements CustomPacketPayload {
+        public static final Type<Feed> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "pallet_feed"));
+        public static final StreamCodec<RegistryFriendlyByteBuf, Feed> CODEC = StreamCodec.of((b,m)-> {
+            b.writeBoolean(m.hasNext); Selection.CODEC.encode(b,m.selection);
+        },b-> { boolean next=b.readBoolean(); return new Feed(Selection.CODEC.decode(b),next); });
+        @Override public Type<Feed> type() { return TYPE; }
+    }
+    public static void placed(ServerPlayer player, UUID cache, String encoded, boolean hasNext) {
+        Integer sequence=SEQUENCES.get(player);
+        if(sequence!=null) PacketDistributor.sendToPlayer(player,new Feed(new Selection(sequence,cache,encoded),hasNext));
+    }
     public record Selection(int sequence, UUID cache, String encoded) implements CustomPacketPayload {
         public Selection {
             Objects.requireNonNull(cache); Objects.requireNonNull(encoded);
@@ -33,9 +48,12 @@ public final class PalletNetwork {
         @Override public Type<Selection> type() { return TYPE; }
     }
     public static void register(RegisterPayloadHandlersEvent event) {
-        event.registrar("astra-pallet-1").playBidirectional(Selection.TYPE, Selection.CODEC, (message, context) -> {
+        var registrar=event.registrar("astra-pallet-2");
+        registrar.playToClient(Feed.TYPE,Feed.CODEC,(message,context)->feedClient.accept(message));
+        registrar.playBidirectional(Selection.TYPE, Selection.CODEC, (message, context) -> {
             if (context.flow().isClientbound()) { client.accept(message); return; }
             if (!(context.player() instanceof ServerPlayer player)) return;
+            SEQUENCES.put(player,message.sequence);
             var limit = LIMITS.computeIfAbsent(player, ignored -> new long[]{player.tickCount, 0});
             if (player.tickCount - limit[0] >= 20 || player.tickCount < limit[0]) { limit[0] = player.tickCount; limit[1] = 0; }
             // Never silently retain another block when this selection was rejected: a following

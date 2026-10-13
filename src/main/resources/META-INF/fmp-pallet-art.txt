@@ -1,0 +1,9 @@
+Pocket Pallet test.65 asset provenance
+
+Runtime model copies: assets/create_feed_me_packages/models/item/pocket_pallet/{whole,fixed,tray_slide,jaw_left,jaw_right,outlet_gate}.json
+Originals: art/pocket_pallet/r005/exports, supplied and approved by the project owner for local integration.
+The authored rear body retains geometry from Create Extendo Grip. Its texture is referenced as create:item/extendo_grip and is not bundled here.
+The new front texture is the supplied 128 x 128 pocket_pallet_front.png. No preview cargo cube is baked into the exports.
+Create assets are All Rights Reserved, separate from Create code's MIT license. See CREATE-ASSET-LICENSE.md beside this notice.
+This local test candidate does not establish public redistribution permission. Resolve the retained Create geometry's reuse conditions, or replace it, before public release.
+The project's MIT license does not relicense third-party asset rights.

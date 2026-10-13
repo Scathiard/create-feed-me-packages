@@ -638,6 +638,11 @@ public final class InteractionTests {
                 && ledger.find(access.handle().cacheId()).equals(saved),"Server accepted conflicting unlinked controls");
         helper.assertTrue(CacheActions.settings(player,view.session(),java.util.List.of(a,a))==Result.INVALID_REQUEST
                 && ledger.find(access.handle().cacheId()).equals(saved),"Duplicate settings slot committed a partial batch");
+        var same=new CacheActions.SettingsChange(0,view.cells().get(0).filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(64,64,1,63,64));
+        helper.assertTrue(CacheActions.settings(player,view.session(),java.util.List.of(same))==Result.OK,
+                "Exact-shortage refill was refused at coincident stock thresholds");
+        saved=ledger.find(access.handle().cacheId());
+        helper.assertTrue(saved.state().cells().getFirst().settings().equals(same.value()),"Coincident settings did not reach the authoritative cache");
         var next=saved.state().edit();next.extract(1,16);next.filter(1,null);next.filter(1,ItemVariantKey.of(new ItemStack(Items.DIAMOND),player.registryAccess()));
         ledger.replace(access.handle(),saved.state().revision(),saved.withState(next.finish()));saved=ledger.find(access.handle().cacheId());
         helper.assertTrue(CacheActions.settings(player,view.session(),java.util.List.of(a,b))==Result.STALE

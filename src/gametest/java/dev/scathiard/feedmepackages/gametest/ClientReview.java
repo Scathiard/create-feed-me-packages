@@ -425,18 +425,33 @@ public final class ClientReview {
                 capture("return-batch-linked-54-74");advance();
             }
             case 28 -> {
+                for(int i=0;i<8;i++)controlWheel(0,-1);advance();
+            }
+            case 29 -> {
+                if(ticks-changed<35 || panelInt("waiting")!=0)return;
+                var c=panelSnapshot().cells().getFirst();
+                require(c.batch()==1 && c.minimum()==54 && c.maximum()==74,"Exact-shortage mode contracted the interval without input");
+                for(int i=0;i<20;i++)controlWheel(3,-1);advance();
+            }
+            case 30 -> {
+                if(ticks-changed<35 || panelInt("waiting")!=0)return;
+                var c=panelSnapshot().cells().getFirst();
+                require(c.minimum()==54 && c.maximum()==54 && c.batch()==1 && c.returnBatch()==20,
+                        "Exact-shortage mode could not bring the two stock lines together");
+                capture("coincident-stock-lines-54");
+                FeedMePackages.LOGGER.info("FMP_COINCIDENT_CONTROLS_CLIENT_PASSED lower=54 upper=54 batch=1 returnBatch=20 real-wheel-and-packets");
                 FeedMePackages.LOGGER.info("FMP_RETURN_BATCH_CLIENT_PASSED real-wheel/64-70-to-64-74/no-contraction/return-side-link/atomic-packets/reloaded-return-minimum");
                 FeedMePackages.LOGGER.info("FMP_CONVERGED_CLIENT_PASSED integrated-retirement/event-input/packets/four-wells/reset-isolation/drag/reopen/survival/creative/actual-scale-3/crafting-close/world-reopen/no-os-mouse");
                 advance();
             }
-            case 29 -> {
+            case 31 -> {
                 if(ticks-changed<15)return;
                 convergedTransition=true;
                 try {mc.level.disconnect();mc.disconnect(new TitleScreen());}
                 finally {convergedTransition=false;}
                 advance();
             }
-            case 30 -> { if(mc.level==null && mc.getSingleplayerServer()==null){mc.stop();advance();} }
+            case 32 -> { if(mc.level==null && mc.getSingleplayerServer()==null){mc.stop();advance();} }
         }
     }
     private static boolean foldTransition;

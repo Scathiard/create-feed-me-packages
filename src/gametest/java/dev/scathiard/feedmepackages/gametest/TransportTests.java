@@ -50,6 +50,7 @@ public final class TransportTests {
             tests.add(test("mobile_native_flight", TransportTests::mobileNativeFlight));
             tests.add(test("mobile_native_boundaries", TransportTests::mobileNativeBoundaries));
             tests.add(test("return_mobile_dispatch", TransportTests::returnMobileDispatch));
+            tests.add(test("return_mobile_iron_578", h -> returnIronMinimum(h, true)));
             tests.add(test("return_mobile_shared_stock", h -> returnSharedStock(h, true)));
             tests.add(test("return_mobile_unavailable", h -> returnUnavailable(h, true, false)));
             tests.add(test("return_mobile_full_port", h -> returnUnavailable(h, true, true)));
@@ -59,6 +60,7 @@ public final class TransportTests {
             tests.add(test("paper_registry_roundtrip", TransportTests::paperRegistryRoundtrip));
             tests.add(test("paper_native_boundaries", TransportTests::paperNativeBoundaries));
             tests.add(test("return_paper_dispatch", TransportTests::returnPaperDispatch));
+            tests.add(test("return_paper_iron_578", h -> returnIronMinimum(h, false)));
             tests.add(test("return_paper_shared_stock", h -> returnSharedStock(h, false)));
             tests.add(test("return_paper_unavailable", h -> returnUnavailable(h, false, false)));
         }
@@ -595,13 +597,43 @@ public final class TransportTests {
         helper.assertTrue(result == dev.scathiard.feedmepackages.interaction.CacheActions.Result.OK, "Could not reserve cursor: " + result);
     }
     private static int returnedCargo(net.minecraft.server.level.ServerPlayer player) {
+        return returnedCargo(player, Items.STONE);
+    }
+    private static int returnedCargo(net.minecraft.server.level.ServerPlayer player, net.minecraft.world.item.Item item) {
         int count = 0;
         for (var box : player.getInventory().items) {
             if (!PackageItem.isPackage(box) || !PackageItem.getAddress(box).equals(SupplyService.address(player))) continue;
             var contents = PackageItem.getContents(box);
-            for (int i = 0; i < contents.getSlots(); i++) if (contents.getStackInSlot(i).is(Items.STONE)) count += contents.getStackInSlot(i).getCount();
+            for (int i = 0; i < contents.getSlots(); i++) if (contents.getStackInSlot(i).is(item)) count += contents.getStackInSlot(i).getCount();
         }
         return count;
+    }
+
+    /** User report: iron 578, return line 512, minimum return 64, grey arrow but no launch. */
+    private static void returnIronMinimum(GameTestHelper h, boolean mobile) {
+        var f=returnFixture(h,mobile);var player=f.player();
+        var iron=dev.scathiard.feedmepackages.item.ItemVariantKey.of(new ItemStack(Items.IRON_INGOT),player.registryAccess());
+        var before=f.record();var edit=before.state().edit();edit.extract(0,100);edit.filter(0,iron);
+        for(int level=1;level<5;level++)edit.upgrade();
+        edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(64,512,1,-1,64));edit.insert(0,iron,575);
+        f.ledger().replace(f.handle(),before.state().revision(),before.withState(edit.finish()));
+        var waiting=f.record();ReturnService.check(player);
+        h.assertTrue(f.record()==waiting && player.getInventory().getItem(0).getCount()==2,
+                "Below-minimum iron return consumed stock or carrier");
+        edit=waiting.state().edit();edit.insert(0,iron,3);
+        f.ledger().replace(f.handle(),waiting.state().revision(),waiting.withState(edit.finish()));
+        ReturnService.check(player);
+        h.assertTrue(f.record().state().cells().getFirst().amount()==512 && player.getInventory().getItem(0).getCount()==1
+                && f.ledger().returnEscrow(f.handle().cacheId())==null,
+                "Iron 578 / upper 512 / minimum 64 did not dispatch exactly 66: "+f.record().state().cells().getFirst());
+        h.startSequence().thenWaitUntil(()->h.assertTrue(returnedCargo(player,Items.IRON_INGOT)==66,
+                "Native return has not delivered the 66 iron ingots"))
+                .thenExecute(()->{
+                    ReturnService.check(player);
+                    h.assertTrue(f.record().state().cells().getFirst().amount()==512 && returnedCargo(player,Items.IRON_INGOT)==66,
+                            "Settled iron return repeated or re-entered the cache");
+                    FeedMePackages.LOGGER.info("FMP_IRON_578_RETURN_PASSED transport={} source=512 delivered=66 minimum=64",mobile?"bee":"paper");
+                }).thenSucceed();
     }
 
     private static void returnUnavailable(GameTestHelper helper, boolean mobile, boolean fullPort) {

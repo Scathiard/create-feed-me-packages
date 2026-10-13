@@ -7,6 +7,44 @@ import java.util.HashSet;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PanelLayoutTest {
+    @Test void arcDetentsWrapReverseAndConfirmBeforeTheDisplaySettles() {
+        var nav=new dev.scathiard.feedmepackages.domain.PalletSelector(34,0);
+        nav.drag(.57);assertEquals(0,nav.selected());
+        nav.drag(.02);assertEquals(1,nav.selected());assertEquals(0,nav.position());
+        nav.drag(-.10);assertEquals(1,nav.selected(),"Boundary tremor must not alternate choices");
+        nav.drag(-.08);assertEquals(0,nav.selected());
+        nav.drag(68.59);assertEquals(1,nav.selected());
+        nav.drag(-70);assertEquals(33,nav.selected());
+        nav.step(1);assertEquals(0,nav.selected());
+        for(int i=0;i<60;i++) nav.advance(1/60.0);
+        assertEquals(nav.anchor(),nav.position(),1e-6);
+        nav.reset(0,12);nav.drag(200);nav.step(1);assertEquals(-1,nav.selected());
+        nav.reset(1,12);nav.drag(-600);assertEquals(0,nav.selected());
+        double before=nav.position();nav.drag(Double.NaN);assertEquals(before,nav.position());
+    }
+    @Test void arcSettlingDoesNotDependOnFrameRateOrOvershoot() {
+        for(int fps:new int[]{30,60,144}) {
+            var nav=new dev.scathiard.feedmepackages.domain.PalletSelector(10,0);nav.step(1);
+            double before=0;
+            for(int i=0;i<fps;i++) {nav.advance(1.0/fps);assertTrue(nav.position()>=before && nav.position()<=1);before=nav.position();}
+            assertEquals(1,nav.position(),1e-6);
+        }
+    }
+    @Test void palletFeedReturnsTheTrayButKeepsTheNextCargoInTheJaws() {
+        var start=dev.scathiard.feedmepackages.domain.PalletFeedPose.at(0,true);
+        assertFalse(start.cargo());assertEquals(0,start.tray(),1e-9);
+        var front=dev.scathiard.feedmepackages.domain.PalletFeedPose.at(.18,true);
+        assertEquals(-17.1,front.tray(),1e-6);assertEquals(-14,front.cargoZ(),1e-6);assertEquals(.9,front.jaws(),1e-6);
+        var retract=dev.scathiard.feedmepackages.domain.PalletFeedPose.at(.27,true);
+        assertTrue(retract.tray()>-17.1 && retract.tray()<0);assertEquals(-14,retract.cargoZ(),1e-6);assertEquals(0,retract.jaws());
+        var ready=dev.scathiard.feedmepackages.domain.PalletFeedPose.at(.35,true);
+        assertEquals(0,ready.tray());assertEquals(0,ready.gate());assertTrue(ready.cargo());
+        var interrupted=dev.scathiard.feedmepackages.domain.PalletFeedPose.interrupted(front,0,true);
+        assertEquals(front.tray(),interrupted.tray());assertFalse(interrupted.cargo());
+        var recovered=dev.scathiard.feedmepackages.domain.PalletFeedPose.interrupted(front,.03,true);
+        assertEquals(0,recovered.tray(),1e-9);assertTrue(recovered.cargo());
+        for(double time:new double[]{-1,0,.1,.2,.35,100})assertFalse(dev.scathiard.feedmepackages.domain.PalletFeedPose.at(time,false).cargo());
+    }
     @Test void borderFlashesTwiceAndDarkensInOppositeDirections() {
         var request=dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.REQUEST;
         assertEquals(18,BorderAnimation.sample(request,0,18).to());
@@ -231,11 +269,26 @@ class PanelLayoutTest {
         assertEquals(new dev.scathiard.feedmepackages.domain.CellSettings(54,74,10,32,20),returns);
         assertEquals(54,CellControlDraft.adjust(returns,1,1,128).lower());
     }
+    @Test void singleRefillLetsEndpointsMeetEvenWhenTheReturnMinimumIsLarger() {
+        var s=new dev.scathiard.feedmepackages.domain.CellSettings(64,65,1,-1,64);
+        var same=new dev.scathiard.feedmepackages.domain.CellSettings(64,64,1,-1,64);
+        assertEquals(same,CellControlDraft.adjust(s,3,64,128));
+        assertEquals(65,CellControlDraft.adjust(s,2,65,128).lower());
+        assertEquals(64,CellControlDraft.adjust(same,1,576,128).lower());
+        assertEquals(64,CellControlDraft.adjust(same,1,576,128).upper());
+        var edge=new dev.scathiard.feedmepackages.domain.CellSettings(128,128,1,-1,576);
+        assertEquals(edge,CellControlDraft.adjust(edge,0,1,128));
+        assertEquals(edge,CellControlDraft.adjust(edge,0,2,128));
+        var widened=CellControlDraft.adjust(same,0,10,128);
+        assertEquals(128,widened.upper());
+        assertEquals(128,CellControlDraft.adjust(widened,0,1,128).upper());
+        assertEquals(64,CellControlDraft.adjust(CellControlDraft.adjust(widened,0,1,128),3,64,128).upper());
+    }
     @Test void linkedControlsRespectCapacityDisabledDirectionsAndEndpointSeparation() {
         var s=new dev.scathiard.feedmepackages.domain.CellSettings(64,70,1,-1,1);
         var ceiling=CellControlDraft.adjust(s,0,576,128);
         assertEquals(64,ceiling.batch()); assertEquals(128,ceiling.upper());
-        var floor=CellControlDraft.adjust(s,1,576,128);
+        var floor=CellControlDraft.adjust(new dev.scathiard.feedmepackages.domain.CellSettings(64,70,10,-1,1),1,576,128);
         assertEquals(69,floor.returnBatch()); assertEquals(1,floor.lower());
         var ranged=new dev.scathiard.feedmepackages.domain.CellSettings(64,74,10,-1,1);
         assertEquals(64,CellControlDraft.adjust(ranged,2,70,128).lower());

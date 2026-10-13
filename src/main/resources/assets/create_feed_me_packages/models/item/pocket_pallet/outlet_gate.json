@@ -1,0 +1,82 @@
+{
+  "credit": "r005 local review: approved geometry preserved. Rear Create reference, newly authored front material.",
+  "texture_size": [
+    128,
+    128
+  ],
+  "textures": {
+    "0": "create_feed_me_packages:item/pocket_pallet/pocket_pallet_front",
+    "1": "create:item/extendo_grip",
+    "particle": "#0"
+  },
+  "elements": [
+    {
+      "from": [
+        6.05,
+        7.5,
+        0.9
+      ],
+      "to": [
+        9.95,
+        10.7,
+        1.1
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            2.25,
+            5.25,
+            2.7375,
+            5.65
+          ],
+          "texture": "#0"
+        },
+        "east": {
+          "uv": [
+            3.25,
+            5.25,
+            3.275,
+            5.65
+          ],
+          "texture": "#0"
+        },
+        "south": {
+          "uv": [
+            3.875,
+            5.25,
+            4.3625,
+            5.65
+          ],
+          "texture": "#0"
+        },
+        "west": {
+          "uv": [
+            4.875,
+            5.25,
+            4.9,
+            5.65
+          ],
+          "texture": "#0"
+        },
+        "up": {
+          "uv": [
+            5.5,
+            5.25,
+            5.9875,
+            5.275
+          ],
+          "texture": "#0"
+        },
+        "down": {
+          "uv": [
+            6.5,
+            5.25,
+            6.9875,
+            5.275
+          ],
+          "texture": "#0"
+        }
+      }
+    }
+  ]
+}

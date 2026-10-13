@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/handheld",
+  "textures": {
+    "layer0": "create_feed_me_packages:item/pocket_pallet"
+  }
+}

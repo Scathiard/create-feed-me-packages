@@ -89,12 +89,24 @@ class CacheStateTest {
         var s = new CellSettings(64,512,10,-1,64);
         assertEquals(0,s.returnable(575,575,576,0));
         assertEquals(64,s.returnable(576,576,576,0));
+        assertEquals(66,s.returnable(578,578,576,0));
         assertEquals(88,s.returnable(600,600,576,0));
         assertEquals(0,s.returnable(600,63,576,0));
         assertEquals(64,s.returnable(600,64,576,0));
         assertEquals(576,s.returnable(2000,2000,576,0));
         assertEquals(0,new CellSettings(64,-1,10,-1,64).returnable(2000,2000,576,0));
         assertThrows(IllegalArgumentException.class,()->new CellSettings(64,512,10,-1,0));
+    }
+    @Test void singleItemRefillAllowsCoincidentThresholdsWithoutAnyReturnBatchCausingBounce() {
+        for (int line : List.of(1,64,128)) for (int returns : List.of(1,64,576)) {
+            var s=new CellSettings(line,line,1,-1,returns);
+            assertFalse(s.conflicting(),"Exact shortage refill never overshoots the coincident line");
+            assertEquals(1,s.requestable(line-1,0));
+            assertEquals(0,s.requestable(line-1,1));
+            assertEquals(0,s.returnable(line+returns-1,line+returns-1,576,0));
+            assertEquals(returns,s.returnable(line+returns,line+returns,576,0));
+            assertEquals(0,s.requestable(line,0));
+        }
     }
     @Test void aCarrierFromTheReturnedCellNeverConsumesTheRetainedStock() {
         var s = new CellSettings(64,64,1,-1,1);

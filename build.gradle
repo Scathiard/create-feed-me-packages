@@ -406,6 +406,8 @@ tasks.register('artifactProbeJar', Jar) {
         // Only native client drivers and their item/container fixtures belong here. Including all
         // GameTest holders makes NeoForge eagerly load historical migration-only dependencies.
         include 'dev/scathiard/feedmepackages/gametest/*ClientReview*.class'
+        // The converged controls review constructs an old ownership fixture in its isolated world.
+        include 'dev/scathiard/feedmepackages/gametest/LegacyOwnership*.class'
         include 'dev/scathiard/feedmepackages/gametest/ArtifactProbeBootstrap*.class'
         include 'dev/scathiard/feedmepackages/gametest/ConsumptionTests*.class'
         include 'dev/scathiard/feedmepackages/gametest/GadgetsTests*.class'

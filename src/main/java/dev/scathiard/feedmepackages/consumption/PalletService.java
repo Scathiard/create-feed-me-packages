@@ -68,7 +68,17 @@ public final class PalletService {
             if (available <= 0) return failed(server, "missing");
             if (!(prototype.getItem() instanceof BlockItem) || !prototype.isItemEnabled(server.level().enabledFeatures())) return failed(server, "denied");
             int offered = (int) Math.min(available, prototype.getMaxStackSize());
-            return WorldPlacement.use(server, access.handle(), slot, selection.key(), prototype.copyWithCount(offered), context);
+            var result = WorldPlacement.use(server, access.handle(), slot, selection.key(), prototype.copyWithCount(offered), context);
+            // WorldPlacement only returns a consuming result after its native placement lease committed.
+            // The display receipt is not a second consumption path.
+            if (result.consumesAction()) {
+                var current = ledger.find(selection.cache());
+                var remaining = current == null || slot>=current.state().cells().size() ? null : current.state().cells().get(slot);
+                boolean next = remaining != null && selection.key().equals(remaining.filter())
+                        && remaining.amount() > CraftingReservations.reservedCache(selection.cache(), slot, null);
+                dev.scathiard.feedmepackages.network.PalletNetwork.placed(server,selection.cache(),selection.key().encoded(),next);
+            }
+            return result;
         }
         return failed(server, "missing");
     }
