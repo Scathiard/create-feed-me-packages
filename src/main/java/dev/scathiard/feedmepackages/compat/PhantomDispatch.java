@@ -16,7 +16,7 @@ import java.util.UUID;
 public final class PhantomDispatch {
     private PhantomDispatch() {}
     private record Api(Class<?> port, Class<?> player, Method resolve, Method accepts, Method dimension,
-                       Method portPos, Method playerId, Method airportTask, Method playerTask,
+                       Method portPos, Method playerId, Constructor<?> playerCtor, Method airportTask, Method playerTask,
                        Method addTask, Method notifyHud, Method direction, double takeoffSpeed) {}
     private static Api api;
     private static boolean attempted;
@@ -40,12 +40,16 @@ public final class PhantomDispatch {
                 var toPlayer = task.getMethod("forPackageToPlayer", UUID.class, ItemStack.class, ServerLevel.class, UUID.class, ResourceKey.class,
                         Vec3.class, Vec3.class, Vec3.class, ResourceKey.class, BlockPos.class, UUID.class, UUID.class, UUID.class);
                 var add = manager.getMethod("addTask", MinecraftServer.class, task);
+                // The native player target is a public record; we build it ourselves when a package is addressed
+                // to one of our maids, whom the native resolver cannot know about.
+                var playerCtor = player.getDeclaredConstructor(UUID.class, ResourceKey.class);
                 if (resolve.getReturnType() != target || accepts.getReturnType() != boolean.class || airport.getReturnType() != task
-                        || toPlayer.getReturnType() != task || add.getReturnType() != void.class)
+                        || toPlayer.getReturnType() != task || add.getReturnType() != void.class
+                        || playerCtor.getParameterCount() != 2)
                     throw new NoSuchMethodException("Phantom task contract changed");
                 double speed = (double) profile.getMethod("takeoffSpeed").invoke(profile.getField("DEFAULT").get(null));
                 if (!Double.isFinite(speed) || speed <= 0) throw new IllegalStateException("Invalid native takeoff speed");
-                api = new Api(port, player, resolve, accepts, target.getMethod("dimension"), port.getMethod("pos"), player.getMethod("playerId"),
+                api = new Api(port, player, resolve, accepts, target.getMethod("dimension"), port.getMethod("pos"), player.getMethod("playerId"), playerCtor,
                         airport, toPlayer, add, Class.forName(root + "hud.AirCourierHudSync").getMethod("onCourierTaskStarted", MinecraftServer.class, task),
                         Class.forName(root + "flight.AirCourierFlightMath").getMethod("sanitizeNonNegativeDirection", Vec3.class), speed);
             } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
@@ -84,6 +88,10 @@ public final class PhantomDispatch {
         try {
             var origin = bearer.position().add(0, 0.01, 0);
             Object target = api.resolve.invoke(null, level, box, origin, null, null);
+            // The native resolver only knows players and ports, so a package addressed to one of our maids
+            // resolves to nothing. We build the native player target for her instead, and the native
+            // acceptance check below decides - our settlement bridge is what answers it for a maid.
+            if (target == null) target = maidTarget(server, box);
             if (target == null || !Boolean.TRUE.equals(api.accepts.invoke(null, level, target, box)))
                 return TransportDispatch.Result.known(false, "phantom");
             var look = bearer.getLookAngle();
@@ -113,6 +121,25 @@ public final class PhantomDispatch {
             if (cause instanceof VirtualMachineError fatal) throw fatal;
             if (cause instanceof ThreadDeath fatal) throw fatal;
             return new TransportDispatch.Result(entered ? TransportDispatch.Outcome.UNCERTAIN : TransportDispatch.Outcome.NOT_SENT, "phantom", cause);
+        }
+    }
+
+    /**
+     * The native player target for a package addressed to one of our maids, or null when it is not one of ours,
+     * she is unreachable with an active pendant, or she could not take the stack. Her UUID goes into the native
+     * player slot, so the task, its persistence and its return legs stay entirely native - only the identity is
+     * unusual, and the settlement bridge is the single place that understands it.
+     */
+    private static Object maidTarget(MinecraftServer server, ItemStack box) {
+        try {
+            String address = com.simibubi.create.content.logistics.box.PackageItem.getAddress(box);
+            if (dev.scathiard.feedmepackages.compat.maid.MaidAccess.recipient(address) == null) return null;
+            var maid = dev.scathiard.feedmepackages.compat.maid.MaidAccess.find(server, address);
+            if (maid == null) return null;
+            if (!dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.canReceive(maid, box)) return null;
+            return api.playerCtor.newInstance(maid.getUUID(), maid.level().dimension());
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError notOurs) {
+            return null;
         }
     }
 }
