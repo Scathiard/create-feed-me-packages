@@ -85,21 +85,8 @@ public abstract class Phantom102FlightMixin {
         if (fmp$handOver(server)) ci.cancel();
     }
 
-    /**
-     * Hand the package to her own cache, or let the native path take it back. Returns true when the outcome is
-     * owned here - delivered (the receive consumes the package, so the native carrier return is launched
-     * explicitly, because the native post-check skips it for an empty box) or handed to the native
-     * undelivered-return path, which is exactly what a player with no room gets. Nothing is dropped, duplicated,
-     * re-sent or charged twice from here.
-     */
+    /** The delivery core lives in {@link MaidPhantomTasks#handOver} so it is reachable from tests with a real task. */
     @Unique private boolean fmp$handOver(MinecraftServer server) {
-        LivingEntity maid = fmp$maid;
-        if (maid == null || server == null) return false;
-        ItemStack box = MaidPhantomTasks.packageOf(this);
-        if (box == null || box.isEmpty()) return false;
-        if (!ReceiveService.receive(MaidAccess.endpoint(maid), box))
-            return MaidPhantomTasks.returnUndelivered(this, server);
-        MaidPhantomTasks.startCarrierReturn(this, server);
-        return true;
+        return MaidPhantomTasks.handOver(this, fmp$maid, server);
     }
 }

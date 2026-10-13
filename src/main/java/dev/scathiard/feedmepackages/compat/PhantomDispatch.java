@@ -6,6 +6,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
@@ -43,6 +44,8 @@ public final class PhantomDispatch {
                 // The native player target is a public record; we build it ourselves when a package is addressed
                 // to one of our maids, whom the native resolver cannot know about.
                 var playerCtor = player.getDeclaredConstructor(UUID.class, ResourceKey.class);
+                // The native target is a package-private record in another package: its constructor needs opening.
+                playerCtor.setAccessible(true);
                 if (resolve.getReturnType() != target || accepts.getReturnType() != boolean.class || airport.getReturnType() != task
                         || toPlayer.getReturnType() != task || add.getReturnType() != void.class
                         || playerCtor.getParameterCount() != 2)
@@ -91,7 +94,8 @@ public final class PhantomDispatch {
             // The native resolver only knows players and ports, so a package addressed to one of our maids
             // resolves to nothing. We build the native player target for her instead, and the native
             // acceptance check below decides - our settlement bridge is what answers it for a maid.
-            if (target == null) target = maidTarget(server, box);
+            LivingEntity maid = target == null ? maidRecipient(server, box) : null;
+            if (maid != null) target = maidTarget(maid);
             if (target == null || !Boolean.TRUE.equals(api.accepts.invoke(null, level, target, box)))
                 return TransportDispatch.Result.known(false, "phantom");
             var look = bearer.getLookAngle();
@@ -106,7 +110,8 @@ public final class PhantomDispatch {
                         null, null, owner, id, owner);
             } else if (api.player.isInstance(target)) {
                 UUID receiver = (UUID) api.playerId.invoke(target);
-                if (server.getPlayerList().getPlayer(receiver) == null) return TransportDispatch.Result.known(false, "phantom");
+                // A maid has no entry in the player list: her own reachability check is what made her a target.
+                if (maid == null && server.getPlayerList().getPlayer(receiver) == null) return TransportDispatch.Result.known(false, "phantom");
                 task = api.playerTask.invoke(null, id, box, level, receiver, dimension, origin, direction, motion,
                         null, null, owner, id, owner);
             } else return TransportDispatch.Result.known(false, "phantom");
@@ -130,13 +135,22 @@ public final class PhantomDispatch {
      * player slot, so the task, its persistence and its return legs stay entirely native - only the identity is
      * unusual, and the settlement bridge is the single place that understands it.
      */
-    private static Object maidTarget(MinecraftServer server, ItemStack box) {
+    private static LivingEntity maidRecipient(MinecraftServer server, ItemStack box) {
         try {
             String address = com.simibubi.create.content.logistics.box.PackageItem.getAddress(box);
             if (dev.scathiard.feedmepackages.compat.maid.MaidAccess.recipient(address) == null) return null;
             var maid = dev.scathiard.feedmepackages.compat.maid.MaidAccess.find(server, address);
             if (maid == null) return null;
             if (!dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.canReceive(maid, box)) return null;
+            return maid;
+        } catch (RuntimeException | LinkageError notOurs) {
+            return null;
+        }
+    }
+
+    /** The native player target carrying her UUID, or null when it cannot be built. */
+    private static Object maidTarget(LivingEntity maid) {
+        try {
             return api.playerCtor.newInstance(maid.getUUID(), maid.level().dimension());
         } catch (ReflectiveOperationException | RuntimeException | LinkageError notOurs) {
             return null;

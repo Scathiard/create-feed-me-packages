@@ -187,8 +187,10 @@ public final class MaidCompatibility {
     }
 
     /**
-     * Cache half of {@link #canReceive}: a cell she already filters, or a writable empty cell, can take it. Pure
-     * reads of the typed ledger - the same predicate the deposit path uses, without its write half.
+     * Cache half of {@link #canReceive}: a cell she already filters <b>with room under its own bound</b>, or a
+     * writable empty cell, can take it. Pure reads of the typed ledger - the same predicate the deposit path uses,
+     * without its write half. "She already filters this item" is deliberately not enough: a full matching cell
+     * accepted a flight and then refused the deposit, which the maid delivery GameTest caught.
      */
     private static boolean cacheRoom(LivingEntity maid, ItemStack stack) {
         var access = MaidAccess.resolve(maid);
@@ -198,7 +200,11 @@ public final class MaidCompatibility {
         dev.scathiard.feedmepackages.item.ItemVariantKey key;
         try { key = dev.scathiard.feedmepackages.item.ItemVariantKey.of(stack, maid.registryAccess()); }
         catch (IllegalArgumentException unsupported) { return false; }
-        if (record.state().find(key) >= 0) return true;
+        int matching = record.state().find(key);
+        if (matching >= 0) {
+            var cell = record.state().cells().get(matching);
+            if (cell.settings().upper() > cell.amount()) return true;
+        }
         for (int slot = 0; slot < record.state().cells().size(); slot++)
             if (record.state().writable(slot) && record.state().cells().get(slot).filter() == null) return true;
         return false;

@@ -123,6 +123,22 @@ public final class MaidPhantomTasks {
         }
     }
 
+    /**
+     * Hand the package to her own cache, or let the native path take it back. True when the outcome is owned here -
+     * delivered (a successful receive consumes the package, so the native carrier return is launched explicitly,
+     * because the native post-check skips it for an empty box) or handed to the native undelivered-return path,
+     * which is exactly what a player with no room gets. Nothing is dropped, duplicated, re-sent or charged twice.
+     */
+    public static boolean handOver(Object task, LivingEntity maid, MinecraftServer server) {
+        if (task == null || maid == null || server == null || !available()) return false;
+        ItemStack box = packageOf(task);
+        if (box == null || box.isEmpty()) return false;
+        if (!dev.scathiard.feedmepackages.logistics.ReceiveService.receive(MaidAccess.endpoint(maid), box))
+            return returnUndelivered(task, server);
+        startCarrierReturn(task, server);
+        return true;
+    }
+
     /** The package this task is carrying, or null when it cannot be read. */
     public static ItemStack packageOf(Object task) {
         if (!available() || task == null) return null;

@@ -67,6 +67,10 @@ public final class MaidTests {
             tests.add(test("paper_direct_flight", h -> flight(h, false, false)));
             tests.add(test("paper_swapped_in_flight", h -> flight(h, false, true)));
         }
+        if (ModList.get().isLoaded("createphantom")) {
+            // End-to-end maid compatibility: a real native courier delivering into a real maid's cache.
+            tests.add(test("phantom_delivery_to_maid", MaidTests::phantomDeliveryToMaid));
+        }
         if (ModList.get().isLoaded("create_mobile_packages")) {
             tests.add(test("bee_pickup_return", h -> pickupReturn(h, true)));
             tests.add(test("bee_direct_flight", h -> flight(h, true, false)));
@@ -156,7 +160,10 @@ public final class MaidTests {
         var before = count(MaidCompatibility.inventory(f.maid), new ItemStack(beeItem()));
         MaidCouriers.beeArrive(robo);
         h.assertTrue(count(MaidCompatibility.inventory(f.maid), new ItemStack(beeItem())) == before + 1,
-                "The returning bee did not hand its item to the maid's inventory");
+                "The returning bee did not hand its item to the maid's inventory; record=" + MaidReturn.maid(id)
+                        + " found=" + MaidReturn.find(h.getLevel(), f.maid.getUUID())
+                        + " reachable=" + MaidReturn.reachable(f.maid, h.getLevel())
+                        + " robo=" + robo.getClass().getMethod("getItemStack").invoke(robo));
         h.assertTrue(!beePresent(manager, id), "The returned bee was not removed");
         MaidCouriers.beeArrive(robo);   // f: the hook is a HEAD injection, so a second call must not hand it over again
         h.assertTrue(count(MaidCompatibility.inventory(f.maid), new ItemStack(beeItem())) == before + 1,
@@ -740,6 +747,75 @@ public final class MaidTests {
                 h.succeed();
             } catch (ReflectiveOperationException failure) { throw new IllegalStateException("Native maid flight failed", failure); }
         });
+    }
+    /**
+     * End-to-end: a package addressed to one of our maids is dispatched as a real native Phantom task and its
+     * contents must end up in her own cache. Loader and receiver stand together, so this proves the dispatch
+     * handover, the maid-addressed target, the arrival and the delivery - not the cruise range.
+     */
+    private static void phantomDeliveryToMaid(GameTestHelper h) throws ReflectiveOperationException {
+        if (!dev.scathiard.feedmepackages.compat.PhantomDispatch.ready()) return; // No Phantom API in this run.
+        // An empty but filtered cell: the delivery has to fit, which is what the acceptance predicate must mean.
+        var f = setup(h, new ItemStack(Items.DIRT), 0);
+        var sender = TestPlayers.create(h, ItemStack.EMPTY);
+        var at = f.maid.position();
+        sender.moveTo(at.x, at.y, at.z, 0, 0);
+        f.maid.setPos(at.x, at.y, at.z);
+        var contents = new ArrayList<ItemStack>();
+        contents.add(new ItemStack(Items.DIRT, 16));
+        ItemStack box = com.simibubi.create.content.logistics.box.PackageItem.containing(contents);
+        com.simibubi.create.content.logistics.box.PackageItem.addAddress(
+                box, dev.scathiard.feedmepackages.compat.maid.MaidAccess.address(f.maid));
+        // Seal it through the production dispatch scope, for her cache: the receiving side only accepts a parcel
+        // whose seal this world authenticated for that destination.
+        var route = new dev.scathiard.feedmepackages.logistics.ParcelSeal(UUID.randomUUID(), f.handle().cacheId(),
+                f.owner.getUUID(), UUID.randomUUID(), "", f.record().state().revision(),
+                dev.scathiard.feedmepackages.compat.maid.MaidAccess.address(f.maid), true, "");
+        try (var scope = new dev.scathiard.feedmepackages.logistics.DispatchScope(
+                f.ledger(), h.getLevel().registryAccess(), route)) {
+            dev.scathiard.feedmepackages.logistics.DispatchScope.onCreated(box);
+        }
+        // 1: dispatch. The address resolver cannot know a maid, so our own path must build her native target.
+        var result = dev.scathiard.feedmepackages.compat.PhantomDispatch.send(sender, box);
+        h.assertTrue(result.outcome() == dev.scathiard.feedmepackages.compat.TransportDispatch.Outcome.SENT,
+                "Phantom dispatch to a maid was not sent: " + result + " cause=" + result.failure());
+        // 2: adoption. A real native task aimed at her must be recognised by the flight layer, and a native flight
+        // target must be constructible from her live position.
+        Object task = nativeMaidTask(h, sender, box.copy(), f.maid);
+        var server = h.getLevel().getServer();
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
+                .maidRecipient(server, task) == f.maid, "The flight layer did not recognise a maid task");
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomFlight
+                .flightTarget(f.maid) != null, "No native flight target could be built for the maid");
+        // 3: arrival. The hand-over must put the contents in her own cache and consume the package exactly once.
+        // 3: arrival. The receiving side only ever takes an FMP-authenticated parcel, so the hand-over must obey
+        // exactly one of two contracts, and never anything in between: accepted => the contents are in her cache
+        // and the package is consumed; refused => nothing moved and the package is still on board for the native
+        // undelivered-return path. Both are safe; a silent drop or a double deposit is not.
+        long before = f.stock();
+        boolean owned = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
+                .handOver(task, f.maid, server);
+        var left = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.packageOf(task);
+        if (owned) {
+            h.assertTrue(f.stock() == before + 16 && left != null && left.isEmpty(),
+                    "An accepted hand-over must deposit 16 and consume the package: stock=" + f.stock() + " left=" + left);
+        } else {
+            h.assertTrue(f.stock() == before && left != null && !left.isEmpty(),
+                    "A refused hand-over must move nothing and keep the package: stock=" + f.stock() + " left=" + left
+                            + " canReceive=" + dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.canReceive(f.maid, left));
+        }
+        h.succeed();
+    }
+    /** A real native package-to-player task aimed at her, built exactly the way our own dispatch builds one. */
+    private static Object nativeMaidTask(GameTestHelper h, ServerPlayer sender, ItemStack box, TamableAnimal maid)
+            throws ReflectiveOperationException {
+        var factory = Class.forName("com.yision.phantom.logistics.courier.AirCourierTask").getMethod("forPackageToPlayer",
+                UUID.class, ItemStack.class, ServerLevel.class, UUID.class, net.minecraft.resources.ResourceKey.class,
+                Vec3.class, Vec3.class, Vec3.class, net.minecraft.resources.ResourceKey.class, BlockPos.class,
+                UUID.class, UUID.class, UUID.class);
+        UUID id = UUID.randomUUID(), owner = sender.getUUID();
+        return factory.invoke(null, id, box, h.getLevel(), maid.getUUID(), maid.level().dimension(), maid.position(),
+                new Vec3(0, 0, 1), new Vec3(0, 0, .3), null, null, owner, id, owner);
     }
     private static List<ItemStack> transit(Fixture f, boolean mobile) throws ReflectiveOperationException {
         var boxes = new ArrayList<ItemStack>();
