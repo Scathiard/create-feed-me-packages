@@ -269,6 +269,47 @@ public final class MaidPhantomTasks {
         }
     }
 
+    /** The task's mission name, for diagnostics only ("?" when unreadable). Never throws. */
+    public static String missionName(Object task) {
+        if (!available() || task == null) return "?";
+        try {
+            return mission.invoke(task) instanceof Enum<?> current ? current.name() : "?";
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return "?";
+        }
+    }
+
+    /** The native player slot's UUID, for diagnostics only. Never throws. */
+    public static java.util.UUID targetId(Object task) {
+        if (!available() || task == null) return null;
+        try {
+            return targetPlayerId.invoke(task) instanceof java.util.UUID id ? id : null;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    /** True when the task carries no package any more, for diagnostics only. Never throws. */
+    public static boolean boxIsEmpty(Object task) {
+        if (!available() || task == null) return true;
+        try {
+            return !(box.invoke(task) instanceof ItemStack item) || item.isEmpty();
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return true;
+        }
+    }
+
+    /** What our own registry holds for this task: NONE, OUTBOUND, RETURN or CORRUPT. Diagnostics and lookups. */
+    public static String registryState(Object task) {
+        UUID taskId = idOf(task);
+        if (taskId == null) return "NONE";
+        String[] stored = MAID_TASKS.get(taskId);
+        if (stored == null) return "NONE";
+        PhantomMaidTaskMarker.Decoded decoded = PhantomMaidTaskMarker.decode(stored[0], stored[1], stored[2]);
+        if (!decoded.marked()) return "CORRUPT";
+        return decoded.direction() == PhantomMaidTaskMarker.Direction.RETURN ? "RETURN" : "OUTBOUND";
+    }
+
     /** The package this task is carrying, or null when it cannot be read. */
     public static ItemStack packageOf(Object task) {
         if (!available() || task == null) return null;

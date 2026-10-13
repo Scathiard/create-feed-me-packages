@@ -48,9 +48,23 @@ public abstract class Phantom102FlightMixin {
     /** Rebuild the flight target from her live position every tick, so she is followed rather than a stale point. */
     @Inject(method = "resolveFlightTarget", at = @At("HEAD"), cancellable = true, remap = false)
     private void fmp$trackMaid(MinecraftServer server, CallbackInfoReturnable<Object> cir) {
-        // One heartbeat line per session: it separates "the flow never ran" from "our injection never saw it", which
-        // no other evidence can. Deduplicated by MaidPhantomTasks.note, so it costs exactly one line.
-        MaidPhantomTasks.note("resolveFlightTarget is being consulted (heartbeat)");
+        // One line per distinct task state: it separates "the flow never ran" from "our injection never saw it" from
+        // "we saw it but did not recognise it", which no other evidence can. Quiet by construction: only tasks that
+        // are addressed to a maid or carry our own registry entry are reported, and identical states collapse.
+        String registry = MaidPhantomTasks.registryState(this);
+        java.util.UUID playerSlot = MaidPhantomTasks.targetId(this);
+        boolean maidAddressed = playerSlot != null
+                && dev.scathiard.feedmepackages.compat.maid.MaidAccess.recipient(
+                        dev.scathiard.feedmepackages.compat.maid.MaidAccess.ADDRESS_PREFIX + playerSlot) != null;
+        if (!"NONE".equals(registry) || maidAddressed) {
+            MaidPhantomTasks.note("task seen: mission=" + MaidPhantomTasks.missionName(this)
+                    + " boxEmpty=" + MaidPhantomTasks.boxIsEmpty(this)
+                    + " undelivered=" + MaidPhantomTasks.undeliveredReturn(this)
+                    + " target=" + playerSlot + " targetIsMaidAddress=" + maidAddressed
+                    + " registry=" + registry
+                    + " returnsToSourcePlayer=" + MaidPhantomTasks.returnsToSourcePlayer(this)
+                    + " phase=" + MaidPhantomTasks.phaseName(this));
+        }
         fmp$maid = null;
         if (!fmp$enabled()) return;
         LivingEntity maid = MaidPhantomTasks.maidRecipient(server, this);
