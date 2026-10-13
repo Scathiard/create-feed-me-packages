@@ -83,6 +83,9 @@ public final class PalletService {
         return failed(server, "missing");
     }
     static InteractionResult failed(ServerPlayer player, String reason) {
-        player.displayClientMessage(Component.translatable("message.create_feed_me_packages.pallet." + reason), true); return InteractionResult.FAIL;
+        // Ordinary placement rejections are quiet; missing-stock and setup guidance remain.
+        if (!"denied".equals(reason) && !"no_placement".equals(reason))
+            player.displayClientMessage(Component.translatable("message.create_feed_me_packages.pallet." + reason), true);
+        return InteractionResult.FAIL;
     }
 }

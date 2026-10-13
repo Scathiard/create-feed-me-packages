@@ -48,7 +48,9 @@ public final class PalletClientReview {
             case 1 -> {
                 if (!ClientMaterials.active() || PalletClient.candidates().size() != 34 || !Objects.equals(cache, ClientMaterials.cacheId())) return false;
                 MC.setScreen(null); MC.mouseHandler.grabMouse(); org.lwjgl.glfw.GLFW.glfwFocusWindow(MC.getWindow().getWindow());
-                MC.player.setYRot(0); MC.player.setXRot(40); button(2, true); next();
+                MC.player.setYRot(0); MC.player.setXRot(40);
+                if(Boolean.getBoolean("fmp.palletQuietReview")){stage=39;changed=ticks;return false;}
+                button(2, true); next();
             }
             case 2 -> {
                 require(MC.screen instanceof PalletScreen && spiral(), "Default middle button did not open spiral mode");
@@ -231,12 +233,57 @@ public final class PalletClientReview {
             case 37 -> { verifyVisualContract();TemplateClientReview.capture("pallet-arc-scale3");key(org.lwjgl.glfw.GLFW.GLFW_KEY_TAB);next(); }
             case 38 -> { verifyGridBounds();TemplateClientReview.capture("pallet-grid-scale3");key(org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE);button(2,false);MC.options.guiScale().set(2);MC.resizeDisplay();next(); }
             case 39 -> {
+                MC.gui.setOverlayMessage(net.minecraft.network.chat.Component.literal("FMP quiet-placement sentinel"),false);
+                server(p -> {
+                    var ledger=CacheLedger.get(p.getServer());var row=ledger.find(cache);var key=row.state().cells().getFirst().filter();
+                    require(PalletService.choose(p,cache,key.encoded()),"Silent rejection fixture could not select stock");
+                    p.serverLevel().setBlockAndUpdate(new BlockPos(8,4,10),Blocks.AIR.defaultBlockState());
+                    p.serverLevel().setBlockAndUpdate(new BlockPos(8,3,10),Blocks.STONE.defaultBlockState());
+                    var observed=new java.util.concurrent.atomic.AtomicBoolean();
+                    Consumer<net.neoforged.neoforge.event.level.BlockEvent.EntityPlaceEvent> cancel=event -> {
+                        if(event.getEntity()==p){observed.set(true);event.setCanceled(true);}
+                    };
+                    net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(cancel);
+                    try {
+                        var hit=new BlockHitResult(new net.minecraft.world.phys.Vec3(8.5,4,10.5),Direction.UP,new BlockPos(8,3,10),false);
+                        require(p.gameMode.useItemOn(p,p.serverLevel(),p.getMainHandItem(),InteractionHand.MAIN_HAND,hit)==net.minecraft.world.InteractionResult.FAIL,
+                                "Canceled native placement reported success");
+                    } finally { net.neoforged.neoforge.common.NeoForge.EVENT_BUS.unregister(cancel); }
+                    require(observed.get(),"Native place cancellation was not reached");
+                    require(p.serverLevel().getBlockState(new BlockPos(8,4,10)).isAir() && ledger.find(cache).state().cells().getFirst().amount()==7,
+                            "Quiet failure changed world or stock");
+                });next();
+            }
+            case 40 -> {
+                require(overlay().equals("FMP quiet-placement sentinel"),"Native failed placement still sends action-bar text: "+overlay());
+                server(p -> emitFailure(p,"no_placement"));next();
+            }
+            case 41 -> {
+                require(overlay().equals("FMP quiet-placement sentinel"),"Uncommitted placement still sends action-bar text");
+                server(p -> emitFailure(p,"no_selection"));next();
+            }
+            case 42 -> {
+                require(overlay().equals(net.minecraft.network.chat.Component.translatable("message.create_feed_me_packages.pallet.no_selection").getString()),
+                        "Removing failure text also hid selection guidance");
+                MC.gui.setOverlayMessage(net.minecraft.network.chat.Component.empty(),false);
+                FeedMePackages.LOGGER.info("FMP_PALLET_QUIET_FAILURE_PASSED nativeCancel=true stockUnchanged=true noPlacementSilent=true selectionGuidanceRetained=true");
+                if(Boolean.getBoolean("fmp.palletQuietReview")) return true;
                 FeedMePackages.LOGGER.info("FMP_PALLET_CLIENT_PASSED defaultMiddle=true defaultArc=true forwardSteps=69 reverseSteps=70 nativeWrap=true nativeReverse=true nativeBlur=true keyboardAndMouseRebind=true horizontalDrag=true hysteresis=true escapeCancel=true brassArcHighlight=true authoritativeFeed=true gridSearch=true nativePlace=true nativeMiningWithTool=true");
                 FeedMePackages.LOGGER.info("FMP_PALLET_MODELS_CLIENT_PASSED bakedParts=7 inventory=true leftHand=true thirdPerson=true resourceReload=true fixedBody=true lowerHalf=true guiScales=1,2,3");
                 return true;
             }
         }
         return false;
+    }
+    private static String overlay() throws ReflectiveOperationException {
+        var field=net.minecraft.client.gui.Gui.class.getDeclaredField("overlayMessageString");field.setAccessible(true);
+        var message=(net.minecraft.network.chat.Component)field.get(MC.gui);return message==null?"":message.getString();
+    }
+    private static void emitFailure(ServerPlayer player,String reason) {
+        try {
+            var method=PalletService.class.getDeclaredMethod("failed",ServerPlayer.class,String.class);method.setAccessible(true);
+            require(method.invoke(null,player,reason)==net.minecraft.world.InteractionResult.FAIL,"Failure hint changed the action result");
+        } catch(ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
     }
     private static void tooltipRendered(net.neoforged.neoforge.client.event.RenderTooltipEvent.Pre event) {
         if(!(MC.screen instanceof PalletScreen)) return;
