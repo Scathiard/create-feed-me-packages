@@ -303,7 +303,7 @@ public final class ClientReview {
             }
             case 8 -> {
                 if(ticks-changed<25 || panelInt("waiting")!=0)return;
-                int expected=dev.scathiard.feedmepackages.client.CellControlGeometry.draggedValue(65,8,panelSnapshot().groupCapacity()*64);
+                int expected=dev.scathiard.feedmepackages.client.CellControlGeometry.draggedValue(65,8,panelSnapshot().groupCapacity()*64,64);
                 require(panelSnapshot().cells().getFirst().minimum()==expected,"Slider was rolled back after release");
                 capture("converged-drag-acknowledged");
                 controlWheel(0,1); // Close before the debounce: this still must persist atomically.

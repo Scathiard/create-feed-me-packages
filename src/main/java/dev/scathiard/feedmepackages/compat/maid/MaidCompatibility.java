@@ -158,11 +158,11 @@ public final class MaidCompatibility {
         } catch (ReflectiveOperationException broken) { throw failure(broken); }
         SupplyService.tick(MaidAccess.endpoint(maid));
     }
-    /** Give one stack back to the maid's own inventory; false when it did not fit entirely. */
+    /** Give one stack back, native backpack before hands; false when it did not fit entirely. */
     public static boolean insertInto(LivingEntity maid, ItemStack stack) {
         if (!ready || !isMaid(maid) || stack.isEmpty()) return false;
         try {
-            var available = (IItemHandlerModifiable) availableInventory.invoke(maid, true);
+            var available = (IItemHandlerModifiable) availableInventory.invoke(maid, false);
             ItemStack preview = stack.copy();
             for (int slot = 0; slot < available.getSlots() && !preview.isEmpty(); slot++)
                 preview = available.insertItem(slot, preview, true);

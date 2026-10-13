@@ -92,6 +92,7 @@ public final class MaidTests {
             tests.add(test("paper_swapped_in_flight", h -> flight(h, false, true)));
         }
         if (ModList.get().isLoaded("createphantom")) {
+            tests.add(test("phantom_return_inventory_priority", h -> carrierInventoryPriority(h, false)));
             // End-to-end maid compatibility: a real native courier delivering into a real maid's cache.
             tests.add(test("phantom_delivery_to_maid", MaidTests::phantomDeliveryToMaid));
             // And the way home: the returning carrier must come to her, not to her owner.
@@ -106,6 +107,7 @@ public final class MaidTests {
             tests.add(test("phantom_belt_post_admission_failure", MaidTests::phantomBeltFault));
         }
         if (ModList.get().isLoaded("create_mobile_packages")) {
+            tests.add(test("bee_return_inventory_priority", h -> carrierInventoryPriority(h, true)));
             tests.add(test("bee_pickup_return", h -> pickupReturn(h, true)));
             tests.add(test("bee_direct_flight", h -> flight(h, true, false)));
             tests.add(test("bee_swapped_in_flight", h -> flight(h, true, true)));
@@ -237,6 +239,9 @@ public final class MaidTests {
                         + " reachable=" + MaidReturn.reachable(f.maid, h.getLevel())
                         + " robo=" + robo.getClass().getMethod("getItemStack").invoke(robo));
         h.assertTrue(!beePresent(manager, id), "The returned bee was not removed");
+        h.assertTrue(count(MaidCompatibility.inventory(f.maid), new ItemStack(beeItem())) == before + 1
+                        && f.maid.getMainHandItem().isEmpty() && f.maid.getOffhandItem().isEmpty(),
+                "Actual bee arrival filled a hand despite free native bag space");
         MaidCouriers.beeArrive(robo);   // f: the hook is a HEAD injection, so a second call must not hand it over again
         h.assertTrue(maidItemCount(f.maid, new ItemStack(beeItem())) == before + 1,
                 "A repeated arrival handed the carrier over twice");
@@ -511,6 +516,32 @@ public final class MaidTests {
                             && (bee?maidItemCount(f.maid,carrier)+f.record().state().cells().get(1).amount()==1:count(MaidCompatibility.inventory(f.maid),carrier)==0),"Maid return carrier accounting changed owner inventory");
                     FeedMePackages.LOGGER.info("FMP_MAID_PICKUP_RETURN_PASSED transport={} nativePickup=100 source=64 destination=36 ownerOffline=true carrierSource={}",bee?"bee":"paper",bee?"cache":"backpack");
                 }).thenSucceed();
+    }
+
+    /** Real carrier arrival entry points, with native storage and equipment rather than a fake handler. */
+    private static void carrierInventoryPriority(GameTestHelper h, boolean bee) {
+        var carrier = new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse(
+                bee ? "create_mobile_packages:robo_bee" : "createphantom:mini_phantom")));
+        var f = setup(h, carrier, 0);
+        var inv = MaidCompatibility.inventory(f.maid);
+        var weapon = new ItemStack(Items.IRON_SWORD);
+        f.maid.setItemInHand(InteractionHand.MAIN_HAND, weapon);
+        Predicate<ItemStack> receive = item -> bee ? MaidCompatibility.returnCarrier(f.maid, item)
+                : dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.handCarrierTo(f.maid, item);
+        h.assertTrue(receive.test(carrier.copy()), "Native carrier return was rejected with free bag space");
+        h.assertTrue(count(inv, carrier) == 1 && f.maid.getOffhandItem().isEmpty()
+                        && f.maid.getMainHandItem() == weapon && f.stock() == 0,
+                "Returning carrier occupied a hand while the maid's native bag still had room");
+        for (int slot = 0; slot < inv.getSlots(); slot++) inv.setStackInSlot(slot, new ItemStack(Items.DIRT, 64));
+        h.assertTrue(receive.test(carrier.copy()) && ItemStack.matches(f.maid.getOffhandItem(), carrier)
+                        && f.maid.getMainHandItem() == weapon && f.stock() == 0,
+                "Full bag did not retain the existing offhand fallback, or replaced the weapon");
+        var offhand = new ItemStack(Items.TORCH, 64);
+        f.maid.setItemInHand(InteractionHand.OFF_HAND, offhand);
+        h.assertTrue(receive.test(carrier.copy()) && f.stock() == 1
+                        && f.maid.getMainHandItem() == weapon && f.maid.getOffhandItem() == offhand,
+                "Full native inventory did not retain the matching-cache fallback");
+        h.succeed();
     }
 
     private static void shortage(GameTestHelper h) throws ReflectiveOperationException {
@@ -1064,6 +1095,9 @@ public final class MaidTests {
                     "Maid roundtrip duplicated cargo or carrier");
             h.assertTrue(f.owner.getInventory().countItem(carrier.getItem()) == 0,
                     "Carrier returned to the owner instead of its source maid");
+            h.assertTrue(count(MaidCompatibility.inventory(f.maid), carrier) == 1
+                            && f.maid.getMainHandItem().isEmpty() && f.maid.getOffhandItem().isEmpty(),
+                    "Real Phantom roundtrip filled a hand despite free native bag space");
             FeedMePackages.LOGGER.info("FMP_MAID_PHANTOM_ROUNDTRIP_PASSED cargo=36 carrier=1 ownerOffline=true");
         }).thenSucceed();
     }

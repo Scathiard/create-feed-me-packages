@@ -1821,8 +1821,9 @@ public final class LogisticsPanel {
     private static void updateSliderDrag(double x, boolean maximum) {
         var draft=controls(); if(draft==null || layout.slider()==null || !dragMoved && Math.abs(x-dragOriginX)<2) return;
         dragMoved=true; var value=draft.value(); int cap=cellCapacity();
-        int next=CellControlGeometry.draggedValue(dragStartValue,x-dragOriginX,cap);
-        if (snapshot.cells().get(selected).fluid()) next=Math.clamp(Math.round(next/8000f)*8000,0,cap);
+        var cell=snapshot.cells().get(selected);
+        int next=CellControlGeometry.draggedValue(dragStartValue,x-dragOriginX,cap,cell.fluid()?1:cell.stackSize());
+        if (cell.fluid()) next=Math.clamp(Math.round(next/8000f)*8000,0,cap);
         int lower=value.lower(),upper=value.upper();
         if(maximum) upper=next>=cap?-1:Math.max(next,Math.max(0,lower));
         else { lower=Math.min(next,upper<0?cap:upper); if(lower==0) lower=-1; }

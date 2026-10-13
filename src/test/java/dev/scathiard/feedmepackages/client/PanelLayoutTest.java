@@ -375,6 +375,34 @@ class PanelLayoutTest {
         assertEquals(512,CellControlGeometry.draggedValue(65,100,512));
     }
 
+    @Test void itemDragLightlySnapsNearRealStackMultiples() {
+        for (int value : new int[]{60, 64, 68})
+            assertEquals(64, CellControlGeometry.draggedValue(0, value * 71d / 512, 512, 64));
+        assertEquals(54, CellControlGeometry.draggedValue(0, 54 * 71d / 512, 512, 64));
+        assertEquals(74, CellControlGeometry.draggedValue(0, 74 * 71d / 512, 512, 64));
+        assertEquals(16, CellControlGeometry.draggedValue(0, 15 * 71d / 128, 128, 16));
+        assertEquals(16, CellControlGeometry.draggedValue(0, 17 * 71d / 128, 128, 16));
+        assertEquals(20, CellControlGeometry.draggedValue(0, 20 * 71d / 128, 128, 16));
+    }
+
+    @Test void itemSnapDoesNotQuantizeTheTrackOrPrematurelyDisableEndpoints() {
+        for (int groups : new int[]{2, 8, 64, 512}) {
+            int cap = groups * 64, previous = -1;
+            for (int raw = 0; raw <= cap; raw++) {
+                int actual = CellControlGeometry.draggedValue(0, raw * 71d / cap, cap, 64);
+                assertTrue(actual >= previous && actual <= cap, "Drag reversed direction or left the track");
+                assertTrue(Math.abs(actual - raw) <= 8, "Magnet jumped by more than one eighth of a stack");
+                assertTrue(Math.abs(actual - raw) * 71d / cap <= 1.000001, "Magnet jumped by more than one GUI pixel");
+                previous = actual;
+            }
+            assertEquals(1, CellControlGeometry.draggedValue(0, 71d / cap, cap, 64));
+            assertEquals(cap - 1, CellControlGeometry.draggedValue(0, (cap - 1) * 71d / cap, cap, 64));
+        }
+        assertEquals(9, CellControlGeometry.draggedValue(0, 9 * 71d / 32, 32, 1));
+        assertEquals(0, CellControlGeometry.draggedValue(65, -100, 512, 64));
+        assertEquals(512, CellControlGeometry.draggedValue(65, 100, 512, 64));
+    }
+
     /** Ten future plugin coordinates (order: "为未来的的拓展性做考虑") must move nothing and stay coherent. */
     @Test void tenFuturePluginCoordinatesKeepThePanelCoherent() {
         CacheGrid base = CacheGrid.forLevel(5);

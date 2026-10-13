@@ -21,4 +21,14 @@ public final class CellControlGeometry {
     public static int draggedValue(int start, double delta, int capacity) {
         return (int)Math.clamp(Math.round(start + delta * capacity / SPAN), 0, capacity);
     }
+    public static int draggedValue(int start, double delta, int capacity, int stackSize) {
+        if (stackSize <= 1) return draggedValue(start, delta, capacity);
+        double raw = Math.clamp(start + delta * capacity / SPAN, 0, capacity);
+        long group = Math.round(raw / stackSize) * stackSize;
+        // A small plateau, never an entire step: at most one GUI pixel or 1/8 stack.
+        double radius = Math.min((double) capacity / SPAN, stackSize / 8d);
+        // Endpoints switch logistics off. Only deliberate travel to the edge may reach them.
+        if (group > 0 && group < capacity && Math.abs(raw - group) <= radius) return (int) group;
+        return (int) Math.round(raw);
+    }
 }
