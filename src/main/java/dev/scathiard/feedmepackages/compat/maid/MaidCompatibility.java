@@ -169,6 +169,40 @@ public final class MaidCompatibility {
             return rest.isEmpty();
         } catch (ReflectiveOperationException broken) { throw failure(broken); }
     }
+    /**
+     * Read-only answer to "could she take this stack?", in the same order the real path uses: <b>her inventory,
+     * then her cache</b>. Simulation only - no ledger write, no NBT, no packet, no state change at all, because the
+     * caller is a predicate (Create Phantom's {@code canReceivePackageTarget} branch).
+     */
+    public static boolean canReceive(LivingEntity maid, ItemStack stack) {
+        if (!ready || !isMaid(maid) || stack == null || stack.isEmpty()) return false;
+        ItemStack rest = stack.copy();
+        try {
+            var available = (IItemHandlerModifiable) availableInventory.invoke(maid, true);
+            for (int slot = 0; slot < available.getSlots() && !rest.isEmpty(); slot++)
+                rest = available.insertItem(slot, rest, true);
+        } catch (ReflectiveOperationException broken) { throw failure(broken); }
+        if (rest.isEmpty()) return true;
+        return cacheRoom(maid, rest);
+    }
+
+    /**
+     * Cache half of {@link #canReceive}: a cell she already filters, or a writable empty cell, can take it. Pure
+     * reads of the typed ledger - the same predicate the deposit path uses, without its write half.
+     */
+    private static boolean cacheRoom(LivingEntity maid, ItemStack stack) {
+        var access = MaidAccess.resolve(maid);
+        if (!access.active() || maid.getServer() == null) return false;
+        var record = CacheLedger.get(maid.getServer()).find(access.handle().cacheId());
+        if (record == null) return false;
+        dev.scathiard.feedmepackages.item.ItemVariantKey key;
+        try { key = dev.scathiard.feedmepackages.item.ItemVariantKey.of(stack, maid.registryAccess()); }
+        catch (IllegalArgumentException unsupported) { return false; }
+        if (record.state().find(key) >= 0) return true;
+        for (int slot = 0; slot < record.state().cells().size(); slot++)
+            if (record.state().writable(slot) && record.state().cells().get(slot).filter() == null) return true;
+        return false;
+    }
     static RuntimeException failure(ReflectiveOperationException problem) {
         Throwable cause = problem instanceof InvocationTargetException wrapped ? wrapped.getCause() : problem;
         if (cause instanceof Error error) throw error;
