@@ -1,0 +1,158 @@
+package dev.scathiard.feedmepackages.compat.maid.phantom.v102;
+
+import com.simibubi.create.content.logistics.box.PackageItem;
+import dev.scathiard.feedmepackages.compat.maid.MaidAccess;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.UUID;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * Read/write access to the parts of a native 1.0.2 courier task this feature needs (0.3.0 T4). All reflective and
+ * fail-closed: anything that cannot be resolved disables the feature instead of guessing.
+ *
+ * <p>The identity test is deliberately narrow. A task counts as ours only when its native player slot holds a UUID
+ * that is one of <b>our</b> maid addresses, the package on board is addressed to that same maid, no port target is
+ * set, the mission is a package-to-player one, and the task is not already returning an undelivered package. The
+ * player-shaped UUID slot is a coincidence we read, never a fake player we create.
+ */
+public final class MaidPhantomTasks {
+    private MaidPhantomTasks() {}
+
+    private static boolean attempted;
+    private static Method targetPlayerId;
+    private static Method mission;
+    private static Method box;
+    private static Method position;
+    private static Field returningUndeliveredPackage;
+    private static Field targetDimension;
+    private static Field targetPhantomPortPos;
+    private static Method doFinishDelivery;
+    private static Method tryReturnUndeliveredPackage;
+    private static Method startCarrierReturn;
+
+    /** True once every member this class touches was resolved. Never throws. */
+    public static synchronized boolean available() {
+        if (!attempted) {
+            attempted = true;
+            try {
+                Class<?> task = Class.forName("com.yision.phantom.logistics.courier.AirCourierTask");
+                targetPlayerId = task.getMethod("targetPlayerId");
+                mission = task.getMethod("mission");
+                box = task.getMethod("box");
+                position = task.getMethod("position");
+                returningUndeliveredPackage = task.getDeclaredField("returningUndeliveredPackage");
+                returningUndeliveredPackage.setAccessible(true);
+                targetDimension = task.getDeclaredField("targetDimension");
+                targetDimension.setAccessible(true);
+                targetPhantomPortPos = task.getDeclaredField("targetPhantomPortPos");
+                targetPhantomPortPos.setAccessible(true);
+                doFinishDelivery = task.getDeclaredMethod("doFinishDelivery", MinecraftServer.class, ServerLevel.class);
+                doFinishDelivery.setAccessible(true);
+                tryReturnUndeliveredPackage = task.getDeclaredMethod("tryReturnUndeliveredPackage", MinecraftServer.class);
+                tryReturnUndeliveredPackage.setAccessible(true);
+                startCarrierReturn = task.getDeclaredMethod("startCarrierReturn", MinecraftServer.class);
+                startCarrierReturn.setAccessible(true);
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
+                targetPlayerId = null;
+                mission = null;
+                box = null;
+                position = null;
+                returningUndeliveredPackage = null;
+                targetDimension = null;
+                targetPhantomPortPos = null;
+                doFinishDelivery = null;
+                tryReturnUndeliveredPackage = null;
+                startCarrierReturn = null;
+            }
+        }
+        return targetPlayerId != null && mission != null && box != null && position != null
+                && returningUndeliveredPackage != null && targetDimension != null && targetPhantomPortPos != null
+                && doFinishDelivery != null && tryReturnUndeliveredPackage != null && startCarrierReturn != null;
+    }
+
+    /** The maid this task is currently delivering to, or null when the task is not one of ours. */
+    public static LivingEntity maidRecipient(MinecraftServer server, Object task) {
+        if (!available() || server == null || task == null) return null;
+        try {
+            if (!(targetPlayerId.invoke(task) instanceof UUID uuid)) return null;
+            if (Boolean.TRUE.equals(returningUndeliveredPackage.get(task))) return null;
+            if (targetPhantomPortPos.get(task) != null) return null;
+            if (!(mission.invoke(task) instanceof Enum<?> current) || !current.name().equals("PACKAGE_TO_PLAYER")) return null;
+            if (!(box.invoke(task) instanceof ItemStack item) || item.isEmpty()) return null;
+            String address = PackageItem.getAddress(item);
+            if (!uuid.equals(MaidAccess.recipient(address))) return null;
+            return MaidAccess.find(server, address);
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    /** The task's current world position, or null when it cannot be read. */
+    public static Vec3 position(Object task) {
+        if (!available() || task == null) return null;
+        try {
+            return position.invoke(task) instanceof Vec3 at ? at : null;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    /** Keep the task's own idea of its destination dimension in step with hers (cross-dimension following). */
+    public static void followDimension(Object task, ServerLevel level) {
+        if (!available() || task == null || level == null) return;
+        try {
+            targetDimension.set(task, level.dimension());
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // A failed bookkeeping write never cancels the flight; the native code re-resolves next tick.
+        }
+    }
+
+    /** Hand the arrival to the native finish path, which then runs the native return legs. */
+    public static boolean finishDelivery(Object task, MinecraftServer server, ServerLevel level) {
+        if (!available() || task == null || server == null || level == null) return false;
+        try {
+            doFinishDelivery.invoke(task, server, level);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return false;
+        }
+    }
+
+    /** The package this task is carrying, or null when it cannot be read. */
+    public static ItemStack packageOf(Object task) {
+        if (!available() || task == null) return null;
+        try {
+            return box.invoke(task) instanceof ItemStack item ? item : null;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    /** Native "return the undelivered package by its original address" - source port first, then its real source
+     *  player. True when the native method took the package over; false leaves the decision to the caller. */
+    public static boolean returnUndelivered(Object task, MinecraftServer server) {
+        if (!available() || task == null || server == null) return false;
+        try {
+            return Boolean.TRUE.equals(tryReturnUndeliveredPackage.invoke(task, server));
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return false;
+        }
+    }
+
+    /** Launch the native carrier return. The native post-check skips it once the box is empty, so a delivery that
+     *  consumed the package must call it explicitly - otherwise the carrier of the finished task is stranded. */
+    public static boolean startCarrierReturn(Object task, MinecraftServer server) {
+        if (!available() || task == null || server == null) return false;
+        try {
+            startCarrierReturn.invoke(task, server);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return false;
+        }
+    }
+}

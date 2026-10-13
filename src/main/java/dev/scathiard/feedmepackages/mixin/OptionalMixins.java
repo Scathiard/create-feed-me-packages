@@ -25,6 +25,8 @@ public final class OptionalMixins implements IMixinConfigPlugin {
      */
     private static Boolean phantom102Ready;
     public static boolean phantom102Compatible() { return Boolean.TRUE.equals(phantom102Ready); }
+    private static Boolean phantom102FlightReady;
+    public static boolean phantom102FlightCompatible() { return Boolean.TRUE.equals(phantom102FlightReady); }
     public static boolean factoryCompatible() { return factoryReady; }
     private static Boolean effortlessReady;
     public static boolean effortlessCompatible() { return Boolean.TRUE.equals(effortlessReady); }
@@ -53,6 +55,11 @@ public final class OptionalMixins implements IMixinConfigPlugin {
             // Shape mismatch => this Mixin is not applied at all (no require=0, no behaviour change).
             phantom102Ready = phantom102SettlementTarget(targetClassName);
             return phantom102Ready;
+        }
+        if (mixinClassName.endsWith("Phantom102FlightMixin")) {
+            // Same rule for the flight side: an unrecognised task shape is never injected into.
+            phantom102FlightReady = phantom102FlightTarget(targetClassName);
+            return phantom102FlightReady;
         }
         if (mixinClassName.endsWith("JeiServerEditMixin") || mixinClassName.endsWith("JeiServerResultEditMixin")) {
             try {
@@ -456,6 +463,25 @@ public final class OptionalMixins implements IMixinConfigPlugin {
                     && calls(node, "canReceivePackageTarget", descriptor,
                             "net/minecraft/server/players/PlayerList", "getPlayer",
                             "(Ljava/util/UUID;)Lnet/minecraft/server/level/ServerPlayer;") >= 1;
+        } catch (ClassNotFoundException | IOException unavailable) { return false; }
+    }
+    /**
+     * Create Phantom 1.0.2 flight boundary (T4). Measured shape only: the four methods this feature injects into
+     * must exist with their exact descriptors. Any mismatch returns false, so the Mixin is never applied and a
+     * player task keeps flying exactly as the native code intends.
+     */
+    private static boolean phantom102FlightTarget(String targetClassName) {
+        if (!targetClassName.equals("com.yision.phantom.logistics.courier.AirCourierTask")) return false;
+        String flightTarget = "Lcom/yision/phantom/logistics/courier/AirCourierTask$FlightTarget;";
+        try {
+            var node = MixinService.getService().getBytecodeProvider().getClassNode(targetClassName);
+            return hasMethod(node, "resolveFlightTarget",
+                        "(Lnet/minecraft/server/MinecraftServer;)" + flightTarget)
+                    && hasMethod(node, "isDestinationAvailable", "(" + flightTarget + ")Z")
+                    && hasMethod(node, "tickLanding",
+                        "(Lnet/minecraft/server/MinecraftServer;Lnet/minecraft/server/level/ServerLevel;" + flightTarget + ")V")
+                    && hasMethod(node, "doFinishDeliveryAt",
+                        "(Lnet/minecraft/server/MinecraftServer;Lnet/minecraft/server/level/ServerLevel;)V");
         } catch (ClassNotFoundException | IOException unavailable) { return false; }
     }
     private static boolean hasCall(ClassNode target, String name, String descriptor, String invocation) {
