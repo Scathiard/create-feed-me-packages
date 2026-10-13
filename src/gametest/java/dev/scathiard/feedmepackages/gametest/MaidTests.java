@@ -795,6 +795,10 @@ public final class MaidTests {
         Class.forName("com.yision.phantom.logistics.courier.AirCourierBeltHooks");
         h.assertTrue(dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102BeltCompatible(),
                 "The belt launch gate refused the measured shape; the mixin was not applied");
+        // And the port's own carrier departure, which is how a wing station sends a carrier back to someone.
+        Class.forName("com.yision.phantom.block.phantomport.PhantomPortReturnQueue");
+        h.assertTrue(dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102PortReturnCompatible(),
+                "The port carrier-return gate refused the measured shape; the takeover was not applied");
         // 3: arrival. The hand-over must put the contents in her own cache and consume the package exactly once.
         // 3: arrival. The receiving side only ever takes an FMP-authenticated parcel, so the hand-over must obey
         // exactly one of two contracts, and never anything in between: accepted => the contents are in her cache

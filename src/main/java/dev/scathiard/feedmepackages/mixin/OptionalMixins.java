@@ -29,6 +29,8 @@ public final class OptionalMixins implements IMixinConfigPlugin {
     public static boolean phantom102FlightCompatible() { return Boolean.TRUE.equals(phantom102FlightReady); }
     private static Boolean phantom102BeltReady;
     public static boolean phantom102BeltCompatible() { return Boolean.TRUE.equals(phantom102BeltReady); }
+    private static Boolean phantom102PortReturnReady;
+    public static boolean phantom102PortReturnCompatible() { return Boolean.TRUE.equals(phantom102PortReturnReady); }
     public static boolean factoryCompatible() { return factoryReady; }
     private static Boolean effortlessReady;
     public static boolean effortlessCompatible() { return Boolean.TRUE.equals(effortlessReady); }
@@ -73,6 +75,16 @@ public final class OptionalMixins implements IMixinConfigPlugin {
                           + "Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/resources/ResourceKey;"
                           + "Lnet/minecraft/core/BlockPos;)Lcom/yision/phantom/logistics/courier/AirCourierTarget;");
             } catch (ClassNotFoundException | IOException unavailable) { return false; }
+        }
+        if (mixinClassName.endsWith("Phantom102PortReturnMixin")) {
+            // The port's carrier departure. We answer it ourselves for a maid, so the exact method must exist with the
+            // measured descriptor; anything else means not applied at all.
+            try {
+                var node = MixinService.getService().getBytecodeProvider().getClassNode(targetClassName);
+                phantom102PortReturnReady = targetClassName.equals("com.yision.phantom.block.phantomport.PhantomPortReturnQueue")
+                        && hasMethod(node, "tryQueueStoredReturnCarrierToPlayer", "(Ljava/util/UUID;)Z");
+                return phantom102PortReturnReady;
+            } catch (ClassNotFoundException | IOException unavailable) { phantom102PortReturnReady = false; return false; }
         }
         if (mixinClassName.endsWith("Phantom102BeltMixin")) {
             // The belt launch gate. We reproduce its happy path ourselves, so the whole shape it depends on must be

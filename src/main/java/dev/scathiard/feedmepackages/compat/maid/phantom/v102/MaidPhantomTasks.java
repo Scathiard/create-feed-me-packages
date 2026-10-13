@@ -468,6 +468,12 @@ public final class MaidPhantomTasks {
         }
     }
 
+    /** Public entity-level lookup for other takeover points (a port returning a carrier to one of our maids). */
+    public static LivingEntity maidByEntity(MinecraftServer server, java.util.UUID id) {
+        if (!available() || server == null || id == null) return null;
+        return maidEntity(server, id);
+    }
+
     /** The maid entity with this UUID, at entity level: a maid, alive, not removed, somewhere loaded. */    private static LivingEntity maidEntity(MinecraftServer server, UUID id) {
         for (ServerLevel level : server.getAllLevels()) {
             if (level.getEntity(id) instanceof LivingEntity maid

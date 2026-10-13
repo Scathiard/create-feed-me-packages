@@ -47,7 +47,8 @@
     "Phantom102SettlementMixin",
     "Phantom102FlightMixin",
     "Phantom102LaunchMixin",
-    "Phantom102BeltMixin"
+    "Phantom102BeltMixin",
+    "Phantom102PortReturnMixin"
   ],
   "client": [
     "ContainerScreenAccess",
