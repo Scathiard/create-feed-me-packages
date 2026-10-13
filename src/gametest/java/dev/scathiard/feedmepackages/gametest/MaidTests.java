@@ -70,6 +70,8 @@ public final class MaidTests {
         if (ModList.get().isLoaded("createphantom")) {
             // End-to-end maid compatibility: a real native courier delivering into a real maid's cache.
             tests.add(test("phantom_delivery_to_maid", MaidTests::phantomDeliveryToMaid));
+            // And the way home: the returning carrier must come to her, not to her owner.
+            tests.add(test("phantom_return_to_maid", MaidTests::phantomReturnToMaid));
         }
         if (ModList.get().isLoaded("create_mobile_packages")) {
             tests.add(test("bee_pickup_return", h -> pickupReturn(h, true)));
@@ -822,6 +824,39 @@ public final class MaidTests {
         UUID id = UUID.randomUUID(), owner = sender.getUUID();
         return factory.invoke(null, id, box, h.getLevel(), maid.getUUID(), maid.level().dimension(), maid.position(),
                 new Vec3(0, 0, 1), new Vec3(0, 0, .3), null, null, owner, id, owner);
+    }
+    /**
+     * The way home: a native carrier return (which a maid dispatch produces for its owner) must be recognised as ours
+     * only through our own registry, and its carrier must end up in her inventory using the native item source.
+     */
+    private static void phantomReturnToMaid(GameTestHelper h) throws ReflectiveOperationException {
+        if (!dev.scathiard.feedmepackages.compat.PhantomDispatch.ready()) return;
+        var f = setup(h, new ItemStack(Items.DIRT), 0);
+        var owner = TestPlayers.create(h, ItemStack.EMPTY);
+        var factory = Class.forName("com.yision.phantom.logistics.courier.AirCourierTask").getMethod(
+                "forCarrierReturnToPlayer", UUID.class, ServerLevel.class, UUID.class,
+                net.minecraft.resources.ResourceKey.class, Vec3.class, Vec3.class, Vec3.class);
+        Object task = factory.invoke(null, UUID.randomUUID(), h.getLevel(), owner.getUUID(),
+                h.getLevel().dimension(), f.maid.position(), new Vec3(0, 0, 1), new Vec3(0, 0, .3));
+        h.assertTrue(task != null, "Native carrier-return task was not created");
+        // 1: the measured return-leg criteria recognise it.
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.onReturnLeg(task),
+                "A carrier return was not recognised as a return leg");
+        // 2: an unregistered carrier return is an ordinary player task and must stay one.
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
+                        .maidFor(task, h.getLevel().getServer()) == null,
+                "An unregistered carrier return was claimed as ours");
+        // 3: registered, it is hers, and the native carrier goes into her own inventory.
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
+                .remember(task, f.maid), "Our own carrier return could not be registered");
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
+                        .maidFor(task, h.getLevel().getServer()) == f.maid,
+                "A registered carrier return lost its maid");
+        var carrier = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.nativeCarrier();
+        h.assertTrue(carrier != null && !carrier.isEmpty(), "The native carrier item could not be created");
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
+                .handCarrierTo(f.maid, carrier), "The returning carrier was not handed to the maid");
+        h.succeed();
     }
     private static List<ItemStack> transit(Fixture f, boolean mobile) throws ReflectiveOperationException {
         var boxes = new ArrayList<ItemStack>();

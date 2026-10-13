@@ -49,6 +49,9 @@ public abstract class Phantom102FlightMixin {
         fmp$maid = null;
         if (!fmp$enabled()) return;
         LivingEntity maid = MaidPhantomTasks.maidRecipient(server, this);
+        // Return leg (the carrier coming home): the package is gone and the native player slot holds her owner, which
+        // is byte-identical to a player's own carrier return - only our own registry can tell them apart.
+        if (maid == null && MaidPhantomTasks.onReturnLeg(this)) maid = MaidPhantomTasks.maidFor(this, server);
         if (maid == null) return;
         Object target = MaidPhantomFlight.flightTarget(maid);
         if (target == null) return;
@@ -87,6 +90,19 @@ public abstract class Phantom102FlightMixin {
 
     /** The delivery core lives in {@link MaidPhantomTasks#handOver} so it is reachable from tests with a real task. */
     @Unique private boolean fmp$handOver(MinecraftServer server) {
-        return MaidPhantomTasks.handOver(this, fmp$maid, server);
+        LivingEntity maid = fmp$maid;
+        if (maid == null || server == null) return false;
+        if (MaidPhantomTasks.onReturnLeg(this)) {
+            // The native carrier does not exist during flight - the target mod creates it from its own item registry at
+            // the moment of delivery. We create it from that same source and hand it to her. When she cannot take it we
+            // do not cancel: the native path then drops it exactly where the courier now is, at her feet, instead of us
+            // inventing a drop or swallowing the item.
+            var carrier = MaidPhantomTasks.nativeCarrier();
+            if (carrier == null || carrier.isEmpty()) return false;
+            if (!MaidPhantomTasks.handCarrierTo(maid, carrier)) return false;
+            MaidPhantomTasks.endTask(this);
+            return true;
+        }
+        return MaidPhantomTasks.handOver(this, maid, server);
     }
 }

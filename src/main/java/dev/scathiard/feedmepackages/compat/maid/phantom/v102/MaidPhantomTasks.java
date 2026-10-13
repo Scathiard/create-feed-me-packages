@@ -93,6 +93,75 @@ public final class MaidPhantomTasks {
         }
     }
 
+    /**
+     * True when this task is flying its carrier home. Measured 1.0.2 criteria: the mission is one of the two
+     * carrier-return missions, the task is not returning an undelivered <i>package</i>, and the box is gone. Note the
+     * two are cleanly separated - {@code resetForReturn} clears the undelivered flag, {@code tryReturnUndeliveredPackage}
+     * sets it - so a carrier return can never be mistaken for an undelivered package return.
+     */
+    public static boolean onReturnLeg(Object task) {
+        if (!available() || task == null) return false;
+        try {
+            if (!(mission.invoke(task) instanceof Enum<?> current)) return false;
+            String name = current.name();
+            if (!name.equals("CARRIER_RETURN") && !name.equals("CARRIER_RETURN_TO_PLAYER")) return false;
+            if (Boolean.TRUE.equals(returningUndeliveredPackage.get(task))) return false;
+            return box.invoke(task) instanceof ItemStack item && item.isEmpty();
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return false;
+        }
+    }
+
+    // --- native carrier item and task ending -------------------------------------------------------------------
+    // Only the return leg needs these, and the native carrier does not exist during flight at all: the target mod
+    // creates it from AllItems.MINI_PHANTOM.asStack() at the moment of delivery (measured). So we create it from the
+    // same source instead of inventing an item, and a failure here is wired lazily so it can never disable the
+    // package path.
+    private static Method markRemoved;
+    private static Method carrierAsStack;
+    private static Object carrierEntry;
+    private static boolean carrierReady;
+    private static boolean carrierWiringFailed;
+
+    private static synchronized boolean carrierWired() {
+        if (carrierReady) return true;
+        try {
+            markRemoved = Class.forName("com.yision.phantom.logistics.courier.AirCourierTask").getMethod("markRemoved");
+            carrierEntry = Class.forName("com.yision.phantom.registry.AllItems").getField("MINI_PHANTOM").get(null);
+            carrierAsStack = carrierEntry.getClass().getMethod("asStack");
+            carrierReady = true;
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
+            if (!carrierWiringFailed) {
+                carrierWiringFailed = true;
+                dev.scathiard.feedmepackages.FeedMePackages.LOGGER.warn(
+                        "FMP phantom maid: carrier wiring unavailable; a returning carrier keeps native behaviour", incompatible);
+            }
+            return false;
+        }
+    }
+
+    /** The carrier item exactly as the native delivery creates it, or null. Never throws. */
+    public static ItemStack nativeCarrier() {
+        if (!carrierWired()) return null;
+        try {
+            return carrierAsStack.invoke(carrierEntry) instanceof ItemStack stack ? stack : null;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    /** Let the native task end after its carrier was delivered by us. Never throws. */
+    public static boolean endTask(Object task) {
+        if (!carrierWired() || task == null) return false;
+        try {
+            markRemoved.invoke(task);
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return false;
+        }
+    }
+
     /** The task's current world position, or null when it cannot be read. */
     public static Vec3 position(Object task) {
         if (!available() || task == null) return null;
