@@ -159,15 +159,19 @@ public final class MaidPhantomTasks {
         if (MaidAccess.recipient(address) == null) return null;
         LivingEntity found = MaidAccess.find(server, address);
         if (found != null) return found;
-        // This single step decides whether the feature works, so it says why instead of silently no-oping.
+        // This single step decides whether the feature works, so it says why instead of silently no-oping. The entity
+        // type matters: an address in maid form can still hold a player UUID, and then this is simply not ours.
         for (ServerLevel level : server.getAllLevels()) {
-            if (level.getEntity(id) instanceof LivingEntity maid) {
-                note("carrier return addressed to maid " + id + " in " + level.dimension().location()
-                        + " but she is not usable: " + MaidAccess.resolve(maid).status());
+            if (level.getEntity(id) instanceof LivingEntity other) {
+                String owner = other instanceof net.minecraft.world.entity.TamableAnimal pet
+                        ? String.valueOf(pet.getOwnerUUID()) : "n/a";
+                note("carrier return addresses " + id + " which is " + other.getType().toShortString()
+                        + " (tame-owner=" + owner + ") in " + level.dimension().location()
+                        + "; not usable as a maid: " + MaidAccess.resolve(other).status());
                 return null;
             }
         }
-        note("carrier return addressed to maid " + id + " but that entity is loaded in no level (chunk unloaded)");
+        note("carrier return addresses maid " + id + " but that entity is loaded in no level (chunk unloaded)");
         return null;
     }
 
