@@ -73,7 +73,7 @@ public abstract class Phantom102FlightMixin {
         // byte-identical to a player's own carrier return, so only our own registry can tell them apart. A carrier
         // return that DOES have a source port must stay native - it flies home to that port, which the user verified.
         if (maid == null && MaidPhantomTasks.returnsToSourcePlayer(this)) {
-            maid = MaidPhantomTasks.maidForReturn(this, server);
+            maid = MaidPhantomTasks.carrierRecipient(server, this);
             leg = "return";
         }
         if (maid == null) {

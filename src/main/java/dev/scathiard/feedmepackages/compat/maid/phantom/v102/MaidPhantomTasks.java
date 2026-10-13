@@ -132,6 +132,34 @@ public final class MaidPhantomTasks {
         }
     }
 
+    /**
+     * The maid a returning carrier belongs to, or null. Two measured shapes exist:
+     * <ul>
+     *   <li>a <b>port</b> schedules the carrier return with the source-player UUID it was handed at dispatch, and
+     *       {@code PhantomPortReturnQueue.schedulePendingReturnToPlayer(UUID,int)} does not check that a player exists.
+     *       For a maid dispatch we hand it hers, so the returning task's target slot simply holds a maid address - which
+     *       we recognise here on our own, with no registry at all;</li>
+     *   <li>a <b>player</b> delivery schedules the return through the native source-player path, where the slot holds her
+     *       <i>owner</i> and only our own registry can identify her.</li>
+     * </ul>
+     */
+    public static LivingEntity carrierRecipient(MinecraftServer server, Object task) {
+        if (!available() || server == null || task == null) return null;
+        if (!returnsToSourcePlayer(task)) return null;
+        LivingEntity bySlot = maidOfTargetSlot(server, task);
+        if (bySlot != null) return bySlot;
+        return maidForReturn(task, server);
+    }
+
+    /** The maid sitting in the native player slot of a carrier return, when that slot holds a maid address. */
+    private static LivingEntity maidOfTargetSlot(MinecraftServer server, Object task) {
+        UUID id = targetId(task);
+        if (id == null) return null;
+        String address = MaidAccess.ADDRESS_PREFIX + id;
+        if (MaidAccess.recipient(address) == null) return null;
+        return MaidAccess.find(server, address);
+    }
+
     // --- native carrier item and task ending -------------------------------------------------------------------
     // Only the return leg needs these, and the native carrier does not exist during flight at all: the target mod
     // creates it from AllItems.MINI_PHANTOM.asStack() at the moment of delivery (measured). So we create it from the

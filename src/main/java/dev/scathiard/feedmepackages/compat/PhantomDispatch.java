@@ -107,9 +107,18 @@ public final class PhantomDispatch {
             var motion = direction.scale(api.takeoffSpeed).add(0, (double) 0.15F, 0);
             Object dimension = api.dimension.invoke(target), task;
             UUID id = UUID.randomUUID(), owner = playerIdentity;
+            // A maid may be the dispatcher here (her own cache returning goods). For a port destination the carrier's way
+            // home is decided by that port from the source-player UUID it is handed, and it then schedules a brand-new
+            // task we can no longer fix (measured: PhantomPortReturnQueue.schedulePendingReturnToPlayer, with no player
+            // check). So a maid dispatcher contributes her own UUID there, and the returning task's target slot holds a
+            // maid address - which our flight layer recognises by itself. A player destination keeps the owner, because
+            // the native source-player return path only picks that branch for a real, online player.
+            LivingEntity dispatcher = bearer instanceof net.minecraft.world.entity.TamableAnimal pet
+                    && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(pet) ? pet : null;
+            UUID sourceIdentity = dispatcher != null && api.port.isInstance(target) ? dispatcher.getUUID() : owner;
             if (api.port.isInstance(target)) {
                 task = api.airportTask.invoke(null, id, box, level, dimension, api.portPos.invoke(target), origin, direction, motion,
-                        null, null, owner, id, owner);
+                        null, null, sourceIdentity, id, owner);
             } else if (api.player.isInstance(target)) {
                 UUID receiver = (UUID) api.playerId.invoke(target);
                 // A maid has no entry in the player list: her own reachability check is what made her a target.
@@ -126,12 +135,10 @@ public final class PhantomDispatch {
             // player UUID - which is byte-identical to a player's own carrier return, so this marker is the only thing
             // that can tell the two apart when the carrier comes back.
             if (maid != null) dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.remember(task, maid);
-            // A maid may also be the dispatcher (her own cache returning goods). Its return leg must come back to her,
-            // and the native player slot holds her owner in that case, so the field alone cannot tell it from a
-            // player's own carrier return - this registration is the only discriminator.
-            if (bearer instanceof net.minecraft.world.entity.TamableAnimal pet
-                    && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(pet))
-                dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.rememberReturn(task, pet);
+            // Register her as the dispatcher as well: for a player destination the return slot still holds her owner, and
+            // then this entry is the only thing that can tell her task from a player's own carrier return.
+            if (dispatcher != null)
+                dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.rememberReturn(task, dispatcher);
             return TransportDispatch.Result.known(true, "phantom");
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             Throwable cause = failure instanceof InvocationTargetException wrapped ? wrapped.getCause() : failure;

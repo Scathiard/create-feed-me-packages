@@ -853,6 +853,17 @@ public final class MaidTests {
         h.assertTrue(!dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
                         .returnsToSourcePlayer(portTask),
                 "A carrier return with a source port must never be redirected to the maid");
+        // 1c: a port schedules the carrier return with the source UUID it was handed, so with a maid dispatcher that
+        // slot holds a maid address - it must be recognised on its own, with no registry entry at all.
+        Object slotTask = factory.invoke(null, UUID.randomUUID(), h.getLevel(), f.maid.getUUID(),
+                h.getLevel().dimension(), f.maid.position(), new Vec3(0, 0, 1), new Vec3(0, 0, .3));
+        h.assertTrue(slotTask != null, "Native carrier-return-to-player task was not created");
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
+                        .carrierRecipient(h.getLevel().getServer(), slotTask) == f.maid,
+                "A carrier return carrying a maid address in its player slot was not recognised");
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
+                        .maidFor(slotTask, h.getLevel().getServer()) == null,
+                "Slot recognition must not depend on a registry entry");
         // 2: an unregistered carrier return is an ordinary player task and must stay one.
         h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
                         .maidFor(task, h.getLevel().getServer()) == null,
