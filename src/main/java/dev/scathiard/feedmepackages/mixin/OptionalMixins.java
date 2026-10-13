@@ -61,6 +61,17 @@ public final class OptionalMixins implements IMixinConfigPlugin {
             phantom102FlightReady = phantom102FlightTarget(targetClassName);
             return phantom102FlightReady;
         }
+        if (mixinClassName.endsWith("Phantom102LaunchMixin")) {
+            // Same rule for the launch side: the resolver must be exactly as measured, or not applied at all.
+            try {
+                var node = MixinService.getService().getBytecodeProvider().getClassNode(targetClassName);
+                return targetClassName.equals("com.yision.phantom.logistics.courier.AirCourierDispatchService")
+                        && hasMethod(node, "resolvePackageTarget",
+                            "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/item/ItemStack;"
+                          + "Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/resources/ResourceKey;"
+                          + "Lnet/minecraft/core/BlockPos;)Lcom/yision/phantom/logistics/courier/AirCourierTarget;");
+            } catch (ClassNotFoundException | IOException unavailable) { return false; }
+        }
         if (mixinClassName.endsWith("JeiServerEditMixin") || mixinClassName.endsWith("JeiServerResultEditMixin")) {
             try {
                 var node = MixinService.getService().getBytecodeProvider().getClassNode(targetClassName);

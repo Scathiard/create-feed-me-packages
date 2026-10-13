@@ -94,8 +94,10 @@ public final class PhantomDispatch {
             // The native resolver only knows players and ports, so a package addressed to one of our maids
             // resolves to nothing. We build the native player target for her instead, and the native
             // acceptance check below decides - our settlement bridge is what answers it for a maid.
-            LivingEntity maid = target == null ? maidRecipient(server, box) : null;
-            if (maid != null) target = maidTarget(maid);
+            // Ask for her first: with the native launch bridge in place the resolver now answers for a maid too, so
+            // "the resolver returned null" is no longer a reliable signal that this package is addressed to her.
+            LivingEntity maid = maidRecipient(server, box);
+            if (target == null && maid != null) target = maidTarget(maid);
             if (target == null || !Boolean.TRUE.equals(api.accepts.invoke(null, level, target, box)))
                 return TransportDispatch.Result.known(false, "phantom");
             var look = bearer.getLookAngle();

@@ -45,7 +45,8 @@
     "MaidBeeDeliveryMixin",
     "FactoryOrderStampMixin",
     "Phantom102SettlementMixin",
-    "Phantom102FlightMixin"
+    "Phantom102FlightMixin",
+    "Phantom102LaunchMixin"
   ],
   "client": [
     "ContainerScreenAccess",
