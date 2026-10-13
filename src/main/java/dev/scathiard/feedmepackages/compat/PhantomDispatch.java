@@ -122,6 +122,10 @@ public final class PhantomDispatch {
             entered = true;
             api.addTask.invoke(null, server, task);
             api.notifyHud.invoke(null, server, task);
+            // Remember that this task is ours. A maid dispatch leaves the native player slot holding her owner - a real
+            // player UUID - which is byte-identical to a player's own carrier return, so this marker is the only thing
+            // that can tell the two apart when the carrier comes back.
+            if (maid != null) dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.remember(task, maid);
             return TransportDispatch.Result.known(true, "phantom");
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             Throwable cause = failure instanceof InvocationTargetException wrapped ? wrapped.getCause() : failure;
