@@ -76,7 +76,7 @@ public final class PhantomCompatibilityTests {
         } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
     }
 
-    private static void register(GameTestHelper h, ServerPlayer player) {
+    static void register(GameTestHelper h, ServerPlayer player) {
         player.setPos(h.absoluteVec(new Vec3(1.5, 2, 1.5)));
         // Native online-player synchronization inspects negotiated channels even without a remote client.
         TestPlayers.nativePackets(player);
@@ -87,7 +87,7 @@ public final class PhantomCompatibilityTests {
                 "Fixture recipient is absent from native player lookup");
     }
 
-    private static void unregister(GameTestHelper h, ServerPlayer player) {
+    static void unregister(GameTestHelper h, ServerPlayer player) {
         TestPlayers.nativeSavePlayers(h.getLevel().getServer()).remove(player);
         onlineById(h.getLevel()).remove(player.getUUID(), player);
         ((io.netty.channel.embedded.EmbeddedChannel)player.connection.getConnection().channel()).finishAndReleaseAll();
@@ -206,7 +206,7 @@ public final class PhantomCompatibilityTests {
     }
 
 
-    private static com.simibubi.create.content.logistics.packagePort.PackagePortBlockEntity port(GameTestHelper h, String address) {
+    static com.simibubi.create.content.logistics.packagePort.PackagePortBlockEntity port(GameTestHelper h, String address) {
         var pos=new net.minecraft.core.BlockPos(3,2,3);
         var block=BuiltInRegistries.BLOCK.get(ResourceLocation.parse("createphantom:phantomport"));
         h.assertTrue(block!=net.minecraft.world.level.block.Blocks.AIR,"Native Phantom port missing");h.setBlock(pos,block.defaultBlockState().setValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.HORIZONTAL_FACING,net.minecraft.core.Direction.EAST));
@@ -217,7 +217,7 @@ public final class PhantomCompatibilityTests {
         return port;
     }
     /** A real powered two-block runway, with the native extraction funnel required for empty returns. */
-    private static void returnRunway(GameTestHelper h) {
+    static void returnRunway(GameTestHelper h) {
         var east=net.minecraft.core.Direction.EAST;
         var first=new net.minecraft.core.BlockPos(4,1,3);
         var state=com.simibubi.create.AllBlocks.BELT.getDefaultState()

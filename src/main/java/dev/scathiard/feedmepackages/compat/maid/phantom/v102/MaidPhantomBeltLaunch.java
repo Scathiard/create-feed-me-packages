@@ -103,12 +103,12 @@ public final class MaidPhantomBeltLaunch {
                     playerTargetType.getMethod("dimension").invoke(target), spawn, heading, velocity,
                     sourceDimension, sourcePos, null, getHudEntryId.invoke(null, onBelt), null);
             if (task == null) return refuse("native task factory returned null");
-            addTask.invoke(null, server, task);
-            onCourierTaskStarted.invoke(null, server, task);
-            // Without this the return leg cannot tell our maid task from a player's.
-            MaidPhantomTasks.remember(task, maid);
-            note("launched for maid " + maidId);
-            return true;
+            if (!MaidPhantomTasks.remember(task, maid)) return false;
+            var submission = dev.scathiard.feedmepackages.compat.PhantomTaskSubmission.prepare(server, task);
+            if (submission == null) { MaidPhantomTasks.forget(task); return false; }
+            boolean sent = submission.submit();
+            if (!sent) MaidPhantomTasks.forget(task);
+            return sent;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
             return refuse("launch threw: " + incompatible.getClass().getSimpleName() + ": " + incompatible.getMessage());
         }

@@ -12,7 +12,6 @@ import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.logistics.*;
 import dev.scathiard.feedmepackages.registry.FmpRegistries;
 import dev.scathiard.feedmepackages.service.AccessGate;
-import dev.scathiard.feedmepackages.service.PrivateCacheMerge;
 import dev.scathiard.feedmepackages.storage.*;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.component.DataComponents;

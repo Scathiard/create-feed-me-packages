@@ -65,7 +65,7 @@ public final class MaidPhantomPortReturn {
             onCourierTaskStarted = Class.forName(root + "logistics.courier.hud.AirCourierHudSync")
                     .getMethod("onCourierTaskStarted", MinecraftServer.class, task);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
-            // Reported once, but not latched: a later call retries, so one unlucky moment cannot disable the feature.
+            // Debug-only failure, not latched: a later call can resolve the native interface again.
             MaidPhantomTasks.note("port return takeover is unavailable: " + incompatible.getClass().getSimpleName()
                     + ": " + incompatible.getMessage());
             portField = null;
@@ -93,21 +93,20 @@ public final class MaidPhantomPortReturn {
             if (hasUsableCarrier != null && !Boolean.TRUE.equals(hasUsableCarrier.invoke(inventory))) return false;
             if (!(carrierInventoryField.get(inventory) instanceof net.neoforged.neoforge.items.ItemStackHandler carriers))
                 return false;
-            ItemStack taken = carriers.extractItem(0, 1, false);
-            if (taken == null || taken.isEmpty()) return false;
+            ItemStack preview = carriers.extractItem(0, 1, true);
+            if (preview.isEmpty() || !dev.scathiard.feedmepackages.compat.PhantomDispatch.carrierUsable(preview)) return false;
             Object task = forCarrierReturnToPlayer.invoke(null, UUID.randomUUID(), level, maid.getUUID(),
                     maid.level().dimension(), Vec3.atCenterOf(port.getBlockPos()), new Vec3(0, 0, 1), new Vec3(0, 0, .3));
-            if (task == null || !MaidPhantomTasks.rememberReturn(task, maid)) {
-                carriers.insertItem(0, taken, false); // give the port its carrier back: nothing may be lost
+            if (task == null || !MaidPhantomTasks.rememberReturn(task, maid)) return false;
+            var submission = dev.scathiard.feedmepackages.compat.PhantomTaskSubmission.prepare(server, task);
+            if (submission == null) { MaidPhantomTasks.forget(task); return false; }
+            ItemStack taken = carriers.extractItem(0, 1, false);
+            if (taken.isEmpty()) { MaidPhantomTasks.forget(task); return false; }
+            if (!submission.submit()) {
+                carriers.insertItem(0, taken, false);
+                MaidPhantomTasks.forget(task);
                 return false;
             }
-            addTask.invoke(null, server, task);
-            try {
-                onCourierTaskStarted.invoke(null, server, task);
-            } catch (ReflectiveOperationException | RuntimeException hudFailure) {
-                // cosmetic only: a HUD problem must never undo a task that is already live
-            }
-            MaidPhantomTasks.note("port carrier return taken over for maid " + maid.getUUID());
             return true;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
             MaidPhantomTasks.note("port carrier return takeover failed: " + incompatible.getClass().getSimpleName()

@@ -31,7 +31,7 @@ public final class MaidCouriers {
     private record Bee(Class<?> targetType, Method level, Method address, Method box, Method network,
                        Method getTarget, Field target, Method position, Method setBox, Method invalidate,
                        Method members, Method inRange, Method portNetwork, Method sendDrone,
-                       Method id, Method setRemoved) {}
+                       Method id, Method setRemoved, Method setReturnHome) {}
     /** The native bee carrier item, handed back to the maid when her bee comes home. */
     private static ItemStack beeItem = ItemStack.EMPTY;
     public static void initialize() {
@@ -61,7 +61,8 @@ public final class MaidCouriers {
                         Class.forName(root + "network_settings.NetworkHelper").getMethod("getPlayerUUIDs", UUID.class),
                         Class.forName(root + "CMPHelper").getMethod("isWithinRange", Level.class, BlockPos.class, BlockPos.class),
                         port.getMethod("getLogisticsNetworkId"), send,
-                        robo.getMethod("getId"), robo.getMethod("setRemoved", ServerLevel.class));
+                        robo.getMethod("getId"), robo.getMethod("setRemoved", ServerLevel.class),
+                        robo.getMethod("setReturnToHomeAfterDelivery", boolean.class));
                 // The bee item is what a returning bee hands back; read reflectively, the index class is not ours.
                 Object entry = Class.forName(root + "index.CMPItems").getField("ROBO_BEE").get(null);
                 Object item = entry.getClass().getMethod("get").invoke(entry);
@@ -136,7 +137,12 @@ public final class MaidCouriers {
         if (bee == null) return false;
         try {
             var maid = beeDestination(robo, false);
-            if (maid != null) return setTarget(robo, new MaidTarget(maid, false));
+            if (maid != null) {
+                // Only this FMP maid flight goes back to its actual source port. The port setting and
+                // ordinary player flights stay native; a maid-origin flight has its separate return record.
+                bee.setReturnHome.invoke(robo, true);
+                return setTarget(robo, new MaidTarget(maid, false));
+            }
             // Return leg (user 2026-10-13, plan B): the cargo is gone and this bee was sent by a maid. She becomes
             // the target exactly like a player target would; while she is dead / recalled / in another dimension /
             // in an unloaded chunk this returns false and the NATIVE chain picks the fallback on its own.
@@ -193,6 +199,9 @@ public final class MaidCouriers {
                 var maid = beeDestination(robo, true);
                 if (maid == null || maid.position().add(0, 2, 0).distanceToSqr((Vec3) bee.position.invoke(robo)) > 2.25) return;
                 if (!ReceiveService.receive(MaidAccess.endpoint(maid), box)) return;
+                // Native creation reapplies the port setting after the first target resolution.
+                // Set the per-flight return rule at delivery too, immediately before native rerouting.
+                bee.setReturnHome.invoke(robo, true);
                 bee.setBox.invoke(robo, ItemStack.EMPTY); bee.invalidate.invoke(robo);
                 // Continue the original delivery method: an empty cargo now selects the return leg below, or the
                 // native return/home-port path when this bee carries no FMP return record.
@@ -209,18 +218,16 @@ public final class MaidCouriers {
             if (!ReturnDecision.mayEnd(back != null, maid != null, !beeItem.isEmpty())) return;
             // Claim the record before handing anything over: the delivery hook is a HEAD injection, so if the native
             // side re-enters us the second call finds no record and returns and the carrier cannot be given twice.
-            // Nothing is lost either - a hand-over that does not fit puts the record straight back.
+            // If she is full, retire this return override so native fallback can finish at a port.
             MaidReturn.forget(id);
             // The bee item goes home: her inventory first, her cache second. If neither takes it, the bee is NOT
             // removed - the native chain still has to bring it to a port - and her owner is told why.
-            if (!handBack(maid, beeItem)) { MaidReturn.register(id, back); notifyOwner(maid); return; }
+            if (!handBack(maid, beeItem)) { bee.invalidate.invoke(robo); notifyOwner(maid); return; }
             bee.setRemoved.invoke(robo, level);
         } catch (ReflectiveOperationException broken) { throw MaidCompatibility.failure(broken); }
     }
     private static boolean handBack(LivingEntity maid, ItemStack stack) {
-        if (stack.isEmpty()) return false; // Never report a hand-over that moved nothing.
-        return MaidCompatibility.insertInto(maid, stack)
-                || ReceiveService.receive(MaidAccess.endpoint(maid), stack.copy());
+        return MaidCompatibility.returnCarrier(maid, stack);
     }
     /** Visible notice for the owner: her bee came home but neither her inventory nor her cache took it. */
     private static void notifyOwner(LivingEntity maid) {

@@ -8,7 +8,6 @@ import net.minecraft.world.level.material.Fluids;
 import dev.scathiard.feedmepackages.registry.FmpRegistries;
 import dev.scathiard.feedmepackages.storage.*;
 import dev.scathiard.feedmepackages.service.AccessGate;
-import dev.scathiard.feedmepackages.service.PrivateCacheMerge;
 import dev.scathiard.feedmepackages.domain.CacheLevel;
 import dev.scathiard.feedmepackages.logistics.*;
 import com.simibubi.create.content.logistics.box.PackageItem;

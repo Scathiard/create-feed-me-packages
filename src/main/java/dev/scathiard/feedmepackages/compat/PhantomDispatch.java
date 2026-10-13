@@ -41,7 +41,7 @@ public final class PhantomDispatch {
                 var toPlayer = task.getMethod("forPackageToPlayer", UUID.class, ItemStack.class, ServerLevel.class, UUID.class, ResourceKey.class,
                         Vec3.class, Vec3.class, Vec3.class, ResourceKey.class, BlockPos.class, UUID.class, UUID.class, UUID.class);
                 var add = manager.getMethod("addTask", MinecraftServer.class, task);
-                // The native player target is a public record; we build it ourselves when a package is addressed
+                // Build the native player target when a package is addressed
                 // to one of our maids, whom the native resolver cannot know about.
                 var playerCtor = player.getDeclaredConstructor(UUID.class, ResourceKey.class);
                 // The native target is a package-private record in another package: its constructor needs opening.
@@ -73,7 +73,7 @@ public final class PhantomDispatch {
     /**
      * One of our maids dispatching (she may launch a Phantom like any player can). She is the loader -
      * level, position and look angle - while her owner supplies the player identity the native task
-     * expects for its source and HUD fields, which is exactly what a real player would contribute.
+     * expects for HUD attribution. The port queue receives the actual source maid UUID.
      * No fake player is created and no native gate is bypassed.
      */
     public static TransportDispatch.Result sendForMaid(net.minecraft.world.entity.LivingEntity maid, ItemStack box) {
@@ -107,28 +107,21 @@ public final class PhantomDispatch {
             var motion = direction.scale(api.takeoffSpeed).add(0, (double) 0.15F, 0);
             Object dimension = api.dimension.invoke(target), task;
             UUID id = UUID.randomUUID(), owner = playerIdentity;
-            // A maid may be the dispatcher here (her own cache returning goods). For a port destination the carrier's way
-            // home is decided by that port from the source-player UUID it is handed, and it then schedules a brand-new
-            // task we can no longer fix (measured: PhantomPortReturnQueue.schedulePendingReturnToPlayer, with no player
-            // check). So a maid dispatcher contributes her own UUID there, and the returning task's target slot holds a
-            // maid address - which our flight layer recognises by itself. A player destination keeps the owner, because
-            // the native source-player return path only picks that branch for a real, online player.
+            // Native UUID order: HUD player, HUD entry, source. A port passes source into a new
+            // return task; a player destination keeps its native source slot, with FMP's saved
+            // dispatcher marker supplying the maid-only carrier-return transition.
             LivingEntity dispatcher = bearer instanceof net.minecraft.world.entity.TamableAnimal pet
                     && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(pet) ? pet : null;
             UUID sourceIdentity = dispatcher != null && api.port.isInstance(target) ? dispatcher.getUUID() : owner;
             if (api.port.isInstance(target)) {
-                // Reverted to the owner deliberately. Measured on the real machine: filling that slot with the maid made
-                // the port refuse to launch the carrier at all and spit it out as a dropped item, because the port's own
-                // departure step requires a real player. A port destination therefore keeps the owner here, and the
-                // carrier's way home is whatever the port decides (see the plan notes for the takeover option).
                 task = api.airportTask.invoke(null, id, box, level, dimension, api.portPos.invoke(target), origin, direction, motion,
-                        null, null, owner, id, owner);
+                        null, null, owner, id, sourceIdentity);
             } else if (api.player.isInstance(target)) {
                 UUID receiver = (UUID) api.playerId.invoke(target);
                 // A maid has no entry in the player list: her own reachability check is what made her a target.
                 if (maid == null && server.getPlayerList().getPlayer(receiver) == null) return TransportDispatch.Result.known(false, "phantom");
                 task = api.playerTask.invoke(null, id, box, level, receiver, dimension, origin, direction, motion,
-                        null, null, owner, id, owner);
+                        null, null, owner, id, sourceIdentity);
             } else return TransportDispatch.Result.known(false, "phantom");
             if (task == null) return TransportDispatch.Result.known(false, "phantom");
             // Source stock is held by ReturnEscrow before this first externally visible handoff.

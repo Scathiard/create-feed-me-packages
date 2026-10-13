@@ -1,6 +1,6 @@
-package dev.scathiard.feedmepackages.service;
+package dev.scathiard.feedmepackages.gametest;
 
-import dev.scathiard.feedmepackages.domain.CacheMerge;
+import dev.scathiard.feedmepackages.testsupport.CacheMerge;
 import dev.scathiard.feedmepackages.domain.ParcelRoute;
 import dev.scathiard.feedmepackages.domain.CacheState;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;

@@ -26,6 +26,12 @@ if (project.hasProperty('mobile_runtime_version')) {
         throw new GradleException('The explicit Mobile Packages runtime input is pinned to 0.7.8 and requires withMobile')
     runProfile += '-mobile078'
 }
+// Explicit isolated test batches preserve previous worlds and failure evidence.
+if (project.hasProperty('fmpRunLabel')) {
+    def label = project.property('fmpRunLabel').toString()
+    if (!(label ==~ /[a-z0-9][a-z0-9_-]{0,31}/)) throw new GradleException('Invalid isolated run label')
+    runProfile += '-' + label
+}
 if (project.hasProperty('fmpPhantomReview')) {
     if (!project.hasProperty('withPhantom')) throw new GradleException('Phantom review requires the locked official transport JAR')
     runProfile += '-phantom-review'
@@ -45,6 +51,8 @@ if (project.hasProperty('withInstanceJei') && (!project.hasProperty('withJei') |
     throw new GradleException('Pinned newer JEI requires withJei and jei_runtime_version=19.56.0.441')
 if (project.hasProperty('fmpArtifactProbe') && !project.hasProperty('fmpPackaged'))
     throw new GradleException('Artifact probe must use the actual packaged JAR')
+if (project.hasProperty('fmpMaidTransportProbe') && (!project.hasProperty('fmpPackaged') || !project.hasProperty('withMaid')))
+    throw new GradleException('Maid transport probe requires its production JAR and real maid runtime')
 if (project.hasProperty('fmpPackaged')) {
     if (project.hasProperty('fmpGameTests') || project.hasProperty('fmpClientReview')) throw new GradleException('Packaged verification cannot load development test sources')
     runProfile += '-packaged' + (project.hasProperty('fmpArtifactProbe') ? '-probe' : '')
@@ -119,6 +127,7 @@ dependencies {
         if (!artifact.isFile()) throw new GradleException('Build the main JAR before packaged verification')
         localRuntime files(artifact)
         if (project.hasProperty('fmpArtifactProbe')) localRuntime files(new File(referenceOutput, 'fmp-artifact-probe.jar'))
+        if (project.hasProperty('fmpMaidTransportProbe')) localRuntime files(layout.buildDirectory.file('probes/fmp-maid-transport-test-probe.jar'))
     }
 
     [withDeployer: 'deployer/0.1.3/deployer-0.1.3.jar',
@@ -237,6 +246,7 @@ neoForge {
             systemProperty 'neoforge.enabledGameTestNamespaces', project.hasProperty('fmpPhantomReview') ? 'fmp_phantom_compat' : (project.hasProperty('fmpLegacyWorldReview') ? 'fmp_legacy_migration' : project.mod_id + (project.hasProperty('withPhantom') ? ',fmp_phantom_compat' : ''))
             logLevel = org.slf4j.event.Level.INFO
             jvmArgument '-Xmx2G'
+            jvmArgument '-Djava.io.tmpdir=' + System.getProperty('java.io.tmpdir')
         }
 
         client {
@@ -339,18 +349,28 @@ displayName="FMP isolated Phantom compatibility probe"
 }
 tasks.register('phantomProbeJar', Jar) {
     dependsOn tasks.named('gameTestClasses'), phantomProbeMetadata
-    archiveFileName = 'fmp-phantom-test-probe.jar'
-    destinationDirectory = new File(referenceOutput, 'phantom-compat')
+    archiveFileName = project.hasProperty('fmpMaidTransportProbe') ? 'fmp-maid-transport-test-probe.jar' : 'fmp-phantom-test-probe.jar'
+    destinationDirectory = project.hasProperty('fmpMaidTransportProbe') ? layout.buildDirectory.dir('probes').get().asFile : new File(referenceOutput, 'phantom-compat')
     from(sourceSets.gameTest.output) {
         include 'dev/scathiard/feedmepackages/gametest/PhantomCompatibilityTests*.class'
         include 'dev/scathiard/feedmepackages/gametest/ReceiveTests*.class'
         include 'dev/scathiard/feedmepackages/gametest/SupplyTests*.class'
         include 'dev/scathiard/feedmepackages/gametest/TestPlayers*.class'
+        include 'dev/scathiard/feedmepackages/gametest/PrivateCacheMerge*.class'
+        include 'dev/scathiard/feedmepackages/gametest/LegacyOwnership*.class'
+        include 'dev/scathiard/feedmepackages/testsupport/CacheMerge*.class'
         include 'data/fmp_phantom_compat/structure/empty.nbt'
+        if (project.hasProperty('fmpMaidTransportProbe')) {
+            include 'dev/scathiard/feedmepackages/gametest/MaidTests*.class'
+            include 'dev/scathiard/feedmepackages/gametest/ConsumptionTests*.class'
+            include 'dev/scathiard/feedmepackages/gametest/InteractionTests*.class'
+            include 'data/create_feed_me_packages/structure/empty.nbt'
+            include 'data/create_feed_me_packages/recipe/test_remainder.json'
+        }
     }
     from(layout.buildDirectory.dir('generated/phantom-probe'))
 }
-if (project.hasProperty('fmpPhantomPublished')) {
+if (project.hasProperty('fmpPhantomPublished') || project.hasProperty('fmpMaidTransportProbe')) {
     tasks.named('runGameTestServer').configure { dependsOn tasks.named('phantomProbeJar') }
 }
 
@@ -435,6 +455,7 @@ tasks.named('runServer', JavaExec).configure {
 
 if (project.hasProperty('fmpPackaged') || project.hasProperty('fmpPhantomPublished')) {
     tasks.withType(net.neoforged.moddevgradle.internal.RunGameTask).configureEach {
+        if (project.hasProperty('fmpPackaged')) dependsOn tasks.named('jar')
         def sourceOutputs = sourceSets.main.output.files + sourceSets.gameTest.output.files
         // Snapshot the input providers before replacing the collection, avoiding a self-referential filter.
         def originalRuntime = project.files(new ArrayList<>(classpathProvider.from))

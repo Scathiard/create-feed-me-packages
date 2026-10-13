@@ -1,5 +1,7 @@
 package dev.scathiard.feedmepackages.domain;
 
+import dev.scathiard.feedmepackages.testsupport.CacheMerge;
+
 import org.junit.jupiter.api.Test;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;

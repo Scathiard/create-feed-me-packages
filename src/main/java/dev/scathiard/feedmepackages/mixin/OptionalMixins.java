@@ -529,10 +529,14 @@ public final class OptionalMixins implements IMixinConfigPlugin {
             return hasMethod(node, "resolveFlightTarget",
                         "(Lnet/minecraft/server/MinecraftServer;)" + flightTarget)
                     && hasMethod(node, "isDestinationAvailable", "(" + flightTarget + ")Z")
+                    && hasMethod(node, "startCarrierReturn", "(Lnet/minecraft/server/MinecraftServer;)V")
+                    && hasMethod(node, "resetForReturn", "(Lcom/yision/phantom/entity/courier/AirCourierEntity$Mission;)V")
                     && hasMethod(node, "tickLanding",
                         "(Lnet/minecraft/server/MinecraftServer;Lnet/minecraft/server/level/ServerLevel;" + flightTarget + ")V")
                     && hasMethod(node, "doFinishDeliveryAt",
-                        "(Lnet/minecraft/server/MinecraftServer;Lnet/minecraft/server/level/ServerLevel;)V");
+                        "(Lnet/minecraft/server/MinecraftServer;Lnet/minecraft/server/level/ServerLevel;)V")
+                    && hasMethod(node, "save", "(Lnet/minecraft/core/HolderLookup$Provider;Lnet/minecraft/nbt/CompoundTag;)Lnet/minecraft/nbt/CompoundTag;")
+                    && hasMethod(node, "load", "(Lnet/minecraft/core/HolderLookup$Provider;Lnet/minecraft/nbt/CompoundTag;)Lcom/yision/phantom/logistics/courier/AirCourierTask;");
         } catch (ClassNotFoundException | IOException unavailable) { return false; }
     }
     private static boolean hasCall(ClassNode target, String name, String descriptor, String invocation) {

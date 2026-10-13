@@ -41,6 +41,30 @@ import java.util.function.Predicate;
 @PrefixGameTestTemplate(false)
 @net.neoforged.fml.common.EventBusSubscriber(modid = FeedMePackages.MOD_ID)
 public final class MaidTests {
+    /** External probe subscriptions belong to the probe mod, not to the production JAR's scan data. */
+    @net.neoforged.fml.common.EventBusSubscriber(modid = "fmp_phantom_probe", bus = net.neoforged.fml.common.EventBusSubscriber.Bus.MOD)
+    public static final class PackagedSetup {
+        @net.neoforged.bus.api.SubscribeEvent
+        public static void register(net.neoforged.neoforge.registries.RegisterEvent event) {
+            ConsumptionTests.testItem(event);
+            InteractionTests.registerFluidProbe(event);
+        }
+        @net.neoforged.bus.api.SubscribeEvent
+        public static void capabilities(net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent event) {
+            InteractionTests.registerFluidCapability(event);
+        }
+    }
+    @net.neoforged.fml.common.EventBusSubscriber(modid = "fmp_phantom_probe")
+    public static final class PackagedEvents {
+        @net.neoforged.bus.api.SubscribeEvent
+        public static void visualFault(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent event) {
+            phantomVisualFault(event);
+        }
+        @net.neoforged.bus.api.SubscribeEvent
+        public static void start(net.neoforged.neoforge.event.server.ServerStartingEvent event) {
+            prepareFlightWorld(event);
+        }
+    }
     private static final UUID PROCESS = UUID.randomUUID();
     @net.neoforged.bus.api.SubscribeEvent
     public static void prepareFlightWorld(net.neoforged.neoforge.event.server.ServerStartingEvent event) {
@@ -72,6 +96,14 @@ public final class MaidTests {
             tests.add(test("phantom_delivery_to_maid", MaidTests::phantomDeliveryToMaid));
             // And the way home: the returning carrier must come to her, not to her owner.
             tests.add(test("phantom_return_to_maid", MaidTests::phantomReturnToMaid));
+            tests.add(test("phantom_return_cache_full_bag", MaidTests::phantomReturnCache));
+            tests.add(test("phantom_real_port_roundtrip", MaidTests::phantomPortRoundtrip));
+            tests.add(test("phantom_return_after_unwear", h -> phantomPortRoundtrip(h, true)));
+            tests.add(test("phantom_real_player_roundtrip", MaidTests::phantomPlayerRoundtrip));
+            tests.add(test("phantom_task_persistence", MaidTests::phantomTaskPersistence));
+            tests.add(test("phantom_port_pre_admission_failure", h -> phantomPortFault(h, false)));
+            tests.add(test("phantom_port_post_admission_failure", h -> phantomPortFault(h, true)));
+            tests.add(test("phantom_belt_post_admission_failure", MaidTests::phantomBeltFault));
         }
         if (ModList.get().isLoaded("create_mobile_packages")) {
             tests.add(test("bee_pickup_return", h -> pickupReturn(h, true)));
@@ -79,6 +111,10 @@ public final class MaidTests {
             tests.add(test("bee_swapped_in_flight", h -> flight(h, true, true)));
             // Transport bee return to its maid (plan B, user 2026-10-13).
             tests.add(test("bee_return_home", MaidTests::beeReturnHome));
+            tests.add(test("bee_return_cache_full_bag", MaidTests::beeReturnCache));
+            tests.add(test("bee_full_return_fallback", MaidTests::beeFullReturnFallback));
+            tests.add(test("bee_source_port_toggle_on", h -> flight(h, true, false, true)));
+            tests.add(test("bee_source_port_toggle_off", h -> flight(h, true, false, false)));
             tests.add(test("bee_return_unreachable", MaidTests::beeReturnUnreachable));
             tests.add(test("bee_return_tag_roundtrip", MaidTests::beeReturnTagRoundtrip));
             tests.add(test("bee_return_no_record_native", MaidTests::beeReturnNoRecordLeavesNative));
@@ -148,6 +184,40 @@ public final class MaidTests {
         return (net.minecraft.world.item.Item) entry.getClass().getMethod("get").invoke(entry);
     }
 
+    private static void fillMaidInventory(Fixture f) {
+        var inventory = MaidCompatibility.inventory(f.maid);
+        for (int slot = 0; slot < inventory.getSlots(); slot++) inventory.setStackInSlot(slot, new ItemStack(Items.STONE, 64));
+        f.maid.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.STONE, 64));
+        f.maid.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.STONE, 64));
+    }
+
+    private static void beeReturnCache(GameTestHelper h) throws ReflectiveOperationException {
+        var f = setup(h, new ItemStack(beeItem()), 0);
+        fillMaidInventory(f);
+        var manager = beeManager(h);
+        var robo = beeRobo(h, manager, ItemStack.EMPTY, f.maid.blockPosition());
+        beeParkAt(robo, f.maid);
+        UUID id = beeId(robo);
+        MaidReturn.register(id, f.maid.getUUID());
+        MaidCouriers.beeArrive(robo);
+        h.assertTrue(f.stock() == 1 && !beePresent(manager, id),
+                "Full hands/backpack must return the one real bee into its existing cache filter; stock=" + f.stock());
+        MaidCouriers.beeArrive(robo);
+        h.assertTrue(f.stock() == 1, "Repeated carrier arrival duplicated the cached bee");
+        h.succeed();
+    }
+
+    private static void phantomReturnCache(GameTestHelper h) throws ReflectiveOperationException {
+        var carrier = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.nativeCarrier();
+        h.assertTrue(carrier != null && !carrier.isEmpty(), "Native Phantom carrier must be available");
+        var f = setup(h, carrier, 0);
+        fillMaidInventory(f);
+        boolean accepted = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.handCarrierTo(f.maid, carrier);
+        h.assertTrue(accepted && f.stock() == 1,
+                "Full hands/backpack must return Phantom into its existing cache filter; stock=" + f.stock());
+        h.succeed();
+    }
+
     /** a + f: the bee comes home, the carrier lands in her own inventory, the bee is removed, and twice is once. */
     private static void beeReturnHome(GameTestHelper h) throws ReflectiveOperationException {
         var f = setup(h, new ItemStack(Items.STONE), 0);
@@ -159,16 +229,16 @@ public final class MaidTests {
         var id = beeId(robo);
         MaidReturn.register(id, f.maid.getUUID());
         h.assertTrue(MaidCouriers.beeTarget(robo), "An empty bee with a return record must target its maid");
-        var before = count(MaidCompatibility.inventory(f.maid), new ItemStack(beeItem()));
+        var before = maidItemCount(f.maid, new ItemStack(beeItem()));
         MaidCouriers.beeArrive(robo);
-        h.assertTrue(count(MaidCompatibility.inventory(f.maid), new ItemStack(beeItem())) == before + 1,
+        h.assertTrue(maidItemCount(f.maid, new ItemStack(beeItem())) == before + 1,
                 "The returning bee did not hand its item to the maid's inventory; record=" + MaidReturn.maid(id)
                         + " found=" + MaidReturn.find(h.getLevel(), f.maid.getUUID())
                         + " reachable=" + MaidReturn.reachable(f.maid, h.getLevel())
                         + " robo=" + robo.getClass().getMethod("getItemStack").invoke(robo));
         h.assertTrue(!beePresent(manager, id), "The returned bee was not removed");
         MaidCouriers.beeArrive(robo);   // f: the hook is a HEAD injection, so a second call must not hand it over again
-        h.assertTrue(count(MaidCompatibility.inventory(f.maid), new ItemStack(beeItem())) == before + 1,
+        h.assertTrue(maidItemCount(f.maid, new ItemStack(beeItem())) == before + 1,
                 "A repeated arrival handed the carrier over twice");
         h.succeed();
     }
@@ -434,9 +504,11 @@ public final class MaidTests {
         f.ledger.setReturnAddress(f.handle.cacheId(),SupplyService.address(target));
         h.startSequence().thenIdle(6).thenExecute(()->ReturnService.check(MaidAccess.endpoint(f.maid)))
                 .thenWaitUntil(()->h.assertTrue(f.stock()==64 && returnedStone(target)==36,"Native maid return: source="+f.stock()+" target="+returnedStone(target)+" carrier="+(bee?f.record().state().cells().get(1).amount():count(MaidCompatibility.inventory(f.maid),carrier))+" state="+MaidAccess.resolve(f.maid).status()))
+                .thenWaitUntil(()->h.assertTrue(!bee || maidItemCount(f.maid,carrier)+f.record().state().cells().get(1).amount()==1,
+                        "The maid's original bee has not returned after delivering the goods"))
                 .thenExecute(()->{
                     h.assertTrue(f.ledger.returnEscrow(f.handle.cacheId())==null && f.owner.getInventory().countItem(carrier.getItem())==0
-                            && (bee?f.record().state().cells().get(1).amount()==0:count(MaidCompatibility.inventory(f.maid),carrier)==0),"Maid return carrier accounting changed owner inventory");
+                            && (bee?maidItemCount(f.maid,carrier)+f.record().state().cells().get(1).amount()==1:count(MaidCompatibility.inventory(f.maid),carrier)==0),"Maid return carrier accounting changed owner inventory");
                     FeedMePackages.LOGGER.info("FMP_MAID_PICKUP_RETURN_PASSED transport={} nativePickup=100 source=64 destination=36 ownerOffline=true carrierSource={}",bee?"bee":"paper",bee?"cache":"backpack");
                 }).thenSucceed();
     }
@@ -642,6 +714,12 @@ public final class MaidTests {
             if (ItemStack.isSameItemSameComponents(inv.getStackInSlot(i), item)) count += inv.getStackInSlot(i).getCount();
         return count;
     }
+    private static int maidItemCount(LivingEntity maid, ItemStack item) {
+        int total = count(MaidCompatibility.inventory(maid), item);
+        for (var stack : maid.getHandSlots())
+            if (ItemStack.isSameItemSameComponents(stack, item)) total += stack.getCount();
+        return total;
+    }
     private static void receipt(GameTestHelper h) {
         var f = setup(h, new ItemStack(Items.BREAD), 0); var other = setup(h, new ItemStack(Items.BREAD), 0);
         var box = parcel(f, 4);
@@ -657,12 +735,15 @@ public final class MaidTests {
         h.succeed();
     }
     private static void flight(GameTestHelper h, boolean mobile, boolean swap) throws ReflectiveOperationException {
+        flight(h, mobile, swap, null);
+    }
+    private static void flight(GameTestHelper h, boolean mobile, boolean swap, Boolean sourceReturnToggle) throws ReflectiveOperationException {
         var f = setup(h, new ItemStack(Items.BREAD), 0);
         for (int x = 0; x < 5; x++) for (int z = 0; z < 5; z++) h.setBlock(new BlockPos(x, 0, z), net.minecraft.world.level.block.Blocks.STONE);
         h.assertTrue(mobile ? MaidCouriers.beeReady() : MaidCouriers.paperReady(), "Direct transport port failed to initialize");
         var inv = MaidCompatibility.inventory(f.maid);
         for (int i = 0; i < inv.getSlots(); i++) inv.setStackInSlot(i, new ItemStack(Items.DIRT, 64));
-        var network = new UUID[]{UUID.randomUUID()}; Object[] port = {null};
+        var network = new UUID[]{UUID.randomUUID()}; Object[] port = {null}, otherPort = {null};
         if (mobile) {
             var pos = new BlockPos(1, 1, 1); var block = BuiltInRegistries.BLOCK.get(ResourceLocation.parse("create_mobile_packages:bee_port"));
             h.setBlock(pos, block.defaultBlockState());
@@ -670,9 +751,22 @@ public final class MaidTests {
             port[0] = h.getBlockEntity(pos); var type = port[0].getClass();
             network[0] = (UUID) type.getMethod("getLogisticsNetworkId").invoke(port[0]);
             type.getMethod("addBeeToRoboBeeInventory", int.class).invoke(port[0], 1);
-            type.getMethod("setBeeReturnModeEnabled", boolean.class).invoke(port[0], true);
+            type.getMethod("setBeeReturnModeEnabled", boolean.class).invoke(port[0], sourceReturnToggle == null || sourceReturnToggle);
             var join = Class.forName("de.theidler.create_mobile_packages.network_settings.AddPlayerToNetworkPackage");
             join.getMethod("handle", ServerPlayer.class).invoke(join.getConstructor(UUID.class, UUID.class).newInstance(f.owner.getUUID(), network[0]), f.owner);
+            if (sourceReturnToggle != null) {
+                var otherPos = new BlockPos(4, 1, 1);
+                h.setBlock(otherPos, block.defaultBlockState());
+                block.setPlacedBy(h.getLevel(), h.absolutePos(otherPos), h.getBlockState(otherPos), f.owner, new ItemStack(block));
+                otherPort[0] = h.getBlockEntity(otherPos);
+                var linked = (com.simibubi.create.content.logistics.packagerLink.LogisticallyLinkedBehaviour)
+                        type.getField("behaviour").get(otherPort[0]);
+                com.simibubi.create.content.logistics.packagerLink.LogisticallyLinkedBehaviour.remove(linked);
+                linked.freqId = network[0];
+                com.simibubi.create.content.logistics.packagerLink.LogisticallyLinkedBehaviour.keepAlive(linked);
+                ((com.simibubi.create.content.logistics.packagePort.PackagePortBlockEntity) otherPort[0]).addressFilter = "*";
+                f.ledger.setReturnAddress(f.handle.cacheId(), "*");
+            }
         }
         var factory = new BlockPos(2, 1, 2); SupplyTests.placeItemFactory(h, factory);
         ((ChestBlockEntity) h.getBlockEntity(factory.south())).setItem(0, new ItemStack(Items.BREAD, 64));
@@ -680,9 +774,37 @@ public final class MaidTests {
         f.ledger.replace(f.handle, before.state().revision(), before.withState(edit.finish()));
         boolean[] connected = {false}, launched = {false}, swapped = {false}; long[] launchAt = {-1}, recoveredAt = {-1};
         UUID[] parcelId = {null}, replacementId = {null};
+        String[] lastBeeState = {""};
+        Object[] ownedBee = {null};
         h.onEachTick(() -> {
             try {
                 if (h.getTick() < 5) return;
+                if (mobile && sourceReturnToggle != null) {
+                    StringBuilder snapshot = new StringBuilder();
+                    var manager = beeManager(h);
+                    for (Object robo : ((Map<?, ?>) manager.getClass().getField("robos").get(manager)).values()) {
+                        var type = robo.getClass();
+                        if (!network[0].equals(type.getMethod("getLogisticsNetworkId").invoke(robo))) continue;
+                        var cargo = (ItemStack) type.getMethod("getItemStack").invoke(robo);
+                        var cargoSeal = cargo.get(FmpRegistries.PARCEL_SEAL.get());
+                        if (cargoSeal != null && cargoSeal.parcelId().equals(parcelId[0])) ownedBee[0] = robo;
+                        var home = type.getDeclaredField("homePortPos"); home.setAccessible(true);
+                        var target = type.getMethod("getTarget").invoke(robo);
+                        var targetPort = target == null ? null : Class.forName("de.theidler.create_mobile_packages.robo.RoboTarget")
+                                .getMethod("asBeePortBlockEntity").invoke(target);
+                        snapshot.append("home=").append(home.get(robo)).append(" returning=")
+                                .append(type.getMethod("shouldReturnToHomePort").invoke(robo))
+                                .append(" boxEmpty=").append(((ItemStack)type.getMethod("getItemStack").invoke(robo)).isEmpty())
+                                .append(" target=").append(target == null ? null : target.getClass().getName())
+                                .append(" targetPort=").append(targetPort instanceof net.minecraft.world.level.block.entity.BlockEntity be ? be.getBlockPos() : null)
+                                .append(" request=").append(type.getMethod("getRequest").invoke(robo));
+                    }
+                    if (!snapshot.toString().equals(lastBeeState[0])) {
+                        lastBeeState[0] = snapshot.toString();
+                        FeedMePackages.LOGGER.info("FMP_BEE_SOURCE_PROBE toggle={} source={} tick={} {}", sourceReturnToggle,
+                                h.absolutePos(new BlockPos(1,1,1)), h.getTick(), snapshot);
+                    }
+                }
                 if (!connected[0]) {
                     SupplyTests.connect(h, factory, network[0]); f.pendant.set(FmpRegistries.NETWORK.get(), network[0]); connected[0] = true;
                 }
@@ -743,81 +865,209 @@ public final class MaidTests {
                         "Direct native flight did not conserve source, cache or request with owner offline");
                 if (mobile) {
                     var bees = (IItemHandler) port[0].getClass().getMethod("getRoboBeeInventory").invoke(port[0]);
-                    if (bees.getStackInSlot(0).getCount() != 1) return;
+                    if (otherPort[0] != null) {
+                        h.assertTrue(ownedBee[0] != null, "Did not capture this parcel's actual carrier identity");
+                        if (beePresent(beeManager(h), beeId(ownedBee[0]))) return;
+                        var controllerField = ownedBee[0].getClass().getDeclaredField("behaviorController"); controllerField.setAccessible(true);
+                        Object controller = controllerField.get(ownedBee[0]);
+                        var landedField = controller.getClass().getDeclaredField("lastLandedPort"); landedField.setAccessible(true);
+                        h.assertTrue(landedField.get(controller) == port[0], "This exact carrier landed at a different port instead of its source");
+                        // Other native flights can land at these ports between concurrently running tests.
+                        // The original UUID's final landing is the proof of ownership, not a global bee count.
+                        h.assertTrue(bees.getStackInSlot(0).getCount() >= 1, "Native source port did not recover this carrier");
+                    } else {
+                        if (bees.getStackInSlot(0).getCount() != 1) return;
+                    }
                 }
                 FeedMePackages.LOGGER.info("FMP_MAID_DIRECT_FLIGHT_PASSED transport={} source=48 cache=16 ownerOffline=true", mobile ? "bee" : "paper");
                 h.succeed();
             } catch (ReflectiveOperationException failure) { throw new IllegalStateException("Native maid flight failed", failure); }
         });
     }
-    /**
-     * End-to-end: a package addressed to one of our maids is dispatched as a real native Phantom task and its
-     * contents must end up in her own cache. Loader and receiver stand together, so this proves the dispatch
-     * handover, the maid-addressed target, the arrival and the delivery - not the cruise range.
-     */
     private static void phantomDeliveryToMaid(GameTestHelper h) throws ReflectiveOperationException {
-        if (!dev.scathiard.feedmepackages.compat.PhantomDispatch.ready()) return; // No Phantom API in this run.
-        // An empty but filtered cell: the delivery has to fit, which is what the acceptance predicate must mean.
+        h.assertTrue(dev.scathiard.feedmepackages.compat.PhantomDispatch.ready(), "Phantom adapter unavailable");
         var f = setup(h, new ItemStack(Items.DIRT), 0);
         var sender = TestPlayers.create(h, ItemStack.EMPTY);
-        var at = f.maid.position();
-        sender.moveTo(at.x, at.y, at.z, 0, 0);
-        f.maid.setPos(at.x, at.y, at.z);
-        var contents = new ArrayList<ItemStack>();
-        contents.add(new ItemStack(Items.DIRT, 16));
-        ItemStack box = com.simibubi.create.content.logistics.box.PackageItem.containing(contents);
-        com.simibubi.create.content.logistics.box.PackageItem.addAddress(
-                box, dev.scathiard.feedmepackages.compat.maid.MaidAccess.address(f.maid));
-        // Seal it through the production dispatch scope, for her cache: the receiving side only accepts a parcel
-        // whose seal this world authenticated for that destination.
-        var route = new dev.scathiard.feedmepackages.logistics.ParcelSeal(UUID.randomUUID(), f.handle().cacheId(),
-                f.owner.getUUID(), UUID.randomUUID(), "", f.record().state().revision(),
-                dev.scathiard.feedmepackages.compat.maid.MaidAccess.address(f.maid), true, "");
-        try (var scope = new dev.scathiard.feedmepackages.logistics.DispatchScope(
-                f.ledger(), h.getLevel().registryAccess(), route)) {
-            dev.scathiard.feedmepackages.logistics.DispatchScope.onCreated(box);
-        }
-        // 1: dispatch. The address resolver cannot know a maid, so our own path must build her native target.
+        sender.setPos(h.absoluteVec(new Vec3(1, 1.2, 1)));
+        var box = parcel(f, 16);
         var result = dev.scathiard.feedmepackages.compat.PhantomDispatch.send(sender, box);
         h.assertTrue(result.outcome() == dev.scathiard.feedmepackages.compat.TransportDispatch.Outcome.SENT,
-                "Phantom dispatch to a maid was not sent: " + result + " cause=" + result.failure());
-        // 2: adoption. A real native task aimed at her must be recognised by the flight layer, and a native flight
-        // target must be constructible from her live position.
-        Object task = nativeMaidTask(h, sender, box.copy(), f.maid);
-        var server = h.getLevel().getServer();
-        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
-                .maidRecipient(server, task) == f.maid, "The flight layer did not recognise a maid task");
-        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomFlight
-                .flightTarget(f.maid) != null, "No native flight target could be built for the maid");
-        // The belt launch gate is a separate injection: load its target through the mixin layer (this is what applies
-        // it) and require the shape gate to have accepted the measured shape. A mismatch here means the mixin was
-        // silently not applied, which is the one failure this test can rule out without a real belt.
-        Class.forName("com.yision.phantom.logistics.courier.AirCourierBeltHooks");
-        h.assertTrue(dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102BeltCompatible(),
-                "The belt launch gate refused the measured shape; the mixin was not applied");
-        // And the port's own carrier departure, which is how a wing station sends a carrier back to someone.
-        Class.forName("com.yision.phantom.block.phantomport.PhantomPortReturnQueue");
-        h.assertTrue(dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102PortReturnCompatible(),
-                "The port carrier-return gate refused the measured shape; the takeover was not applied");
-        // 3: arrival. The hand-over must put the contents in her own cache and consume the package exactly once.
-        // 3: arrival. The receiving side only ever takes an FMP-authenticated parcel, so the hand-over must obey
-        // exactly one of two contracts, and never anything in between: accepted => the contents are in her cache
-        // and the package is consumed; refused => nothing moved and the package is still on board for the native
-        // undelivered-return path. Both are safe; a silent drop or a double deposit is not.
-        long before = f.stock();
-        boolean owned = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
-                .handOver(task, f.maid, server);
-        var left = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.packageOf(task);
-        if (owned) {
-            h.assertTrue(f.stock() == before + 16 && left != null && left.isEmpty(),
-                    "An accepted hand-over must deposit 16 and consume the package: stock=" + f.stock() + " left=" + left);
-        } else {
-            h.assertTrue(f.stock() == before && left != null && !left.isEmpty(),
-                    "A refused hand-over must move nothing and keep the package: stock=" + f.stock() + " left=" + left
-                            + " canReceive=" + dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.canReceive(f.maid, left));
+                "Phantom dispatch to maid refused a valid sealed parcel: " + result);
+        h.startSequence().thenWaitUntil(() -> h.assertTrue(f.stock() == 16,
+                "Actual dispatched task has not delivered into the maid's cache"))
+                .thenIdle(30).thenExecute(() -> h.assertTrue(f.stock() == 16,
+                        "Actual task credited the cargo more than once")).thenSucceed();
+    }
+
+    private static void phantomPlayerRoundtrip(GameTestHelper h) {
+        var f = setup(h, new ItemStack(Items.STONE), 100);
+        f.maid.setPos(h.absoluteVec(new Vec3(4, 1.2, 4)));
+        var target = TestPlayers.create(h, ItemStack.EMPTY);
+        PhantomCompatibilityTests.register(h, target);
+        var carrier = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.nativeCarrier();
+        MaidCompatibility.inventory(f.maid).setStackInSlot(0, carrier.copy());
+        f.pendant.set(FmpRegistries.NETWORK.get(), UUID.randomUUID());
+        var before = f.record(); var edit = before.state().edit();
+        edit.settings(0, new dev.scathiard.feedmepackages.domain.CellSettings(-1, 64, 1, -1));
+        f.ledger.replace(f.handle, before.state().revision(), before.withState(edit.finish()));
+        f.ledger.setReturnAddress(f.handle.cacheId(), SupplyService.address(target));
+        ReturnService.check(MaidAccess.endpoint(f.maid));
+        h.assertTrue(f.stock() == 64 && maidItemCount(f.maid, carrier) == 0, "Maid did not dispatch to online player");
+        h.startSequence().thenWaitUntil(() -> h.assertTrue(returnedStone(target) == 36,
+                "Player has not received exactly 36 returned goods"))
+                .thenWaitUntil(() -> h.assertTrue(maidItemCount(f.maid, carrier) == 1,
+                        "Carrier did not return to source maid while her owner was offline"))
+                .thenIdle(30).thenExecute(() -> {
+                    h.assertTrue(maidItemCount(f.maid, carrier) == 1 && returnedStone(target) == 36 && f.stock() == 64,
+                            "Player-addressed maid return duplicated cargo/carrier");
+                    PhantomCompatibilityTests.unregister(h, target);
+                }).thenSucceed();
+    }
+
+    private static boolean failPhantomVisual;
+    private static int phantomVisualFailures;
+    @net.neoforged.bus.api.SubscribeEvent
+    public static void phantomVisualFault(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent event) {
+        if (failPhantomVisual && event.getEntity().getClass().getName().equals("com.yision.phantom.entity.courier.AirCourierEntity")) {
+            phantomVisualFailures++;
+            throw new IllegalStateException("FMP test: visual failed after native task admission");
         }
+    }
+
+    public static Object rejectedPhantomFactory(UUID id, ServerLevel level, UUID receiver,
+            net.minecraft.resources.ResourceKey<Level> dimension, Vec3 at, Vec3 direction, Vec3 motion) {
+        throw new IllegalStateException("FMP test: task factory failed before admission");
+    }
+
+    private static List<?> livePhantomTasks() throws ReflectiveOperationException {
+        var manager = Class.forName("com.yision.phantom.logistics.courier.AirCourierTaskManager");
+        var field = manager.getDeclaredField("savedData"); field.setAccessible(true);
+        Object data = field.get(null);
+        return (List<?>) data.getClass().getMethod("getTasks").invoke(data);
+    }
+
+    private static void phantomPortFault(GameTestHelper h, boolean afterAdmission) throws ReflectiveOperationException {
+        var f = setup(h, new ItemStack(Items.DIRT), 0);
+        var port = PhantomCompatibilityTests.port(h, "Fault-" + UUID.randomUUID());
+        var queueField = port.getClass().getDeclaredField("returnQueue"); queueField.setAccessible(true);
+        var queue = queueField.get(port);
+        var carriers = (net.neoforged.neoforge.items.ItemStackHandler) port.getClass().getMethod("getCarrierInventory").invoke(port);
+        var carrier = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.nativeCarrier();
+        carriers.setStackInSlot(0, carrier.copy());
+        var helper = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomPortReturn.class;
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomPortReturn.available(), "Port adapter unavailable");
+        var factoryField = helper.getDeclaredField("forCarrierReturnToPlayer"); factoryField.setAccessible(true);
+        Object factory = factoryField.get(null);
+        if (!afterAdmission) factoryField.set(null, MaidTests.class.getMethod("rejectedPhantomFactory", UUID.class,
+                ServerLevel.class, UUID.class, net.minecraft.resources.ResourceKey.class, Vec3.class, Vec3.class, Vec3.class));
+        var live = livePhantomTasks(); int before = live.size(); boolean accepted;
+        phantomVisualFailures = 0; failPhantomVisual = afterAdmission;
+        try { accepted = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomPortReturn.takeOver(queue, f.maid.getUUID()); }
+        finally { failPhantomVisual = false; factoryField.set(null, factory); }
+        if (afterAdmission) {
+            h.assertTrue(phantomVisualFailures == 1 && live.size() == before + 1, "The post-admission fault did not reach the real native task");
+            h.assertTrue(accepted && carriers.getStackInSlot(0).isEmpty(), "A live flight was reported as rejected after its visual failed");
+        } else h.assertTrue(!accepted && live.size() == before && carriers.getStackInSlot(0).getCount() == 1,
+                "Factory failure lost a port carrier before any native flight existed");
         h.succeed();
     }
+
+    private static void phantomBeltFault(GameTestHelper h) throws ReflectiveOperationException {
+        var f = setup(h, new ItemStack(Items.DIRT), 0);
+        PhantomCompatibilityTests.port(h, "BeltFault-" + UUID.randomUUID());
+        PhantomCompatibilityTests.returnRunway(h);
+        var item = Class.forName("com.yision.phantom.item.miniphantom.MiniPhantomItem");
+        var loaded = (ItemStack) item.getMethod("createLoaded", ItemStack.class).invoke(null, parcel(f, 16));
+        var transported = new com.simibubi.create.content.kinetics.belt.transport.TransportedItemStack(loaded);
+        transported.beltPosition = 1;
+        var belt = (com.simibubi.create.content.kinetics.belt.BeltBlockEntity) h.getBlockEntity(new BlockPos(4, 1, 3));
+        Class.forName("com.yision.phantom.logistics.courier.AirCourierBeltHooks");
+        var live = livePhantomTasks(); int before = live.size(); boolean accepted;
+        phantomVisualFailures = 0; failPhantomVisual = true;
+        try { accepted = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomBeltLaunch.launchIfMaid(belt, transported); }
+        finally { failPhantomVisual = false; }
+        h.assertTrue(phantomVisualFailures == 1 && live.size() == before + 1, "Belt fault did not occur after native admission");
+        h.assertTrue(accepted, "A live belt flight was reported as rejected, so its source carrier could launch twice");
+        h.succeed();
+    }
+
+    private static void phantomTaskPersistence(GameTestHelper h) throws ReflectiveOperationException {
+        var f = setup(h, new ItemStack(Items.DIRT), 0);
+        Object task = nativeMaidTask(h, f.owner, parcel(f, 16), f.maid);
+        var type = task.getClass();
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.rememberReturn(task, f.maid),
+                "Could not record source maid before save");
+        var tag = (CompoundTag) type.getMethod("save", net.minecraft.core.HolderLookup.Provider.class, CompoundTag.class)
+                .invoke(task, h.getLevel().registryAccess(), new CompoundTag());
+        dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.forget(task);
+        Object restored = type.getMethod("load", net.minecraft.core.HolderLookup.Provider.class, CompoundTag.class)
+                .invoke(null, h.getLevel().registryAccess(), tag);
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
+                .maidForReturn(restored, h.getLevel().getServer()) == f.maid,
+                "Native save/load lost the carrier's dispatching maid");
+        var nativeTask = nativeMaidTask(h, f.owner, parcel(f, 1), f.maid);
+        var nativeTag = (CompoundTag) type.getMethod("save", net.minecraft.core.HolderLookup.Provider.class, CompoundTag.class)
+                .invoke(nativeTask, h.getLevel().registryAccess(), new CompoundTag());
+        h.assertTrue(!nativeTag.contains(dev.scathiard.feedmepackages.compat.maid.phantom.v102.PhantomMaidTaskState.KEY),
+                "An unmarked native task acquired maid ownership during save");
+        h.succeed();
+    }
+
+    private static void phantomPortRoundtrip(GameTestHelper h) { phantomPortRoundtrip(h, false); }
+    private static void phantomPortRoundtrip(GameTestHelper h, boolean unwear) {
+        h.assertTrue(dev.scathiard.feedmepackages.compat.PhantomDispatch.ready(), "Phantom adapter unavailable");
+        var f = setup(h, new ItemStack(Items.STONE), 100);
+        f.maid.setPos(h.absoluteVec(new Vec3(1, 1.2, 1)));
+        var carrier = new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse("createphantom:mini_phantom")));
+        MaidCompatibility.inventory(f.maid).setStackInSlot(0, carrier.copy());
+        f.pendant.set(FmpRegistries.NETWORK.get(), UUID.randomUUID());
+        var before = f.record(); var edit = before.state().edit();
+        edit.settings(0, new dev.scathiard.feedmepackages.domain.CellSettings(-1, 64, 1, -1));
+        f.ledger.replace(f.handle, before.state().revision(), before.withState(edit.finish()));
+        String address = "MaidReturn-" + UUID.randomUUID();
+        f.ledger.setReturnAddress(f.handle.cacheId(), address);
+        var port = PhantomCompatibilityTests.port(h, address);
+        PhantomCompatibilityTests.returnRunway(h);
+        ReturnService.check(MaidAccess.endpoint(f.maid));
+        h.assertTrue(f.stock() == 64 && maidItemCount(f.maid, carrier) == 0
+                && f.ledger.returnEscrow(f.handle.cacheId()) == null,
+                "Maid dispatch did not debit exactly 36 goods and one carrier");
+        if (unwear) CuriosApi.getCuriosInventory(f.maid).orElseThrow().getStacksHandler("necklace").orElseThrow()
+                .getStacks().setStackInSlot(0, ItemStack.EMPTY);
+        // Replace the actual admitted task with its native save/load result before it starts flying.
+        // Clearing the old object's metadata prevents an in-memory lookup from hiding persistence failures.
+        try {
+            var live = (List<Object>) livePhantomTasks();
+            Object task = live.stream().filter(t -> f.maid == dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
+                    .maidForReturn(t, h.getLevel().getServer())).findFirst().orElseThrow();
+            var type = task.getClass();
+            var tag = (CompoundTag) type.getMethod("save", net.minecraft.core.HolderLookup.Provider.class, CompoundTag.class)
+                    .invoke(task, h.getLevel().registryAccess(), new CompoundTag());
+            dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.forget(task);
+            Object restored = type.getMethod("load", net.minecraft.core.HolderLookup.Provider.class, CompoundTag.class)
+                    .invoke(null, h.getLevel().registryAccess(), tag);
+            h.assertTrue(f.maid.getUUID().equals(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.sourcePlayer(restored)),
+                    "Task factory/save placed the HUD owner in the source identity field");
+            live.set(live.indexOf(task), restored);
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("Native flight reload failed", failure); }
+        h.startSequence().thenWaitUntil(() -> {
+            int cargo = 0;
+            for (int i = 0; i < port.inventory.getSlots(); i++) {
+                var box = port.inventory.getStackInSlot(i);
+                if (PackageItem.isPackage(box)) cargo += count(PackageItem.getContents(box), new ItemStack(Items.STONE));
+            }
+            h.assertTrue(cargo == 36, "Actual port has not received exactly 36 goods");
+            h.assertTrue(maidItemCount(f.maid, carrier) == 1, "Port did not send its empty carrier back to the dispatching maid");
+        }).thenIdle(30).thenExecute(() -> {
+            ReturnService.check(MaidAccess.endpoint(f.maid));
+            h.assertTrue(f.stock() == 64 && maidItemCount(f.maid, carrier) == 1,
+                    "Maid roundtrip duplicated cargo or carrier");
+            h.assertTrue(f.owner.getInventory().countItem(carrier.getItem()) == 0,
+                    "Carrier returned to the owner instead of its source maid");
+            FeedMePackages.LOGGER.info("FMP_MAID_PHANTOM_ROUNDTRIP_PASSED cargo=36 carrier=1 ownerOffline=true");
+        }).thenSucceed();
+    }
+
     /** A real native package-to-player task aimed at her, built exactly the way our own dispatch builds one. */
     private static Object nativeMaidTask(GameTestHelper h, ServerPlayer sender, ItemStack box, TamableAnimal maid)
             throws ReflectiveOperationException {
@@ -901,6 +1151,21 @@ public final class MaidTests {
         }
         return boxes.stream().filter(box -> box.has(FmpRegistries.PARCEL_SEAL.get())
                 && box.get(FmpRegistries.PARCEL_SEAL.get()).cacheId().equals(f.handle.cacheId())).toList();
+    }
+
+    private static void beeFullReturnFallback(GameTestHelper h) throws ReflectiveOperationException {
+        var f = setup(h, new ItemStack(Items.DIRT), 0);
+        fillMaidInventory(f);
+        var manager = beeManager(h);
+        Object bee = beeRobo(h, manager, ItemStack.EMPTY, f.maid.blockPosition());
+        var id = beeId(bee);
+        MaidReturn.register(id, f.maid.getUUID());
+        beeParkAt(bee, f.maid);
+        MaidCouriers.beeArrive(bee);
+        h.assertTrue(beePresent(manager, id) && MaidReturn.maid(id) == null,
+                "A full maid must leave the same bee alive for native fallback, without a return override loop");
+        h.assertTrue(!MaidCouriers.beeTarget(bee), "Full maid was repeatedly selected instead of native fallback");
+        h.succeed();
     }
 
     /** Native world, entity, packager and carrier files across three JVMs; never re-create saved cargo. */

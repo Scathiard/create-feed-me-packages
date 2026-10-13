@@ -33,6 +33,9 @@ public final class MaidPackageHandover {
      */
     public static int deliver(ServerPlayer player, LivingEntity maid, ItemStack packageStack) {
         if (player == null || !addressedTo(packageStack, maid)) return 0;
+        if (packageStack.has(dev.scathiard.feedmepackages.registry.FmpRegistries.PARCEL_SEAL.get())
+                || packageStack.has(dev.scathiard.feedmepackages.registry.FmpRegistries.FLUID_PARCEL_SEAL.get()))
+            return dev.scathiard.feedmepackages.logistics.ReceiveService.receive(MaidAccess.endpoint(maid), packageStack) ? 1 : 0;
         var access = MaidAccess.resolve(maid);
         if (!access.active()) return 0;
         var ledger = CacheLedger.get(player.getServer());

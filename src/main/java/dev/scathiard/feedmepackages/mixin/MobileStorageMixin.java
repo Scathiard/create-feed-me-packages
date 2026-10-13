@@ -15,15 +15,20 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /** Only supplies the context used by Mobile's own writer; ordinary carriers keep native decoding. */
 @Pseudo
 @Mixin(targets = "de.theidler.create_mobile_packages.robo.VirtualRobo", remap = false)
 public abstract class MobileStorageMixin {
+    @Inject(method = "setRemoved", at = @At("RETURN"), remap = false)
+    private void fmp$forgetMaidReturn(ServerLevel level, CallbackInfo ci) {
+        dev.scathiard.feedmepackages.compat.maid.MaidReturn.forget(
+                dev.scathiard.feedmepackages.compat.maid.MaidReturn.roboId(this));
+    }
     /**
      * The maid a bee must return to rides in the robo's <b>own</b> tag (user 2026-10-13, plan B): the parcel seal is
-     * gone once the cargo is delivered, and this way the record needs no side table, no cleanup rule and survives a
-     * restart with the entity it belongs to.
+     * gone once the cargo is delivered. The runtime index is rebuilt from this tag and cleared on removal.
      */
     @Inject(method = "serializeNBT", at = @At("RETURN"), remap = false)
     private void fmp$writeMaidReturn(CallbackInfoReturnable<CompoundTag> cir) {

@@ -163,52 +163,42 @@ public final class MaidCompatibility {
         if (!ready || !isMaid(maid) || stack.isEmpty()) return false;
         try {
             var available = (IItemHandlerModifiable) availableInventory.invoke(maid, true);
+            ItemStack preview = stack.copy();
+            for (int slot = 0; slot < available.getSlots() && !preview.isEmpty(); slot++)
+                preview = available.insertItem(slot, preview, true);
+            if (!preview.isEmpty()) return false;
             ItemStack rest = stack.copy();
             for (int slot = 0; slot < available.getSlots() && !rest.isEmpty(); slot++)
                 rest = available.insertItem(slot, rest, false);
             return rest.isEmpty();
         } catch (ReflectiveOperationException broken) { throw failure(broken); }
     }
-    /**
-     * Read-only answer to "could she take this stack?", in the same order the real path uses: <b>her inventory,
-     * then her cache</b>. Simulation only - no ledger write, no NBT, no packet, no state change at all, because the
-     * caller is a predicate (Create Phantom's {@code canReceivePackageTarget} branch).
-     */
+
+    /** One ordinary returned carrier, not an authenticated parcel. Never creates a new filter. */
+    public static boolean returnCarrier(LivingEntity maid, ItemStack carrier) {
+        if (carrier == null || carrier.getCount() != 1) return false;
+        if (insertInto(maid, carrier)) return true;
+        var access = MaidAccess.resolve(maid);
+        if (!access.active() || dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(access.handle().cacheId())
+                || dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId())) return false;
+        var ledger = CacheLedger.get(maid.getServer());
+        var before = ledger.find(access.handle().cacheId());
+        dev.scathiard.feedmepackages.item.ItemVariantKey key;
+        try { key = dev.scathiard.feedmepackages.item.ItemVariantKey.of(carrier, maid.registryAccess()); }
+        catch (IllegalArgumentException unsupported) { return false; }
+        int slot = before.state().find(key);
+        if (slot < 0 || !before.state().writable(slot)) return false;
+        var edit = before.state().edit();
+        if (edit.insert(slot, key, 1) != 1) return false;
+        ledger.replace(access.handle(), before.state().revision(), before.withState(edit.finish()));
+        return true;
+    }
+    /** Authenticated package preview uses the same contents, capacity and residual rules as real receipt. */
     public static boolean canReceive(LivingEntity maid, ItemStack stack) {
         if (!ready || !isMaid(maid) || stack == null || stack.isEmpty()) return false;
-        ItemStack rest = stack.copy();
-        try {
-            var available = (IItemHandlerModifiable) availableInventory.invoke(maid, true);
-            for (int slot = 0; slot < available.getSlots() && !rest.isEmpty(); slot++)
-                rest = available.insertItem(slot, rest, true);
-        } catch (ReflectiveOperationException broken) { throw failure(broken); }
-        if (rest.isEmpty()) return true;
-        return cacheRoom(maid, rest);
+        return dev.scathiard.feedmepackages.logistics.ReceiveService.canReceive(MaidAccess.endpoint(maid), stack);
     }
 
-    /**
-     * Cache half of {@link #canReceive}: a cell she already filters <b>with room under its own bound</b>, or a
-     * writable empty cell, can take it. Pure reads of the typed ledger - the same predicate the deposit path uses,
-     * without its write half. "She already filters this item" is deliberately not enough: a full matching cell
-     * accepted a flight and then refused the deposit, which the maid delivery GameTest caught.
-     */
-    private static boolean cacheRoom(LivingEntity maid, ItemStack stack) {
-        var access = MaidAccess.resolve(maid);
-        if (!access.active() || maid.getServer() == null) return false;
-        var record = CacheLedger.get(maid.getServer()).find(access.handle().cacheId());
-        if (record == null) return false;
-        dev.scathiard.feedmepackages.item.ItemVariantKey key;
-        try { key = dev.scathiard.feedmepackages.item.ItemVariantKey.of(stack, maid.registryAccess()); }
-        catch (IllegalArgumentException unsupported) { return false; }
-        int matching = record.state().find(key);
-        if (matching >= 0) {
-            var cell = record.state().cells().get(matching);
-            if (cell.settings().upper() > cell.amount()) return true;
-        }
-        for (int slot = 0; slot < record.state().cells().size(); slot++)
-            if (record.state().writable(slot) && record.state().cells().get(slot).filter() == null) return true;
-        return false;
-    }
     static RuntimeException failure(ReflectiveOperationException problem) {
         Throwable cause = problem instanceof InvocationTargetException wrapped ? wrapped.getCause() : problem;
         if (cause instanceof Error error) throw error;

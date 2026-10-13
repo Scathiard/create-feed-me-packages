@@ -34,7 +34,25 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  */
 @Pseudo
 @Mixin(targets = "com.yision.phantom.logistics.courier.AirCourierTask", remap = false)
-public abstract class Phantom102FlightMixin {
+public abstract class Phantom102FlightMixin implements dev.scathiard.feedmepackages.compat.maid.phantom.v102.PhantomMaidTaskAccess {
+
+    @Unique private final dev.scathiard.feedmepackages.compat.maid.phantom.v102.PhantomMaidTaskState fmp$state =
+            new dev.scathiard.feedmepackages.compat.maid.phantom.v102.PhantomMaidTaskState();
+
+    @Override public dev.scathiard.feedmepackages.compat.maid.phantom.v102.PhantomMaidTaskState fmp$maidState() { return fmp$state; }
+
+    @Inject(method = "save", at = @At("RETURN"), remap = false)
+    private void fmp$save(net.minecraft.core.HolderLookup.Provider provider, net.minecraft.nbt.CompoundTag tag,
+            CallbackInfoReturnable<net.minecraft.nbt.CompoundTag> cir) {
+        fmp$state.write(cir.getReturnValue());
+    }
+
+    @Inject(method = "load", at = @At("RETURN"), remap = false)
+    private static void fmp$load(net.minecraft.core.HolderLookup.Provider provider, net.minecraft.nbt.CompoundTag tag,
+            CallbackInfoReturnable<Object> cir) {
+        if (cir.getReturnValue() instanceof dev.scathiard.feedmepackages.compat.maid.phantom.v102.PhantomMaidTaskAccess access)
+            access.fmp$maidState().read(tag);
+    }
 
     /** The maid this task follows right now; refreshed on every flight resolution. */
     @Unique private LivingEntity fmp$maid;
@@ -45,17 +63,19 @@ public abstract class Phantom102FlightMixin {
         return Phantom102Gate.usable(true) && OptionalMixins.phantom102FlightCompatible();
     }
 
+    @Inject(method = "startCarrierReturn", at = @At("HEAD"), cancellable = true, remap = false)
+    private void fmp$returnToDispatcher(MinecraftServer server, CallbackInfo ci) {
+        if (fmp$enabled() && MaidPhantomTasks.returnCarrierToMaid(this, server)) ci.cancel();
+    }
+
     /** Rebuild the flight target from her live position every tick, so she is followed rather than a stale point. */
     @Inject(method = "resolveFlightTarget", at = @At("HEAD"), cancellable = true, remap = false)
     private void fmp$trackMaid(MinecraftServer server, CallbackInfoReturnable<Object> cir) {
-        // One line per distinct task state: it separates "the flow never ran" from "our injection never saw it" from
-        // "we saw it but did not recognise it", which no other evidence can. Quiet by construction: only tasks that
-        // are addressed to a maid or carry our own registry entry are reported, and identical states collapse.
+        // Debug-only task state; no global set of task UUIDs is retained for diagnostic deduplication.
         String registry = MaidPhantomTasks.registryState(this);
         java.util.UUID playerSlot = MaidPhantomTasks.targetId(this);
         boolean maidAddressed = playerSlot != null
-                && dev.scathiard.feedmepackages.compat.maid.MaidAccess.recipient(
-                        dev.scathiard.feedmepackages.compat.maid.MaidAccess.ADDRESS_PREFIX + playerSlot) != null;
+                && MaidPhantomTasks.maidByEntity(server, playerSlot) != null;
         if (!"NONE".equals(registry) || maidAddressed) {
             MaidPhantomTasks.note("task seen: mission=" + MaidPhantomTasks.missionName(this)
                     + " boxEmpty=" + MaidPhantomTasks.boxIsEmpty(this)
@@ -97,12 +117,12 @@ public abstract class Phantom102FlightMixin {
         cir.setReturnValue(target);
     }
 
-    /** She is a valid destination while she is alive, present and wearing an active pendant. */
+    /** Cargo needs an active pendant; returning an empty carrier only needs the source maid to be present. */
     @Inject(method = "isDestinationAvailable", at = @At("HEAD"), cancellable = true, remap = false)
     private void fmp$maidAvailable(@Coerce Object target, CallbackInfoReturnable<Boolean> cir) {
         LivingEntity maid = fmp$maid;
         if (maid == null || maid.isRemoved() || !maid.isAlive()) return;
-        if (!MaidAccess.resolve(maid).active()) return;
+        if (!MaidPhantomTasks.returnsToSourcePlayer(this) && !MaidAccess.resolve(maid).active()) return;
         cir.setReturnValue(Boolean.TRUE);
     }
 

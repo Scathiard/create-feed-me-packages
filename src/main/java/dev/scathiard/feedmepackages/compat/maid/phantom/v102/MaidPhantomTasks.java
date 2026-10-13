@@ -345,9 +345,10 @@ public final class MaidPhantomTasks {
     public static String registryState(Object task) {
         UUID taskId = idOf(task);
         if (taskId == null) return "NONE";
-        String[] stored = MAID_TASKS.get(taskId);
-        if (stored == null) return "NONE";
-        PhantomMaidTaskMarker.Decoded decoded = PhantomMaidTaskMarker.decode(stored[0], stored[1], stored[2]);
+        var state = state(task);
+        if (state == null) return "NONE";
+        var decoded = state.marker(taskId);
+        if (decoded.state() == PhantomMaidTaskMarker.State.NATIVE) return "NONE";
         if (!decoded.marked()) return "CORRUPT";
         return decoded.direction() == PhantomMaidTaskMarker.Direction.RETURN ? "RETURN" : "OUTBOUND";
     }
@@ -385,17 +386,34 @@ public final class MaidPhantomTasks {
         }
     }
 
-    // ---------------------------------------------------------------------------------------------------------------
-    // R1: which native task belongs to one of our maids.
-    //
-    // The native task cannot tell us this: a maid dispatch leaves the player slot holding the maid's *owner* (a real
-    // player UUID), which is byte-identical to a player's own carrier return. So the only discriminator is our own
-    // marker. This period keeps it in-process, keyed by the native task's own id(); persistence is deliberately out
-    // of scope (documented), and after a restart a flying maid task simply falls back to native "return to owner".
-    // ---------------------------------------------------------------------------------------------------------------
+    /** Native player-return transition, with the recorded source maid instead of an online-player lookup.
+     * A source-port task is never intercepted. Resolve every member before changing the task. */
+    public static boolean returnCarrierToMaid(Object task, MinecraftServer server) {
+        LivingEntity maid = maidForReturn(task, server);
+        if (maid == null || !available()) return false;
+        try {
+            Class<?> type = task.getClass();
+            Field sourcePort = type.getDeclaredField("sourcePhantomPortPos"); sourcePort.setAccessible(true);
+            if (sourcePort.get(task) != null) return false;
+            Field targetId = type.getDeclaredField("targetPlayerId"); targetId.setAccessible(true);
+            Class<?> missionType = Class.forName("com.yision.phantom.entity.courier.AirCourierEntity$Mission");
+            Object returning = java.util.Arrays.stream(missionType.getEnumConstants())
+                    .filter(value -> ((Enum<?>) value).name().equals("CARRIER_RETURN_TO_PLAYER")).findFirst().orElseThrow();
+            Method reset = type.getDeclaredMethod("resetForReturn", missionType); reset.setAccessible(true);
+            targetId.set(task, maid.getUUID());
+            targetPhantomPortPos.set(task, null);
+            targetDimension.set(task, maid.level().dimension());
+            reset.invoke(task, returning);
+            return true;
+        } catch (ReflectiveOperationException failure) {
+            // Do not run a second native completion after a partially entered transition.
+            throw new IllegalStateException("FMP native maid carrier return transition failed", failure);
+        }
+    }
 
-    /** Registry values reuse the marker codec's three strings, so NATIVE/CORRUPT rules are literally the same. */
-    private static final java.util.Map<UUID, String[]> MAID_TASKS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static PhantomMaidTaskState state(Object task) {
+        return task instanceof PhantomMaidTaskAccess access ? access.fmp$maidState() : null;
+    }
     private static Method id;
 
     private static UUID idOf(Object task) {
@@ -432,7 +450,9 @@ public final class MaidPhantomTasks {
         // not wearable at that moment (measured on the real machine: she dispatched, yet nothing was registered).
         if (!dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(maid)
                 || !maid.isAlive() || maid.isRemoved()) return false;
-        MAID_TASKS.put(taskId, PhantomMaidTaskMarker.encode(taskId, maid.getUUID(), direction));
+        var state = state(task);
+        if (state == null) return false;
+        state.remember(taskId, maid.getUUID(), direction);
         return true;
     }
 
@@ -484,11 +504,13 @@ public final class MaidPhantomTasks {
     }
 
     public static boolean forget(Object task) {
-        UUID taskId = idOf(task);
-        return taskId != null && MAID_TASKS.remove(taskId) != null;
+        var state = state(task);
+        if (state == null) return false;
+        state.clear();
+        return true;
     }
 
-    /** The maid recorded for this task, or null. Absent markers and corrupt ones both return null and are dropped. */
+    /** The maid recorded for this task, or null. Corrupt metadata is retained but never used to guess an owner. */
     public static LivingEntity maidFor(Object task, MinecraftServer server) {
         return maidFor(task, server, null);
     }
@@ -501,10 +523,10 @@ public final class MaidPhantomTasks {
     private static LivingEntity maidFor(Object task, MinecraftServer server, PhantomMaidTaskMarker.Direction required) {
         UUID taskId = idOf(task);
         if (taskId == null || server == null) return null;
-        String[] stored = MAID_TASKS.get(taskId);
-        if (stored == null) return null;
-        PhantomMaidTaskMarker.Decoded decoded = PhantomMaidTaskMarker.decode(stored[0], stored[1], stored[2]);
-        if (!decoded.marked()) { MAID_TASKS.remove(taskId); return null; }
+        var state = state(task);
+        if (state == null) return null;
+        var decoded = state.marker(taskId);
+        if (!decoded.marked()) return null;
         if (required != null && decoded.direction() != required) return null;
         if (!Phantom102Gate.usable(true)) return null;
         if (!dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102FlightCompatible()) return null;
@@ -512,33 +534,16 @@ public final class MaidPhantomTasks {
         return maidEntity(server, decoded.maidId());
     }
 
-    /** One stable line per distinct reason. The real machine is the only place this feature runs for real. */
+    /** Optional diagnostics; never retain every task/maid UUID in an unbounded global set. */
     public static void note(String reason) {
-        if (REPORTED.add(reason))
-            dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP phantom maid: " + reason);
+        dev.scathiard.feedmepackages.FeedMePackages.LOGGER.debug("FMP phantom maid: {}", reason);
     }
-    private static final java.util.Set<String> REPORTED = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /**
      * Hand a returned carrier to her: <b>inventory first, then her cache</b>. Simulated on copies - the caller keeps
      * the carrier whenever this returns false, so nothing is consumed or swallowed on a failure.
      */
     public static boolean handCarrierTo(LivingEntity maid, ItemStack carrier) {
-        if (maid == null || carrier == null || carrier.isEmpty()) {
-            note("carrier hand-over refused: nothing to hand");
-            return false;
-        }
-        ItemStack rest = carrier.copy();
-        var inventory = dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.inventory(maid);
-        boolean fits = false;
-        if (inventory != null) {
-            for (int slot = 0; slot < inventory.getSlots() && !rest.isEmpty(); slot++) rest = inventory.insertItem(slot, rest, true);
-            fits = rest.isEmpty();
-            if (fits && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.insertInto(maid, carrier.copy())) return true;
-        }
-        boolean cache = dev.scathiard.feedmepackages.logistics.ReceiveService.receive(
-                MaidAccess.endpoint(maid), carrier.copy());
-        if (!cache) note("carrier hand-over refused: inventoryFits=" + fits + " cache=" + cache);
-        return cache;
+        return maid != null && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.returnCarrier(maid, carrier);
     }
 }

@@ -1,5 +1,6 @@
-package dev.scathiard.feedmepackages.domain;
+package dev.scathiard.feedmepackages.testsupport;
 
+import dev.scathiard.feedmepackages.domain.*;
 import java.util.*;
 
 /** Historical merge fixture shared by unit and GameTests; never packaged with the mod. */

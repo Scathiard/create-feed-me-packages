@@ -62,6 +62,15 @@ public final class ReceiveService {
     public static boolean receive(ServerPlayer player, ItemStack source) {
         return receive(LogisticsEndpoint.player(player), source);
     }
+    /** Preview the same authenticated contents/residual plan as receive, without transferring ownership. */
+    public static boolean canReceive(LogisticsEndpoint endpoint, ItemStack source) {
+        if (source == null || source.isEmpty()
+                || !source.has(FmpRegistries.PARCEL_SEAL.get()) && !source.has(FmpRegistries.FLUID_PARCEL_SEAL.get())) return false;
+        var access = endpoint.access();
+        if (!access.active() || dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(access.handle().cacheId())
+                || dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId())) return false;
+        return simulate(endpoint.entity(), access.handle(), source, false) != null;
+    }
     public static boolean receive(LogisticsEndpoint endpoint, ItemStack source) {
         var player = endpoint.entity();
         if (source.isEmpty() || !source.has(FmpRegistries.PARCEL_SEAL.get()) && !source.has(FmpRegistries.FLUID_PARCEL_SEAL.get())) return false;
