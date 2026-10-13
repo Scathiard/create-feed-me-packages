@@ -146,18 +146,17 @@ public final class MaidPhantomTasks {
     public static LivingEntity carrierRecipient(MinecraftServer server, Object task) {
         if (!available() || server == null || task == null) return null;
         if (!returnsToSourcePlayer(task)) return null;
-        LivingEntity bySlot = maidOfTargetSlot(server, task);
-        if (bySlot != null) return bySlot;
+        UUID slot = targetId(task);
+        if (slot != null && MaidAccess.recipient(MaidAccess.ADDRESS_PREFIX + slot) != null) {
+            LivingEntity bySlot = maidOfTargetSlot(server, slot);
+            if (bySlot != null) return bySlot;
+        }
         return maidForReturn(task, server);
     }
 
-    /** The maid sitting in the native player slot of a carrier return, when that slot holds a maid address. */
-    private static LivingEntity maidOfTargetSlot(MinecraftServer server, Object task) {
-        UUID id = targetId(task);
-        if (id == null) return null;
-        String address = MaidAccess.ADDRESS_PREFIX + id;
-        if (MaidAccess.recipient(address) == null) return null;
-        LivingEntity found = MaidAccess.find(server, address);
+    /** The maid sitting in the native player slot of a carrier return, at entity level (see {@link #maidEntity}). */
+    private static LivingEntity maidOfTargetSlot(MinecraftServer server, UUID id) {
+        LivingEntity found = maidEntity(server, id);
         if (found != null) return found;
         // This single step decides whether the feature works, so it says why instead of silently no-oping. The entity
         // type matters: an address in maid form can still hold a player UUID, and then this is simply not ours.
@@ -171,7 +170,7 @@ public final class MaidPhantomTasks {
                 return null;
             }
         }
-        note("carrier return addresses maid " + id + " but that entity is loaded in no level (chunk unloaded)");
+        note("carrier return addresses " + id + " but that entity is loaded in no level (chunk unloaded)");
         return null;
     }
 
@@ -428,9 +427,23 @@ public final class MaidPhantomTasks {
     private static boolean remember(Object task, LivingEntity maid, PhantomMaidTaskMarker.Direction direction) {
         UUID taskId = idOf(task);
         if (taskId == null || maid == null) return false;
-        if (!MaidAccess.resolve(maid).active()) return false;
+        // Entity level only, deliberately: flying to her and putting a carrier into her inventory needs her entity,
+        // not her cache. Requiring the full access path here made registration fail silently whenever her pendant was
+        // not wearable at that moment (measured on the real machine: she dispatched, yet nothing was registered).
+        if (!dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(maid)
+                || !maid.isAlive() || maid.isRemoved()) return false;
         MAID_TASKS.put(taskId, PhantomMaidTaskMarker.encode(taskId, maid.getUUID(), direction));
         return true;
+    }
+
+    /** The maid entity with this UUID, at entity level: a maid, alive, not removed, somewhere loaded. */
+    private static LivingEntity maidEntity(MinecraftServer server, UUID id) {
+        for (ServerLevel level : server.getAllLevels()) {
+            if (level.getEntity(id) instanceof LivingEntity maid
+                    && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(maid)
+                    && maid.isAlive() && !maid.isRemoved()) return maid;
+        }
+        return null;
     }
 
     public static boolean forget(Object task) {
@@ -458,10 +471,8 @@ public final class MaidPhantomTasks {
         if (required != null && decoded.direction() != required) return null;
         if (!Phantom102Gate.usable(true)) return null;
         if (!dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102FlightCompatible()) return null;
-        for (ServerLevel level : server.getAllLevels()) {
-            if (level.getEntity(decoded.maidId()) instanceof LivingEntity maid && MaidAccess.resolve(maid).active()) return maid;
-        }
-        return null;
+        // Entity level, matching how the entry was written: the cache is not needed to fly to her or to fill her bag.
+        return maidEntity(server, decoded.maidId());
     }
 
     /** One stable line per distinct reason. The real machine is the only place this feature runs for real. */

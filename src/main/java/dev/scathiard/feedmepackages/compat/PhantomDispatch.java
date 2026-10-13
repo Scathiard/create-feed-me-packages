@@ -139,6 +139,17 @@ public final class PhantomDispatch {
             // then this entry is the only thing that can tell her task from a player's own carrier return.
             if (dispatcher != null)
                 dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.rememberReturn(task, dispatcher);
+            // Diagnostic only, isolated in its own catch: a logging problem must never turn a dispatch into a failure.
+            // It exists because a silently failed registration is invisible otherwise, which cost several rounds.
+            try {
+                dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.note("dispatch: kind="
+                        + (api.port.isInstance(target) ? "port" : "player")
+                        + " sourceIdentity=" + sourceIdentity
+                        + " dispatcher=" + (dispatcher == null ? "none" : dispatcher.getUUID().toString())
+                        + " registry=" + dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.registryState(task));
+            } catch (RuntimeException | LinkageError ignored) {
+                // diagnostics never affect the dispatch
+            }
             return TransportDispatch.Result.known(true, "phantom");
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             Throwable cause = failure instanceof InvocationTargetException wrapped ? wrapped.getCause() : failure;
