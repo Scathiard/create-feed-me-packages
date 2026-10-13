@@ -42,6 +42,7 @@ public final class MaidPhantomTasks {
             try {
                 Class<?> task = Class.forName("com.yision.phantom.logistics.courier.AirCourierTask");
                 targetPlayerId = task.getMethod("targetPlayerId");
+                id = task.getMethod("id");
                 mission = task.getMethod("mission");
                 box = task.getMethod("box");
                 position = task.getMethod("position");
@@ -170,5 +171,74 @@ public final class MaidPhantomTasks {
         } catch (ReflectiveOperationException | RuntimeException failure) {
             return false;
         }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // R1: which native task belongs to one of our maids.
+    //
+    // The native task cannot tell us this: a maid dispatch leaves the player slot holding the maid's *owner* (a real
+    // player UUID), which is byte-identical to a player's own carrier return. So the only discriminator is our own
+    // marker. This period keeps it in-process, keyed by the native task's own id(); persistence is deliberately out
+    // of scope (documented), and after a restart a flying maid task simply falls back to native "return to owner".
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /** Registry values reuse the marker codec's three strings, so NATIVE/CORRUPT rules are literally the same. */
+    private static final java.util.Map<UUID, String[]> MAID_TASKS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static Method id;
+
+    private static UUID idOf(Object task) {
+        if (task == null) return null;
+        try {
+            if (id == null) id = task.getClass().getMethod("id");
+            Object value = id.invoke(task);
+            return value instanceof UUID uuid ? uuid : null;
+        } catch (ReflectiveOperationException | RuntimeException unresolved) {
+            return null;
+        }
+    }
+
+    /** Registers a task we just dispatched for one of our maids. Only ours: a non-maid or an unwired maid is refused. */
+    public static boolean remember(Object task, LivingEntity maid) {
+        UUID taskId = idOf(task);
+        if (taskId == null || maid == null) return false;
+        if (!MaidAccess.resolve(maid).active()) return false;
+        MAID_TASKS.put(taskId, PhantomMaidTaskMarker.encode(taskId, maid.getUUID(), PhantomMaidTaskMarker.Direction.OUTBOUND));
+        return true;
+    }
+
+    public static boolean forget(Object task) {
+        UUID taskId = idOf(task);
+        return taskId != null && MAID_TASKS.remove(taskId) != null;
+    }
+
+    /** The maid recorded for this task, or null. Absent markers and corrupt ones both return null and are dropped. */
+    public static LivingEntity maidFor(Object task, MinecraftServer server) {
+        UUID taskId = idOf(task);
+        if (taskId == null || server == null) return null;
+        String[] stored = MAID_TASKS.get(taskId);
+        if (stored == null) return null;
+        PhantomMaidTaskMarker.Decoded decoded = PhantomMaidTaskMarker.decode(stored[0], stored[1], stored[2]);
+        if (!decoded.marked()) { MAID_TASKS.remove(taskId); return null; }
+        if (!Phantom102Gate.usable(true)) return null;
+        if (!dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102FlightCompatible()) return null;
+        for (ServerLevel level : server.getAllLevels()) {
+            if (level.getEntity(decoded.maidId()) instanceof LivingEntity maid && MaidAccess.resolve(maid).active()) return maid;
+        }
+        return null;
+    }
+
+    /**
+     * Hand a returned carrier to her: <b>inventory first, then her cache</b>. Simulated on copies - the caller keeps
+     * the carrier whenever this returns false, so nothing is consumed or swallowed on a failure.
+     */
+    public static boolean handCarrierTo(LivingEntity maid, ItemStack carrier) {
+        if (maid == null || carrier == null || carrier.isEmpty()) return false;
+        ItemStack rest = carrier.copy();
+        var inventory = dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.inventory(maid);
+        if (inventory != null) {
+            for (int slot = 0; slot < inventory.getSlots() && !rest.isEmpty(); slot++) rest = inventory.insertItem(slot, rest, true);
+            if (rest.isEmpty()) return dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.insertInto(maid, carrier.copy());
+        }
+        return dev.scathiard.feedmepackages.logistics.ReceiveService.receive(MaidAccess.endpoint(maid), carrier.copy());
     }
 }
