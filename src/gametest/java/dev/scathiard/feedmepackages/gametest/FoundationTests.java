@@ -459,7 +459,7 @@ public final class FoundationTests {
         var handle=new CacheHandle(id,UUID.randomUUID(),null);var before=ledger.find(id);
         var stone=ItemVariantKey.of(new ItemStack(Items.STONE),registries);var iron=ItemVariantKey.of(new ItemStack(Items.IRON_INGOT),registries);
         var water=FluidVariantKey.of(new FluidStack(Fluids.WATER,1),registries);
-        var controls=new dev.scathiard.feedmepackages.domain.CellSettings(1900,2000,64,128);
+        var controls=new dev.scathiard.feedmepackages.domain.CellSettings(1900,2000,64,128,32);
         var items=before.state().edit();items.resize(new dev.scathiard.feedmepackages.domain.CacheCapacity(50,32));
         items.filter(0,stone);items.insert(0,stone,1800);items.settings(0,controls);items.filter(49,iron);items.insert(49,iron,11);
         var grown=before.withState(items.finish());ledger.replace(handle,before.state().revision(),grown);var fluids=grown.fluids().state().edit();fluids.filter(40,water);fluids.insert(40,water,24000);
@@ -493,14 +493,44 @@ public final class FoundationTests {
         var source=ledger.save(new CompoundTag(),registries);source.putInt("schema",31001);
         for(var element:source.getList("caches",Tag.TAG_COMPOUND)) {
             var row=(CompoundTag)element;row.remove("capacity_rules");row.getCompound("astra_fluids").remove("capacity_rules");
+            for(var cell:row.getList("cells",Tag.TAG_COMPOUND))((CompoundTag)cell).getCompound("item_controls").remove("return_batch");
         }
         var loaded=CacheLedger.load(source,registries);
         h.assertTrue(loaded.problem().isEmpty() && loaded.find(id).state().equals(ledger.find(id).state()),"Previous converged schema lost its original state: "+loaded.problem());
         var saved=loaded.save(new CompoundTag(),registries);saved.putInt("schema",31001);
         for(var element:saved.getList("caches",Tag.TAG_COMPOUND)) {
             var row=(CompoundTag)element;row.remove("capacity_rules");row.getCompound("astra_fluids").remove("capacity_rules");
+            for(var cell:row.getList("cells",Tag.TAG_COMPOUND))((CompoundTag)cell).getCompound("item_controls").remove("return_batch");
         }
         h.assertTrue(saved.equals(source),"Additive capacity upgrade changed a previous field");h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void previous31002ControlsDefaultOnlyTheNewReturnMinimum(GameTestHelper h) {
+        var registry=h.getLevel().registryAccess();var ledger=new CacheLedger();var id=ledger.createOrdinary();
+        var handle=new CacheHandle(id,UUID.randomUUID(),null);var before=ledger.find(id);
+        var key=ItemVariantKey.of(new ItemStack(Items.STONE),registry);var draft=before.state().edit();
+        draft.filter(0,key);draft.insert(0,key,63);
+        draft.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(64,70,1,7));
+        ledger.replace(handle,before.state().revision(),before.withState(draft.finish()));
+        var old=ledger.save(new CompoundTag(),registry);old.putInt("schema",31002);
+        for(var element:old.getList("caches",Tag.TAG_COMPOUND)) {
+            var row=(CompoundTag)element;
+            for(var cell:row.getList("cells",Tag.TAG_COMPOUND))((CompoundTag)cell).getCompound("item_controls").remove("return_batch");
+        }
+        var loaded=CacheLedger.load(old,registry);
+        h.assertTrue(loaded.problem().isEmpty() && loaded.find(id).state().equals(ledger.find(id).state()),"31002 inventory or old controls changed: "+loaded.problem());
+        var controls=loaded.find(id).state().cells().getFirst().settings();
+        h.assertTrue(controls.pendingLimit()==7 && controls.returnBatch()==1,"Old pending limit was reused as a return minimum");
+        var saved=loaded.save(new CompoundTag(),registry);var reread=CacheLedger.load(saved,registry);
+        h.assertTrue(reread.problem().isEmpty() && reread.find(id).state().equals(loaded.find(id).state()),"New return default failed to persist");
+        for(int fault=0;fault<2;fault++) {
+            var bad=saved.copy();var data=bad.getList("caches",Tag.TAG_COMPOUND).getCompound(0).getList("cells",Tag.TAG_COMPOUND).getCompound(0).getCompound("item_controls");
+            if(fault==0)data.putInt("return_batch",0);else data.putString("return_batch","32");
+            var rejected=CacheLedger.load(bad,registry);
+            h.assertTrue(!rejected.problem().isEmpty() && rejected.save(new CompoundTag(),registry).equals(bad),"Invalid return minimum silently cleared or reinterpreted data");
+        }
+        h.succeed();
     }
 
     private static void rejects(GameTestHelper helper, Runnable action) {

@@ -18,7 +18,7 @@ public final class CellControlDraft {
     public boolean stockNext() { return stockDirty; }
     public void changed(CellSettings next, int tick) {
         if (value.lower() != next.lower() || value.upper() != next.upper()) stockDirty = true;
-        if (value.batch() != next.batch() || value.pendingLimit() != next.pendingLimit()) supplyDirty = true;
+        if (value.batch() != next.batch() || value.returnBatch() != next.returnBatch()) supplyDirty = true;
         value = next; due = tick + 4;
     }
     public void immediate() { due = 0; }
@@ -31,11 +31,11 @@ public final class CellControlDraft {
         if (pending != 0 && pending == acknowledged) {
             if (submittedAll) {
                 if(value.lower()==submitted.lower() && value.upper()==submitted.upper()) stockDirty=false;
-                if(value.batch()==submitted.batch() && value.pendingLimit()==submitted.pendingLimit()) supplyDirty=false;
+                if(value.batch()==submitted.batch() && value.returnBatch()==submitted.returnBatch()) supplyDirty=false;
             } else {
             boolean unchanged = submittedStock
                     ? value.lower() == submitted.lower() && value.upper() == submitted.upper()
-                    : value.batch() == submitted.batch() && value.pendingLimit() == submitted.pendingLimit();
+                    : value.batch() == submitted.batch() && value.returnBatch() == submitted.returnBatch();
             if (unchanged) {
                 if (submittedStock) stockDirty = false; else supplyDirty = false;
             }
@@ -44,9 +44,52 @@ public final class CellControlDraft {
         }
         // Periodic inventory snapshots cannot pull an unsent or unacknowledged endpoint backwards.
         if (!stockDirty && !(pending != 0 && (submittedAll || submittedStock)))
-            value = new CellSettings(current.lower(), current.upper(), value.batch(), value.pendingLimit());
+            value = new CellSettings(current.lower(), current.upper(), value.batch(), current.pendingLimit(), value.returnBatch());
         if (!supplyDirty && !(pending != 0 && (submittedAll || !submittedStock)))
-            value = new CellSettings(value.lower(), value.upper(), current.batch(), current.pendingLimit());
+            value = new CellSettings(value.lower(), value.upper(), current.batch(), current.pendingLimit(), current.returnBatch());
+    }
+
+    /** Top-row batches may widen the interval, never contract it or toggle either direction off. */
+    public static CellSettings adjust(CellSettings s, int field, int requested, int capacity) {
+        int lower=s.lower(), upper=s.upper(), batch=s.batch(), returns=s.returnBatch();
+        switch (field) {
+            case 0 -> {
+                batch=Math.max(1,requested);
+                if(lower>0 && upper>=0) {
+                    int room=capacity-lower;
+                    if(room<1 || returns>room)return s;
+                    batch=Math.min(batch,room);
+                    upper=Math.max(upper,lower+Math.max(batch,returns));
+                }
+            }
+            case 1 -> {
+                returns=Math.max(1,requested);
+                if(lower>0 && upper>=0) {
+                    int room=upper-1;
+                    if(room<1 || batch>room)return s;
+                    returns=Math.min(returns,room);
+                    lower=Math.min(lower,upper-Math.max(batch,returns));
+                }
+            }
+            case 2 -> {
+                lower=requested<=0?-1:Math.min(requested,capacity);
+                if(lower>0 && upper>=0) {
+                    int ceiling=upper-Math.max(batch,returns);
+                    if(ceiling<1)return s;
+                    lower=Math.min(lower,ceiling);
+                }
+            }
+            case 3 -> {
+                upper=requested<0?-1:Math.min(requested,capacity);
+                if(upper>=0 && lower>0) {
+                    long floor=(long)lower+Math.max(batch,returns);
+                    if(floor>capacity)return s;
+                    upper=Math.max(upper,(int)floor);
+                }
+            }
+            default -> throw new IllegalArgumentException("Unknown cell control");
+        }
+        return new CellSettings(lower,upper,batch,s.pendingLimit(),returns);
     }
 
     /** Item scrolls align along their direction; a full stack step follows an aligned value. */

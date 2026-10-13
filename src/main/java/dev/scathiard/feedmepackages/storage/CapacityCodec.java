@@ -14,7 +14,8 @@ final class CapacityCodec {
         state.retainedCeilings().forEach((slot,ceiling)->{var row=new CompoundTag();row.putInt("slot",slot);row.putInt("ceiling",ceiling);retained.add(row);});
         tag.put("retained",retained);var controls=new ListTag();
         state.requestedControls().forEach((slot,c)->{var row=new CompoundTag();row.putInt("slot",slot);row.putInt("min",c.minimum());row.putInt("max",c.maximum());
-            row.putInt("lower",c.settings().lower());row.putInt("upper",c.settings().upper());row.putInt("batch",c.settings().batch());row.putInt("pending",c.settings().pendingLimit());controls.add(row);});
+            row.putInt("lower",c.settings().lower());row.putInt("upper",c.settings().upper());row.putInt("batch",c.settings().batch());row.putInt("pending",c.settings().pendingLimit());
+            row.putInt("return_batch",c.settings().returnBatch());controls.add(row);});
         tag.put("requested",controls);return tag;
     }
     static <K extends MaterialVariant> CacheState<K> read(CompoundTag holder, UUID id, int level, long revision,
@@ -31,9 +32,12 @@ final class CapacityCodec {
             if(retained.put(row.getInt("slot"),row.getInt("ceiling"))!=null)throw new IllegalArgumentException("Duplicate retained slot");
         }
         for(var entry:rows(tag,"requested")){
-            var row=(CompoundTag)entry;var keys=Set.of("slot","min","max","lower","upper","batch","pending");fields(row,keys);
+            var row=(CompoundTag)entry;var keys=Set.of("slot","min","max","lower","upper","batch","pending");
+            fields(row,Set.of("slot","min","max","lower","upper","batch","pending","return_batch"));
             for(var key:keys)require(row,key,Tag.TAG_INT);
-            var controls=new CellControls(row.getInt("min"),row.getInt("max"),new CellSettings(row.getInt("lower"),row.getInt("upper"),row.getInt("batch"),row.getInt("pending")));
+            if(row.contains("return_batch"))require(row,"return_batch",Tag.TAG_INT);
+            var controls=new CellControls(row.getInt("min"),row.getInt("max"),new CellSettings(row.getInt("lower"),row.getInt("upper"),row.getInt("batch"),row.getInt("pending"),
+                    row.contains("return_batch")?row.getInt("return_batch"):1));
             if(requested.put(row.getInt("slot"),controls)!=null)throw new IllegalArgumentException("Duplicate requested slot");
         }
         return new CacheState<>(id,level,revision,cells,orders,capacity,retained,requested);

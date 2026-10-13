@@ -499,14 +499,19 @@ public final class MaidTests {
         }
         f.pendant.set(FmpRegistries.NETWORK.get(),network);
         var carrier=new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse(bee?"create_mobile_packages:robo_bee":"cmpackagecouriers:cardboard_plane_parts")));
-        var before=f.record();var edit=before.state().edit();edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(-1,64,1,-1));
+        var before=f.record();var edit=before.state().edit();edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(16,64,1,-1,32));
         if(bee){var key=ItemVariantKey.of(carrier,f.maid.registryAccess());edit.filter(1,key);edit.insert(1,key,1);}
         else MaidCompatibility.inventory(f.maid).setStackInSlot(0,carrier.copy());
         f.ledger.replace(f.handle,before.state().revision(),before.withState(edit.finish()));
         MaidPickup.setEnabled(f.maid,true);
-        nativePickup(f,new ItemStack(Items.STONE,60),false);nativePickup(f,new ItemStack(Items.STONE,40),false);
-        h.assertTrue(f.stock()==100,"Real pickups did not reach source cache");
         f.ledger.setReturnAddress(f.handle.cacheId(),SupplyService.address(target));
+        nativePickup(f,new ItemStack(Items.STONE,60),false);nativePickup(f,new ItemStack(Items.STONE,35),false);
+        var waiting=f.record();ReturnService.check(MaidAccess.endpoint(f.maid));
+        h.assertTrue(f.stock()==95 && f.record()==waiting && f.ledger.returnEscrow(f.handle.cacheId())==null
+                && (bee?f.record().state().cells().get(1).amount():count(MaidCompatibility.inventory(f.maid),carrier))==1,
+                "Maid shipped below the 32-item return minimum or consumed a waiting carrier");
+        nativePickup(f,new ItemStack(Items.STONE,5),false);
+        h.assertTrue(f.stock()==100,"Real pickups did not reach source cache");
         h.startSequence().thenIdle(6).thenExecute(()->ReturnService.check(MaidAccess.endpoint(f.maid)))
                 .thenWaitUntil(()->h.assertTrue(f.stock()==64 && returnedStone(target)==36,"Native maid return: source="+f.stock()+" target="+returnedStone(target)+" carrier="+(bee?f.record().state().cells().get(1).amount():count(MaidCompatibility.inventory(f.maid),carrier))+" state="+MaidAccess.resolve(f.maid).status()))
                 .thenWaitUntil(()->h.assertTrue(!bee || maidItemCount(f.maid,carrier)+f.record().state().cells().get(1).amount()==1,

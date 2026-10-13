@@ -7,6 +7,14 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class ReturnServiceTest {
+    @Test void changingTheReturnMinimumInvalidatesPriorDispatchEvidence() {
+        var handle=new CacheHandle(UUID.randomUUID(),UUID.randomUUID(),UUID.randomUUID());
+        ReturnDispatchState.ensureContext(handle,"returns",1);
+        ReturnDispatchState.rememberCell(handle,0,"stone",64,10,ReturnDispatchState.SENT);
+        assertEquals(ReturnDispatchState.SENT,ReturnDispatchState.state(handle,"returns",0,"stone",64,10));
+        assertEquals(ReturnDispatchState.UNKNOWN,ReturnDispatchState.state(handle,"returns",0,"stone",64,11));
+        assertEquals(ReturnDispatchState.UNKNOWN,ReturnDispatchState.state(handle,"returns",0,"stone",64,10));
+    }
     @AfterEach void clear() {
         ReturnDispatchState.clear();
     }

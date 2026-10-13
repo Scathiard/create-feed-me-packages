@@ -220,6 +220,41 @@ class PanelLayoutTest {
         assertEquals(8321, CellControlDraft.wheel(321, 1, 8000, 0, 32000, false, false));
         assertEquals(321, CellControlDraft.wheel(8321, -1, 8000, 0, 32000, false, false));
     }
+    @Test void batchAdjustmentWidensTheRangeWithoutContractingOrChangingTheOtherBatch() {
+        var s=new dev.scathiard.feedmepackages.domain.CellSettings(64,70,1,32,1);
+        var widened=CellControlDraft.adjust(s,0,10,128);
+        assertEquals(new dev.scathiard.feedmepackages.domain.CellSettings(64,74,10,32,1),widened);
+        assertEquals(74,CellControlDraft.adjust(widened,0,5,128).upper());
+        var wide=new dev.scathiard.feedmepackages.domain.CellSettings(64,100,1,32,1);
+        assertEquals(100,CellControlDraft.adjust(wide,0,10,128).upper());
+        var returns=CellControlDraft.adjust(widened,1,20,128);
+        assertEquals(new dev.scathiard.feedmepackages.domain.CellSettings(54,74,10,32,20),returns);
+        assertEquals(54,CellControlDraft.adjust(returns,1,1,128).lower());
+    }
+    @Test void linkedControlsRespectCapacityDisabledDirectionsAndEndpointSeparation() {
+        var s=new dev.scathiard.feedmepackages.domain.CellSettings(64,70,1,-1,1);
+        var ceiling=CellControlDraft.adjust(s,0,576,128);
+        assertEquals(64,ceiling.batch()); assertEquals(128,ceiling.upper());
+        var floor=CellControlDraft.adjust(s,1,576,128);
+        assertEquals(69,floor.returnBatch()); assertEquals(1,floor.lower());
+        var ranged=new dev.scathiard.feedmepackages.domain.CellSettings(64,74,10,-1,1);
+        assertEquals(64,CellControlDraft.adjust(ranged,2,70,128).lower());
+        assertEquals(74,CellControlDraft.adjust(ranged,3,65,128).upper());
+        assertEquals(-1,CellControlDraft.adjust(ranged,2,0,128).lower());
+        assertEquals(-1,CellControlDraft.adjust(ranged,3,-1,128).upper());
+        var disabled=new dev.scathiard.feedmepackages.domain.CellSettings(64,-1,1,-1,1);
+        assertEquals(-1,CellControlDraft.adjust(disabled,0,576,128).upper());
+        assertEquals(576,CellControlDraft.adjust(disabled,0,576,128).batch());
+    }
+    @Test void linkedBatchAndEndpointStayTogetherAcrossAStaleAcknowledgement() {
+        var initial=new dev.scathiard.feedmepackages.domain.CellSettings(64,70,1,-1,1);
+        var a=CellControlDraft.adjust(initial,0,10,128);
+        var b=CellControlDraft.adjust(a,0,11,128);
+        var draft=new CellControlDraft(new CellControlDraft.Context(UUID.randomUUID(),0,"stone",1),initial);
+        draft.changed(a,0);draft.sentAll(1);draft.changed(b,1);
+        draft.snapshot(a,1,true); assertEquals(b,draft.value()); assertTrue(draft.ready(5));
+        draft.sentAll(2);draft.snapshot(b,2,true);assertEquals(b,draft.value());assertFalse(draft.dirty());
+    }
     @Test void newerDragIsNotRolledBackByInventorySnapshotsOrAnOlderAcknowledgement() {
         var initial=new dev.scathiard.feedmepackages.domain.CellSettings(64,512,1,-1);
         var sent=new dev.scathiard.feedmepackages.domain.CellSettings(65,512,1,-1);
@@ -740,7 +775,7 @@ class PanelLayoutTest {
                     key + " is longer than four characters: " + zhText);
             assertTrue(enText.trim().split("\\s+").length <= 2, key + " English text is not terse: " + enText);
         }
-        for (String name : new String[]{"batch","limit","lower","upper","wheel","pending","reset","late","overshoot"})
+        for (String name : new String[]{"batch","return_batch","lower","upper","wheel","pending","reset","late","conflict"})
             assertNotNull(zh.get("gui.create_feed_me_packages.controls."+name),"Missing new cell-control tooltip: "+name);
         assertEquals(zh.keySet(), en.keySet(), "en_us and zh_cn must stay key-for-key identical");
     }

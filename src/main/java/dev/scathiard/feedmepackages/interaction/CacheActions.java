@@ -102,12 +102,13 @@ public final class CacheActions {
                     var cell = before.fluids().state().cells().get(slot); var value = change.value();
                     if (cell.filter() == null || cell.filterRevision() != change.filterRevision()) return Result.STALE;
                     int unit = dev.scathiard.feedmepackages.fluid.FluidVariantKey.MILLIBUCKETS_PER_GROUP;
-                    if (value.batch() != 1 || value.pendingLimit() != -1 || value.lower() >= 0 && value.lower() % unit != 0
+                    if (value.batch() != 1 || value.returnBatch() != 1 || value.pendingLimit() != -1 || value.lower() >= 0 && value.lower() % unit != 0
                             || value.upper() >= 0 && value.upper() % unit != 0) return Result.INVALID_REQUEST;
                     fluidEdit.thresholds(slot, value.lower() < 0 ? -1 : value.lower() / unit, value.upper() < 0 ? -1 : value.upper() / unit);
                 } else {
                     var cell=before.state().cells().get(slot);
                     if(cell.filter()==null || cell.filterRevision()!=change.filterRevision()) return Result.STALE;
+                    if(change.value().conflicting()) return Result.INVALID_REQUEST;
                     edit.settings(slot,change.value());
                 }
             }
@@ -282,11 +283,19 @@ public final class CacheActions {
                 edit.filter(slot, null);
             }
             case THRESHOLDS -> {
-                try { edit.settings(slot, new dev.scathiard.feedmepackages.domain.CellSettings(intent.first(), intent.second(), cell.settings().batch(), cell.settings().pendingLimit())); }
+                try {
+                    var controls = new dev.scathiard.feedmepackages.domain.CellSettings(intent.first(), intent.second(), cell.settings().batch(), cell.settings().pendingLimit(), cell.settings().returnBatch());
+                    if (controls.conflicting()) return Result.INVALID_REQUEST;
+                    edit.settings(slot, controls);
+                }
                 catch (IllegalArgumentException invalid) { return Result.INVALID_REQUEST; }
             }
             case SUPPLY_SETTINGS -> {
-                try { edit.settings(slot, new dev.scathiard.feedmepackages.domain.CellSettings(cell.settings().lower(), cell.settings().upper(), intent.first(), intent.second())); }
+                try {
+                    var controls = new dev.scathiard.feedmepackages.domain.CellSettings(cell.settings().lower(), cell.settings().upper(), intent.first(), cell.settings().pendingLimit(), intent.second());
+                    if (controls.conflicting()) return Result.INVALID_REQUEST;
+                    edit.settings(slot, controls);
+                }
                 catch (IllegalArgumentException invalid) { return Result.INVALID_REQUEST; }
             }
             case RESET_REQUEST -> edit.reset(slot);

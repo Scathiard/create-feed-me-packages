@@ -251,6 +251,15 @@ public final class PhantomCompatibilityTests {
     private static void returnNativePort(GameTestHelper h, boolean cached) {
         String address="FmpReturn-"+UUID.randomUUID();var f=returnFixture(h,cached,address);var destination=port(h,address);returnRunway(h);
         h.assertTrue(dev.scathiard.feedmepackages.compat.PhantomDispatch.ready(),"Native Phantom task adapter unavailable");
+        var initial=f.record();var draft=initial.state().edit();draft.extract(0,5);
+        draft.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(16,64,1,-1,32));
+        f.ledger().replace(f.handle(),initial.state().revision(),initial.withState(draft.finish()));
+        var waiting=f.record();int carriersBefore=carrierCount(f.player());
+        ReturnService.check(f.player());
+        h.assertTrue(f.record()==waiting && carrierCount(f.player())==carriersBefore && f.ledger().returnEscrow(f.handle().cacheId())==null,
+                "Phantom dispatched 31 surplus items below the minimum 32");
+        draft=waiting.state().edit();draft.insert(0,f.key(),5);
+        f.ledger().replace(f.handle(),waiting.state().revision(),waiting.withState(draft.finish()));
         try(var signals=new dev.scathiard.feedmepackages.logistics.LogisticsSignals.Viewer(f.handle().cacheId())) {
             signals.page(0,9);ReturnService.check(f.player());
             h.assertTrue(f.record().state().cells().getFirst().amount()==64 && carrierCount(f.player())==0

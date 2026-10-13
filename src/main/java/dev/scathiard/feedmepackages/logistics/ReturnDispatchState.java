@@ -10,7 +10,7 @@ final class ReturnDispatchState {
     static final int UNKNOWN = 0;
     static final int FAILED = 1;
     static final int SENT = 2;
-    private record DispatchEvidence(UUID playerId, UUID networkId, String address, String[] filters, int[] maximums, byte[] cells) {}
+    private record DispatchEvidence(UUID playerId, UUID networkId, String address, String[] filters, int[] maximums, int[] minimumBatches, byte[] cells) {}
     private record ObservedContext(UUID cacheId, UUID networkId, String address) {}
     private static final Map<UUID, DispatchEvidence> DISPATCH = new HashMap<>();
     private static final Map<UUID, ObservedContext> OBSERVED = new HashMap<>();
@@ -40,15 +40,20 @@ final class ReturnDispatchState {
                 || !evidence.address().equals(normalizedAddress)
                 || evidence.cells().length != slots) {
             DISPATCH.put(handle.cacheId(), new DispatchEvidence(handle.playerId(), handle.networkId(), normalizedAddress,
-                    new String[slots], new int[slots], new byte[slots]));
+                    new String[slots], new int[slots], new int[slots], new byte[slots]));
         }
     }
 
     static void rememberCell(CacheHandle handle, int slot, String filter, int maximum, int state) {
+        rememberCell(handle, slot, filter, maximum, 1, state);
+    }
+
+    static void rememberCell(CacheHandle handle, int slot, String filter, int maximum, int minimumBatch, int state) {
         DispatchEvidence evidence = DISPATCH.get(handle.cacheId());
         if (evidence == null || slot < 0 || slot >= evidence.cells().length) return;
         evidence.filters()[slot] = filter == null ? "" : filter;
         evidence.maximums()[slot] = maximum;
+        evidence.minimumBatches()[slot] = minimumBatch;
         evidence.cells()[slot] = (byte)state;
     }
 
@@ -60,13 +65,17 @@ final class ReturnDispatchState {
         }
     }
     static int state(CacheHandle handle, String address, int slot, String filter, int maximum) {
+        return state(handle, address, slot, filter, maximum, 1);
+    }
+
+    static int state(CacheHandle handle, String address, int slot, String filter, int maximum, int minimumBatch) {
         if (handle == null) return UNKNOWN;
         String observedAddress = address == null ? "" : address;
         observe(handle, observedAddress);
         DispatchEvidence evidence = DISPATCH.get(handle.cacheId());
         if (observedAddress.isEmpty() || filter == null || filter.isEmpty() || maximum < 0) {
             if (evidence != null && slot >= 0 && slot < evidence.cells().length) {
-                rememberCell(handle, slot, filter, maximum, UNKNOWN);
+                rememberCell(handle, slot, filter, maximum, minimumBatch, UNKNOWN);
             }
             if (observedAddress.isEmpty()) reset(handle);
             return UNKNOWN;
@@ -77,8 +86,8 @@ final class ReturnDispatchState {
                 || slot < 0 || slot >= evidence.cells().length) {
             return UNKNOWN;
         }
-        if (!filter.equals(evidence.filters()[slot]) || maximum != evidence.maximums()[slot]) {
-            rememberCell(handle, slot, filter, maximum, UNKNOWN);
+        if (!filter.equals(evidence.filters()[slot]) || maximum != evidence.maximums()[slot] || minimumBatch != evidence.minimumBatches()[slot]) {
+            rememberCell(handle, slot, filter, maximum, minimumBatch, UNKNOWN);
             return UNKNOWN;
         }
         return evidence.cells()[slot];

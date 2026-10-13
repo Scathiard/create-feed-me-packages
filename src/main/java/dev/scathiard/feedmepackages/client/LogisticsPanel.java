@@ -1171,7 +1171,7 @@ public final class LogisticsPanel {
     }
 
     private static dev.scathiard.feedmepackages.domain.CellSettings settings(PanelPackets.CellView cell) {
-        return new dev.scathiard.feedmepackages.domain.CellSettings(cell.minimum(), cell.maximum(), cell.batch(), cell.pendingLimit());
+        return new dev.scathiard.feedmepackages.domain.CellSettings(cell.minimum(), cell.maximum(), cell.batch(), cell.pendingLimit(), cell.returnBatch());
     }
     private static PanelPackets.CellView draftCell(CellControlDraft draft) {
         return snapshot.cells().get(snapshot.grid().localSlot(draft.context().slot()));
@@ -1213,12 +1213,9 @@ public final class LogisticsPanel {
                 break;
             }
             tooltip = field == 4 ? List.of(tr("controls.pending",cell.pending()),tr("controls.reset"),tr("controls.late"))
-                    : List.of(tr("controls."+new String[]{"batch","limit","lower","upper"}[field]),tr("controls.wheel"));
-            if (field == 0 && draft.value().lower()>0 && draft.value().upper() >= 0
-                    && (long)draft.value().lower()-1+draft.value().batch() > draft.value().upper())
-                tooltip = List.of(tr("controls.batch"),tr("controls.wheel"),tr("controls.overshoot"));
-            if ((field==0 || field==1) && draft.value().pendingLimit()>=0 && draft.value().pendingLimit()<draft.value().batch())
-                tooltip=List.of(tr(field==0?"controls.batch":"controls.limit"),tr("controls.wheel"),tr("controls.conflict"));
+                    : List.of(tr("controls."+new String[]{"batch","return_batch","lower","upper"}[field]),tr("controls.wheel"));
+            if (field<4 && draft.value().conflicting())
+                tooltip=List.of(tr("controls."+new String[]{"batch","return_batch","lower","upper"}[field]),tr("controls.wheel"),tr("controls.conflict"));
             break;
         }
     }
@@ -1688,13 +1685,17 @@ public final class LogisticsPanel {
             var draft=controls(); if (draft==null || amount==0 || draggingSlider || draggingMaximum) return true;
             var value=draft.value(); boolean fluid=snapshot.cells().get(selected).fluid(); int step=fluid?8000:Screen.hasShiftDown()?snapshot.cells().get(selected).stackSize():1;
             int direction=amount>0?1:-1, cap=cellCapacity(), nine=9*snapshot.cells().get(selected).stackSize();
-            int lower=value.lower(),upper=value.upper(),batch=value.batch(),limit=value.pendingLimit();
-            if(!fluid && CellControlGeometry.field(layout.slider(),0).contains(x,y)) batch=CellControlDraft.wheel(batch,direction,step,1,nine,false);
-            else if(!fluid && CellControlGeometry.field(layout.slider(),1).contains(x,y)) limit=CellControlDraft.wheel(limit,direction,step,1,nine,true);
-            else if(CellControlGeometry.field(layout.slider(),2).contains(x,y)) {
-                lower=CellControlDraft.wheel(Math.max(0,lower),direction,step,0,upper<0?cap:upper,false,!fluid); if(lower==0) lower=-1;
-            } else if(CellControlGeometry.field(layout.slider(),3).contains(x,y)) upper=CellControlDraft.wheel(upper,direction,step,Math.max(0,lower),cap,true,!fluid);
-            draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(lower,upper,batch,limit),tick);
+            int field=-1; for(int i=0;i<4;i++) if(CellControlGeometry.field(layout.slider(),i).contains(x,y))field=i;
+            if(field<0 || fluid && field<2)return true;
+            int next=switch(field) {
+                case 0 -> CellControlDraft.wheel(value.batch(),direction,step,1,nine,false);
+                case 1 -> CellControlDraft.wheel(value.returnBatch(),direction,step,1,nine,false);
+                case 2 -> CellControlDraft.wheel(Math.max(0,value.lower()),direction,step,0,value.upper()<0?cap:value.upper(),false,!fluid);
+                default -> CellControlDraft.wheel(value.upper(),direction,step,Math.max(0,value.lower()),cap,true,!fluid);
+            };
+            if(fluid) draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(field==2?(next==0?-1:next):value.lower(),
+                    field==3?next:value.upper(),value.batch(),value.pendingLimit(),value.returnBatch()),tick);
+            else draft.changed(CellControlDraft.adjust(value,field,next,cap),tick);
             return true; // Includes wheel-at-boundary and the blank area: never scroll the backing grid.
         }
         if(!layout.bounds().contains(x,y)) return false;
@@ -1827,7 +1828,8 @@ public final class LogisticsPanel {
         int lower=value.lower(),upper=value.upper();
         if(maximum) upper=next>=cap?-1:Math.max(next,Math.max(0,lower));
         else { lower=Math.min(next,upper<0?cap:upper); if(lower==0) lower=-1; }
-        draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(lower,upper,value.batch(),value.pendingLimit()),tick);
+        if(cell.fluid()) draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(lower,upper,value.batch(),value.pendingLimit(),value.returnBatch()),tick);
+        else draft.changed(CellControlDraft.adjust(value,maximum?3:2,maximum?upper:lower,cap),tick);
     }
     private static void flushPendingThresholds() {
         if(snapshot==null || !active() || waiting!=0 || cursorPending || pendingCursorChange!=null || draggingSlider || draggingMaximum) return;

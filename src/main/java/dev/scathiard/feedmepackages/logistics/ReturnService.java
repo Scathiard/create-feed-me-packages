@@ -60,6 +60,10 @@ public final class ReturnService {
         return ReturnDispatchState.state(handle, address, slot, filter, maximum);
     }
 
+    public static int dispatchState(CacheHandle handle, String address, int slot, String filter, int maximum, int minimumBatch) {
+        return ReturnDispatchState.state(handle, address, slot, filter, maximum, minimumBatch);
+    }
+
     public static void tick(ServerPlayer player) {
         if (player.tickCount % 40 == 0) check(player);
     }
@@ -98,16 +102,16 @@ public final class ReturnService {
                     ? live.fluids().state().cells().get(slot) : live.state().cells().get(slot);
             String filter = cell.filter() == null ? "" : encoded(cell.filter());
             if (cell.filter() == null || cell.settings().upper() < 0) {
-                ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), RETURN_UNKNOWN);
+                ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), cell.settings().returnBatch(), RETURN_UNKNOWN);
                 continue;
             }
             int overage = Math.max(0, cell.amount() - cell.settings().upper());
-            if (overage == 0) {
-                ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), RETURN_UNKNOWN);
+            if (overage < cell.settings().returnBatch()) {
+                ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), cell.settings().returnBatch(), RETURN_UNKNOWN);
                 continue;
             }
             if (address == null || address.isEmpty()) {
-                ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), RETURN_FAILED);
+                ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), cell.settings().returnBatch(), RETURN_FAILED);
                 continue;
             }
             // Preserve plane-first preference. A rejected attempt changes no FMP stock
@@ -116,7 +120,7 @@ public final class ReturnService {
             if (result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null) result = dispatch(endpoint, handle, ledger, slot, BEE, address);
             if (phantomDispatcher(bearer) && result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null)
                 result = dispatch(endpoint, handle, ledger, slot, PHANTOM, address);
-            ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), result);
+            ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), cell.settings().returnBatch(), result);
         }
     }
 
@@ -131,14 +135,16 @@ public final class ReturnService {
         Cell<? extends MaterialVariant> cell = state.cells().get(slot);
         if (!state.writable(slot) || cell.filter() == null || cell.settings().upper() < 0) return RETURN_UNKNOWN;
         int overage = Math.max(0, cell.amount() - cell.settings().upper());
-        if (overage == 0) return RETURN_UNKNOWN;
+        if (overage < cell.settings().returnBatch()) return RETURN_UNKNOWN;
         Carrier carrier = findCarrier(bearer, handle, record.state(), carrierItem);
         if (carrier == null) return RETURN_FAILED;
 
         int available = (int)Math.max(0, cell.amount() - (fluid ? FluidActions.reserved(handle.cacheId(), slot)
                 : CraftingReservations.reservedCache(handle.cacheId(), slot, null)));
-        if (!fluid && carrier.cacheSlot() == slot) available--; // A carrier cannot also be its own cargo.
-        int amount = Math.min(Math.min(overage, available), fluid ? FluidPackages.capacity() : PACKAGE_SLOTS * cell.filter().stackSize());
+        int carrierCost = !fluid && carrier.cacheSlot() == slot ? 1 : 0;
+        available = Math.max(0, available - carrierCost);
+        int amount = cell.settings().returnable(cell.amount(), available,
+                fluid ? FluidPackages.capacity() : PACKAGE_SLOTS * cell.filter().stackSize(), carrierCost);
         if (amount <= 0) return RETURN_FAILED;
         ItemStack box = buildBox(bearer, cell.filter(), amount, address);
         if (box == null) return RETURN_FAILED;

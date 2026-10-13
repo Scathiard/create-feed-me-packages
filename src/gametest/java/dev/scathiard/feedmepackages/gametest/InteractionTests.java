@@ -608,7 +608,7 @@ public final class InteractionTests {
             boolean refused = false; try { PanelPackets.Query.CODEC.decode(trailing); } catch (DecoderException expected) { refused = true; }
             helper.assertTrue(refused, "Trailing packet data accepted");
         } finally { trailing.release(); }
-        var change=new CacheActions.SettingsChange(0,view.cells().getFirst().filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(65,1000,64,63));
+        var change=new CacheActions.SettingsChange(0,view.cells().getFirst().filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(65,1000,64,63,19));
         var packet=new PanelPackets.SettingsBatch(view.window(),view.session(),1,java.util.List.of(change));
         var controls=new RegistryFriendlyByteBuf(Unpooled.buffer(),player.registryAccess());
         try {
@@ -626,12 +626,16 @@ public final class InteractionTests {
         var view=PanelNetwork.query(player,new PanelPackets.Query(UUID.randomUUID(),0,true));
         var access=AccessGate.resolve(player);var ledger=CacheLedger.get(player.getServer());var before=ledger.find(access.handle().cacheId());
         var edit=before.state().edit();edit.extract(0,1);ledger.replace(access.handle(),before.state().revision(),before.withState(edit.finish()));
-        var a=new CacheActions.SettingsChange(0,view.cells().get(0).filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(65,128,64,63));
-        var b=new CacheActions.SettingsChange(1,view.cells().get(1).filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(17,32,16,144));
+        var a=new CacheActions.SettingsChange(0,view.cells().get(0).filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(64,128,64,63,32));
+        var b=new CacheActions.SettingsChange(1,view.cells().get(1).filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(16,32,16,144,8));
         var reply=PanelNetwork.settings(player,new PanelPackets.SettingsBatch(view.window(),view.session(),1,java.util.List.of(a,b)));
-        helper.assertTrue(reply.result()==Result.OK && reply.cells().get(0).amount()==62 && reply.cells().get(0).minimum()==65
-                && reply.cells().get(0).pendingLimit()==63 && reply.cells().get(1).batch()==16,"Concurrent stock change lost a legitimate settings batch");
+        helper.assertTrue(reply.result()==Result.OK && reply.cells().get(0).amount()==62 && reply.cells().get(0).minimum()==64
+                && reply.cells().get(0).pendingLimit()==63 && reply.cells().get(0).returnBatch()==32 && reply.cells().get(1).batch()==16
+                && reply.cells().get(1).returnBatch()==8,"Concurrent stock change lost a legitimate settings batch");
         var saved=ledger.find(access.handle().cacheId());
+        var conflicting=new CacheActions.SettingsChange(0,view.cells().get(0).filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(64,70,10,-1,1));
+        helper.assertTrue(CacheActions.settings(player,view.session(),java.util.List.of(conflicting))==Result.INVALID_REQUEST
+                && ledger.find(access.handle().cacheId()).equals(saved),"Server accepted conflicting unlinked controls");
         helper.assertTrue(CacheActions.settings(player,view.session(),java.util.List.of(a,a))==Result.INVALID_REQUEST
                 && ledger.find(access.handle().cacheId()).equals(saved),"Duplicate settings slot committed a partial batch");
         var next=saved.state().edit();next.extract(1,16);next.filter(1,null);next.filter(1,ItemVariantKey.of(new ItemStack(Items.DIAMOND),player.registryAccess()));

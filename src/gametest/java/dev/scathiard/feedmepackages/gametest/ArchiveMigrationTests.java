@@ -58,7 +58,7 @@ public final class ArchiveMigrationTests {
                 int size=cell.contains("filter")?ItemVariantKey.decode(cell.getString("filter"),registries).stackSize():1;
                 var settings=new CompoundTag();int low=cell.getInt("min"),high=cell.getInt("max");
                 settings.putInt("lower",low<0?-1:Math.multiplyExact(low,size));settings.putInt("upper",high<0?-1:Math.multiplyExact(high,size));
-                settings.putInt("batch",1);settings.putInt("pending_limit",-1);cell.put("item_controls",settings);
+                settings.putInt("batch",1);settings.putInt("pending_limit",-1);settings.putInt("return_batch",1);cell.put("item_controls",settings);
             }
         }
         h.assertTrue(normalize(expected).equals(normalize(ledger.save(new CompoundTag(),registries))),

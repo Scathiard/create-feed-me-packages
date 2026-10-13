@@ -45,14 +45,14 @@ class CacheStateTest {
         assertTrue(new CacheCapacity(128,CacheCapacity.MAX_GROUPS).items(new TestVariant("fluid",8000))>2_000_000_000);
     }
 
-    @Test void batchAndPendingLimitUseItemCountsAndNeverManufactureDemand() {
+    @Test void batchUsesItemCountsAndLegacyPendingLimitsNoLongerRestrictRequests() {
         var settings = new CellSettings(64, -1, 64, -1);
         assertEquals(64, settings.requestable(63, 0));
         assertEquals(0, settings.requestable(63, 1));
         assertEquals(0, settings.requestable(64, 0));
-        assertEquals(0, new CellSettings(64, -1, 64, 63).requestable(63, 0));
-        assertEquals(0, new CellSettings(128, -1, 64, 64).requestable(0, 1));
-        assertEquals(80, new CellSettings(100, -1, 64, 80).requestable(0, 0));
+        assertEquals(64, new CellSettings(64, -1, 64, 63).requestable(63, 0));
+        assertEquals(127, new CellSettings(128, -1, 64, 64).requestable(0, 1));
+        assertEquals(100, new CellSettings(100, -1, 64, 80).requestable(0, 0));
     }
 
     @Test void nineNativeStacksAreIndependentOfCacheCapacity() {
@@ -61,27 +61,65 @@ class CacheStateTest {
             new CellSettings(1, -1, 9 * stack, 9 * stack).validate(key, 2 * stack);
             assertThrows(IllegalArgumentException.class, () -> new CellSettings(1, -1, 9 * stack + 1, -1).validate(key, 2 * stack));
             assertThrows(IllegalArgumentException.class, () -> new CellSettings(1, -1, 1, 9 * stack + 1).validate(key, 2 * stack));
+            new CellSettings(1, -1, 1, -1, 9 * stack).validate(key, 2 * stack);
+            assertThrows(IllegalArgumentException.class, () -> new CellSettings(1, -1, 1, -1, 9 * stack + 1).validate(key, 2 * stack));
         }
     }
 
     @Test void settingsKeepLegacyFieldsAndRejectShortDispatchWithoutClearingPromises() {
         var state = filtered(); var edit = state.edit();
-        edit.settings(0, new CellSettings(1, 1, 64, 128)); state = edit.finish();
+        edit.settings(0, new CellSettings(1, 65, 64, 128, 16)); state = edit.finish();
         assertEquals(1, state.cells().getFirst().minimum()); // Still the saved legacy group field.
         assertEquals(1, state.cells().getFirst().settings().lower());
         var request = state.edit();
         assertThrows(IllegalArgumentException.class, () -> request.request(0, UUID.randomUUID(), UUID.randomUUID(), 63, false));
         request.request(0, UUID.randomUUID(), UUID.randomUUID(), 64, false); state = request.finish();
-        edit = state.edit(); edit.settings(0, new CellSettings(1, 1, 64, 1)); state = edit.finish();
+        edit = state.edit(); edit.settings(0, new CellSettings(1, 65, 64, 1, 16)); state = edit.finish();
         assertEquals(64, state.pending(0)); assertEquals(0, state.requestable(0));
         edit = state.edit(); edit.insert(0, state.cells().getFirst().filter(), 1); state = edit.finish();
         assertEquals(CacheState.Arrow.NONE, state.arrow(0)); assertEquals(64, state.pending(0));
     }
 
     @Test void receivingAndUpgradingDoNotDropNewCellControls() {
-        var state = filtered(); var edit = state.edit(); var settings = new CellSettings(33, 97, 35, 270);
+        var state = filtered(); var edit = state.edit(); var settings = new CellSettings(33, 97, 35, 270, 16);
         edit.settings(0, settings); edit.insert(0, state.cells().getFirst().filter(), 17); edit.upgrade();
         assertEquals(settings, edit.finish().cells().getFirst().settings());
+    }
+    @Test void returnsWaitForAWholeMinimumButMaySendMoreAndRespectReservationsAndPackageSize() {
+        var s = new CellSettings(64,512,10,-1,64);
+        assertEquals(0,s.returnable(575,575,576,0));
+        assertEquals(64,s.returnable(576,576,576,0));
+        assertEquals(88,s.returnable(600,600,576,0));
+        assertEquals(0,s.returnable(600,63,576,0));
+        assertEquals(64,s.returnable(600,64,576,0));
+        assertEquals(576,s.returnable(2000,2000,576,0));
+        assertEquals(0,new CellSettings(64,-1,10,-1,64).returnable(2000,2000,576,0));
+        assertThrows(IllegalArgumentException.class,()->new CellSettings(64,512,10,-1,0));
+    }
+    @Test void aCarrierFromTheReturnedCellNeverConsumesTheRetainedStock() {
+        var s = new CellSettings(64,64,1,-1,1);
+        assertEquals(0,s.returnable(65,64,576,1));
+        int cargo=s.returnable(66,65,576,1);
+        assertEquals(1,cargo);
+        assertEquals(0,s.requestable(66-cargo-1,0));
+    }
+    @Test void replenishmentDoesNotImmediatelyReturnAndReturnsDoNotCauseReplenishment() {
+        for(int batch : List.of(1,10,64)) {
+            var s = new CellSettings(64,64+batch,batch,-1,1);
+            for(int stock=0;stock<64;stock++) {
+                int requested=s.requestable(stock,0);
+                assertTrue(requested>=batch);
+                assertEquals(0,s.requestable(stock,requested));
+                assertEquals(0,s.returnable(stock+requested,stock+requested,576,0));
+            }
+            int surplus=2*batch;
+            int stock=s.upper()+surplus;
+            int returned=s.returnable(stock,stock,576,0);
+            assertEquals(surplus,returned);
+            assertEquals(0,s.requestable(stock-returned,0));
+        }
+        // Historical conflicting settings remain representable, but cannot bounce this batch back.
+        assertEquals(0,new CellSettings(64,64,64,-1).requestable(63,0));
     }
     /** Test key with configurable stack size; group semantics are exercised by the dedicated test below. */
     private record TestVariant(String id, int stack) implements MaterialVariant {

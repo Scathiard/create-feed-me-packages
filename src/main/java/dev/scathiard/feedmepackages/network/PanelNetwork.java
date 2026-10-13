@@ -59,7 +59,7 @@ public final class PanelNetwork {
         }
     }
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("10-converged-level-sync");
+        var registrar = event.registrar("11-return-batch");
         registrar.playToServer(PanelPackets.Query.TYPE, PanelPackets.Query.CODEC, (packet, context) -> {
             var reply = query((ServerPlayer) context.player(), packet); if (reply != null) context.reply(reply);
         });
@@ -191,7 +191,7 @@ public final class PanelNetwork {
                 int reserved = cell.filter() == null ? 0 : dev.scathiard.feedmepackages.interaction.CursorReservations.reserved(access.handle().cacheId(), i);
                 String template = cell.filter() == null ? "" : cell.filter().encoded();
                 cells.add(new PanelPackets.CellView(template, cell.amount(), cell.settings().lower(), cell.settings().upper(), record.state().pending(i), reserved, cell.filter() == null ? 1 : cell.filter().stackSize(), slotResidual,
-                        dev.scathiard.feedmepackages.logistics.ReturnService.dispatchState(access.handle(), returnAddress, i, template, cell.settings().upper()), cell.settings().batch(), cell.settings().pendingLimit(), cell.filterRevision(), window.feedback.get(i), false, record.state().writable(i)));
+                        dev.scathiard.feedmepackages.logistics.ReturnService.dispatchState(access.handle(), returnAddress, i, template, cell.settings().upper(), cell.settings().returnBatch()), cell.settings().batch(), cell.settings().pendingLimit(), cell.filterRevision(), window.feedback.get(i), false, record.state().writable(i), cell.settings().returnBatch()));
             }
             for (var box : record.residuals().values())
                 if (!box.isEmpty()) { residualItem = BuiltInRegistries.ITEM.getKey(box.getItem()).toString(); break; }

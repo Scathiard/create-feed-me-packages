@@ -21,7 +21,7 @@ import java.util.*;
 /** One world authority. Corrupt data produces a locked ledger, never an empty replacement. */
 public final class CacheLedger extends SavedData {
     public static final String NAME = "create_feed_me_packages_ledger";
-    public static final int SCHEMA = 31002; // Adds configured capacity provenance; all previous field units are unchanged.
+    public static final int SCHEMA = 31003; // Adds return_batch; previous fields and their saved units remain unchanged.
     public static final int MAX_REDIRECT_VARIANTS = 4096;
     private static final Factory<CacheLedger> FACTORY = new Factory<>(CacheLedger::new, CacheLedger::load);
     private Map<UUID, CacheRecord> caches = Map.of();
@@ -298,6 +298,7 @@ public final class CacheLedger extends SavedData {
                 var controls = new CompoundTag(); var settings = cell.settings();
                 controls.putInt("lower", settings.lower()); controls.putInt("upper", settings.upper());
                 controls.putInt("batch", settings.batch()); controls.putInt("pending_limit", settings.pendingLimit());
+                controls.putInt("return_batch", settings.returnBatch());
                 data.put("item_controls", controls);
                 cells.add(data);
             }
@@ -352,7 +353,7 @@ public final class CacheLedger extends SavedData {
             fields(tag, Set.of("schema", "integrity_key", "caches", "preferences", "redirects", "grants", "returnAddresses", "private_retirements", "return_handoffs"));
             require(tag, "schema", Tag.TAG_INT);
             int sourceSchema = tag.getInt("schema");
-            if (sourceSchema != SCHEMA && sourceSchema != 31001 && sourceSchema != 8 && sourceSchema != 2 && sourceSchema != 4 && sourceSchema != 5 && sourceSchema != 6 && sourceSchema != 7)
+            if (sourceSchema != SCHEMA && sourceSchema != 31002 && sourceSchema != 31001 && sourceSchema != 8 && sourceSchema != 2 && sourceSchema != 4 && sourceSchema != 5 && sourceSchema != 6 && sourceSchema != 7)
                 throw new IllegalArgumentException("Unsupported cache schema");
             require(tag, "integrity_key", Tag.TAG_BYTE_ARRAY);
             if (tag.getByteArray("integrity_key").length != 32) throw new IllegalArgumentException("Invalid world integrity state");
@@ -363,10 +364,10 @@ public final class CacheLedger extends SavedData {
             for (Tag element : rows) {
                 CompoundTag row = (CompoundTag)element;
                 context = "cache row " + cacheIndex++ + (row.hasUUID("id") ? " (" + row.getUUID("id") + ")" : " (invalid identity)");
-                fields(row, sourceSchema == SCHEMA ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids", CapacityCodec.KEY)
+                fields(row, sourceSchema >= 31002 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids", CapacityCodec.KEY)
                         : sourceSchema == 31001 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids")
                         : Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals"));
-                if (sourceSchema == SCHEMA) require(row, CapacityCodec.KEY, Tag.TAG_COMPOUND);
+                if (sourceSchema >= 31002) require(row, CapacityCodec.KEY, Tag.TAG_COMPOUND);
                 require(row, "id", Tag.TAG_INT_ARRAY); require(row, "level", Tag.TAG_INT); require(row, "revision", Tag.TAG_LONG);
                 if (row.contains("owner")) require(row, "owner", Tag.TAG_INT_ARRAY);
                 UUID id = row.getUUID("id"); int level = row.getInt("level"); UUID owner = row.contains("owner") ? row.getUUID("owner") : null;
@@ -395,9 +396,12 @@ public final class CacheLedger extends SavedData {
                     CellSettings settings = CellSettings.fromGroups(filter, min, max);
                     if (sourceSchema >= 31001) {
                         require(cell, "item_controls", Tag.TAG_COMPOUND); var controls = cell.getCompound("item_controls");
-                        fields(controls, Set.of("lower", "upper", "batch", "pending_limit"));
+                        fields(controls, sourceSchema >= 31003 ? Set.of("lower", "upper", "batch", "pending_limit", "return_batch")
+                                : Set.of("lower", "upper", "batch", "pending_limit"));
                         for (String name : List.of("lower", "upper", "batch", "pending_limit")) require(controls, name, Tag.TAG_INT);
-                        settings = new CellSettings(controls.getInt("lower"), controls.getInt("upper"), controls.getInt("batch"), controls.getInt("pending_limit"));
+                        if (sourceSchema >= 31003) require(controls, "return_batch", Tag.TAG_INT);
+                        settings = new CellSettings(controls.getInt("lower"), controls.getInt("upper"), controls.getInt("batch"), controls.getInt("pending_limit"),
+                                sourceSchema >= 31003 ? controls.getInt("return_batch") : 1);
                     }
                     cells.add(new Cell<>(filter, amount, min, max, cell.getLong("revision"), settings));
                 }

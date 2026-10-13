@@ -28,9 +28,9 @@ public final class CellControlArtwork {
         var box=field(r,4); g.blit(GAUGE,box.x(),box.y(),99,215,18,18,256,256);
         g.renderItem(parcel,box.x()+1,box.y()+1);
         number(g,fluid ? fluidQuantity(pending) : compactCount(pending),box.x()+1,box.y()+11,18);
-        int color=s.pendingLimit()>=0 && s.pendingLimit()<s.batch()?0xffff7777:0xffeeeeee;
+        int color=!fluid && s.conflicting()?0xffff7777:0xffeeeeee;
         number(g,fluid ? "—" : Integer.toString(s.batch()),x+16,y+14,38,color);
-        number(g,fluid ? "—" : s.pendingLimit()<0 ? "/" : Integer.toString(s.pendingLimit()),x+96,y+14,38,color);
+        number(g,fluid ? "—" : Integer.toString(s.returnBatch()),x+96,y+14,38,color);
         number(g,s.lower()<0 ? "/" : fluid ? fluidQuantity(s.lower()) : Integer.toString(s.lower()),x+11,y+37,19);
         number(g,s.upper()<0 ? "/" : fluid ? fluidQuantity(s.upper()) : Integer.toString(s.upper()),x+115,y+37,19);
         int tx=x+TRACK_X,ty=y+TRACK_Y;

@@ -262,7 +262,7 @@ public final class ClientReview {
                     var before=ledger.find(id); var edit=before.state().edit(); for(int l=1;l<5;l++)edit.upgrade();
                     Item[] types={Items.STONE,Items.ENDER_PEARL,Items.IRON_SWORD};
                     for(int i=0;i<types.length;i++)edit.filter(i,ItemVariantKey.of(new ItemStack(types[i]),player.registryAccess()));
-                    edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(64,512,64,128));
+                    edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(64,512,64,128,128));
                     edit.insert(0,ItemVariantKey.of(new ItemStack(Items.STONE),player.registryAccess()),63);
                     edit.request(0,UUID.randomUUID(),player.getUUID(),64,false);
                     edit.settings(1,new dev.scathiard.feedmepackages.domain.CellSettings(32,-1,1,-1));
@@ -288,7 +288,7 @@ public final class ClientReview {
             case 6 -> {
                 if(ticks-changed<35 || panelInt("waiting")!=0) return;
                 var c=panelSnapshot().cells().getFirst();
-                require(c.batch()==65 && c.pendingLimit()==127 && c.minimum()==65 && c.maximum()==511,"Four numeric wells did not commit item-wise values");
+                require(c.batch()==65 && c.returnBatch()==127 && c.pendingLimit()==128 && c.minimum()==65 && c.maximum()==511,"Four numeric wells did not commit item-wise values");
                 require(mc.player.containerMenu.getCarried().isEmpty(),"Popup scroll touched an inventory slot");
                 capture("converged-survival-after-wheel");
                 var b=dev.scathiard.feedmepackages.client.CellControlGeometry.field(panelLayout().slider(),4);click(b.x()+8,b.y()+8);advance();
@@ -382,21 +382,61 @@ public final class ClientReview {
                         "Reopening migrated world lost its ordinary pendant authority");
                     var state=ledger.find(delivery.cache()).state();
                     require(state.level()==5 && state.cells().getFirst().amount()==63 && state.cells().getFirst().settings().batch()==67
+                        && state.cells().getFirst().settings().returnBatch()==127
                         && state.pending(0)==0 && state.pending(1)==16,"Reopening changed migrated stock, settings or pending requests");
+                    var record=ledger.find(delivery.cache());var edit=record.state().edit();
+                    edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(64,70,1,128,1));
+                    ledger.replace(access.handle(),record.state().revision(),record.withState(edit.finish()));
                 });advance();
             }
             case 22 -> {
+                if(ticks-changed<20)return;
+                mc.setScreen(new InventoryScreen(mc.player));advance();
+            }
+            case 23 -> {
+                if(ticks-changed<20 || LogisticsPanel.visibleCells(mc.screen).isEmpty())return;
+                clickCellDot(0);advance();
+            }
+            case 24 -> {
+                if(ticks-changed<15)return;
+                var c=panelSnapshot().cells().getFirst();
+                require(c.minimum()==64 && c.maximum()==70 && c.batch()==1 && c.returnBatch()==1,"Linked controls fixture drifted");
+                for(int i=0;i<9;i++)controlWheel(0,1);
+                advance();
+            }
+            case 25 -> {
+                if(ticks-changed<35 || panelInt("waiting")!=0)return;
+                var c=panelSnapshot().cells().getFirst();
+                require(c.minimum()==64 && c.maximum()==74 && c.batch()==10 && c.returnBatch()==1,
+                        "Setting batch 10 did not move return line 70 to 74 in the real panel");
+                capture("return-batch-linked-64-74");controlWheel(0,-1);advance();
+            }
+            case 26 -> {
+                if(ticks-changed<35 || panelInt("waiting")!=0)return;
+                var c=panelSnapshot().cells().getFirst();
+                require(c.batch()==9 && c.maximum()==74,"Reducing the batch contracted the stock interval");
+                for(int i=0;i<19;i++)controlWheel(1,1);advance();
+            }
+            case 27 -> {
+                if(ticks-changed<35 || panelInt("waiting")!=0)return;
+                var c=panelSnapshot().cells().getFirst();
+                require(c.minimum()==54 && c.maximum()==74 && c.batch()==9 && c.returnBatch()==20,
+                        "Return batch did not widen the interval from the other side");
+                capture("return-batch-linked-54-74");advance();
+            }
+            case 28 -> {
+                FeedMePackages.LOGGER.info("FMP_RETURN_BATCH_CLIENT_PASSED real-wheel/64-70-to-64-74/no-contraction/return-side-link/atomic-packets/reloaded-return-minimum");
                 FeedMePackages.LOGGER.info("FMP_CONVERGED_CLIENT_PASSED integrated-retirement/event-input/packets/four-wells/reset-isolation/drag/reopen/survival/creative/actual-scale-3/crafting-close/world-reopen/no-os-mouse");
                 advance();
             }
-            case 23 -> {
+            case 29 -> {
                 if(ticks-changed<15)return;
                 convergedTransition=true;
                 try {mc.level.disconnect();mc.disconnect(new TitleScreen());}
                 finally {convergedTransition=false;}
                 advance();
             }
-            case 24 -> { if(mc.level==null && mc.getSingleplayerServer()==null){mc.stop();advance();} }
+            case 30 -> { if(mc.level==null && mc.getSingleplayerServer()==null){mc.stop();advance();} }
         }
     }
     private static boolean foldTransition;

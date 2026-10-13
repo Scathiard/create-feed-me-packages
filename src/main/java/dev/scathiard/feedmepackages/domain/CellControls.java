@@ -11,7 +11,7 @@ public record CellControls(int minimum, int maximum, CellSettings settings) {
     public CellControls bounded(CacheCapacity capacity, MaterialVariant filter) {
         int units = capacity.items(filter);
         return new CellControls(Math.min(minimum, capacity.groups()), Math.min(maximum, capacity.groups()),
-                new CellSettings(Math.min(settings.lower(), units), Math.min(settings.upper(), units), settings.batch(), settings.pendingLimit()));
+                new CellSettings(Math.min(settings.lower(), units), Math.min(settings.upper(), units), settings.batch(), settings.pendingLimit(), settings.returnBatch()));
     }
     public void validate(MaterialVariant filter) {
         if (filter == null || minimum > CacheCapacity.MAX_GROUPS || maximum > CacheCapacity.MAX_GROUPS)

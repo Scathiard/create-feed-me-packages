@@ -33,7 +33,7 @@ import java.util.UUID;
 @PrefixGameTestTemplate(false)
 public final class SupplyTests {
     @GameTest(template = "empty", timeoutTicks = 320)
-    public static void minimumBatchWaitsForBothNetworkStockAndPendingAllowance(GameTestHelper h) {
+    public static void minimumBatchWaitsForNetworkStockWithoutRetiredPendingAllowance(GameTestHelper h) {
         var f=ReceiveTests.setup(h,63); var network=UUID.randomUUID();
         TestPlayers.necklace(f.player()).getStackInSlot(0).set(FmpRegistries.NETWORK.get(),network);
         var before=f.record(); var edit=before.state().edit(); edit.reset(0);
@@ -51,10 +51,6 @@ public final class SupplyTests {
             if(stage[0]==0) {
                 var link=(PackagerLinkBlockEntity)h.getBlockEntity(linkPos);
                 LogisticallyLinkedBehaviour.remove(link.behaviour);link.behaviour.freqId=network;LogisticallyLinkedBehaviour.keepAlive(link.behaviour);
-                SupplyService.tick(f.player());
-                h.assertTrue(f.record().state().orders().isEmpty() && chest.getItem(0).getCount()==63,"Below-batch pending allowance sent stock");
-                var current=f.record();var next=current.state().edit();next.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(64,-1,64,64));
-                f.ledger().replace(f.handle(),current.state().revision(),current.withState(next.finish()));
                 SupplyService.tick(f.player());
                 h.assertTrue(f.record().state().orders().isEmpty() && chest.getItem(0).getCount()==63 && packager.heldBox.isEmpty(),"Network shipped fewer than the minimum 64");
                 chest.setItem(0,new ItemStack(Items.STONE,64));chest.setChanged();stage[0]=1;
