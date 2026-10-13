@@ -157,7 +157,18 @@ public final class MaidPhantomTasks {
         if (id == null) return null;
         String address = MaidAccess.ADDRESS_PREFIX + id;
         if (MaidAccess.recipient(address) == null) return null;
-        return MaidAccess.find(server, address);
+        LivingEntity found = MaidAccess.find(server, address);
+        if (found != null) return found;
+        // This single step decides whether the feature works, so it says why instead of silently no-oping.
+        for (ServerLevel level : server.getAllLevels()) {
+            if (level.getEntity(id) instanceof LivingEntity maid) {
+                note("carrier return addressed to maid " + id + " in " + level.dimension().location()
+                        + " but she is not usable: " + MaidAccess.resolve(maid).status());
+                return null;
+            }
+        }
+        note("carrier return addressed to maid " + id + " but that entity is loaded in no level (chunk unloaded)");
+        return null;
     }
 
     // --- native carrier item and task ending -------------------------------------------------------------------
