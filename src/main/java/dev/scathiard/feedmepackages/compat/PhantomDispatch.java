@@ -117,8 +117,11 @@ public final class PhantomDispatch {
                     && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(pet) ? pet : null;
             UUID sourceIdentity = dispatcher != null && api.port.isInstance(target) ? dispatcher.getUUID() : owner;
             if (api.port.isInstance(target)) {
+                // Measured: the port schedules the carrier return to the task's sourcePlayerId, and the slot it actually
+                // reads is this last player-identity argument - handing it the owner made the carrier fly to the owner
+                // even though the dispatcher was a maid. A maid dispatcher therefore contributes her own UUID here.
                 task = api.airportTask.invoke(null, id, box, level, dimension, api.portPos.invoke(target), origin, direction, motion,
-                        null, null, sourceIdentity, id, owner);
+                        null, null, sourceIdentity, id, sourceIdentity);
             } else if (api.player.isInstance(target)) {
                 UUID receiver = (UUID) api.playerId.invoke(target);
                 // A maid has no entry in the player list: her own reachability check is what made her a target.
@@ -130,7 +133,12 @@ public final class PhantomDispatch {
             // Source stock is held by ReturnEscrow before this first externally visible handoff.
             entered = true;
             api.addTask.invoke(null, server, task);
-            api.notifyHud.invoke(null, server, task);
+            // A HUD notification is cosmetic: it must never be able to turn a live task into a failed dispatch.
+            try {
+                api.notifyHud.invoke(null, server, task);
+            } catch (ReflectiveOperationException | RuntimeException hudFailure) {
+                FeedMePackages.LOGGER.warn("FMP phantom: HUD notification failed; the flight is unaffected", hudFailure);
+            }
             // Remember that this task is ours. A maid dispatch leaves the native player slot holding her owner - a real
             // player UUID - which is byte-identical to a player's own carrier return, so this marker is the only thing
             // that can tell the two apart when the carrier comes back.
@@ -146,7 +154,8 @@ public final class PhantomDispatch {
                         + (api.port.isInstance(target) ? "port" : "player")
                         + " sourceIdentity=" + sourceIdentity
                         + " dispatcher=" + (dispatcher == null ? "none" : dispatcher.getUUID().toString())
-                        + " registry=" + dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.registryState(task));
+                        + " registry=" + dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.registryState(task)
+                        + " taskSourcePlayer=" + dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.sourcePlayer(task));
             } catch (RuntimeException | LinkageError ignored) {
                 // diagnostics never affect the dispatch
             }

@@ -436,8 +436,39 @@ public final class MaidPhantomTasks {
         return true;
     }
 
-    /** The maid entity with this UUID, at entity level: a maid, alive, not removed, somewhere loaded. */
-    private static LivingEntity maidEntity(MinecraftServer server, UUID id) {
+    private static java.lang.reflect.Field sourcePlayerIdField;
+    private static boolean sourcePlayerWired;
+    private static boolean sourcePlayerWiringFailed;
+
+    /** The task's source player slot, for diagnostics only (it decides what a port schedules the carrier back to). */
+    public static java.util.UUID sourcePlayer(Object task) {
+        if (!sourcePlayerWired() || task == null) return null;
+        try {
+            return sourcePlayerIdField.get(task) instanceof java.util.UUID id ? id : null;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static synchronized boolean sourcePlayerWired() {
+        if (sourcePlayerWired) return true;
+        try {
+            sourcePlayerIdField = Class.forName("com.yision.phantom.logistics.courier.AirCourierTask")
+                    .getDeclaredField("sourcePlayerId");
+            sourcePlayerIdField.setAccessible(true);
+            sourcePlayerWired = true;
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
+            if (!sourcePlayerWiringFailed) {
+                sourcePlayerWiringFailed = true;
+                dev.scathiard.feedmepackages.FeedMePackages.LOGGER.warn(
+                        "FMP phantom maid: the source player slot is not readable; diagnostics only", incompatible);
+            }
+            return false;
+        }
+    }
+
+    /** The maid entity with this UUID, at entity level: a maid, alive, not removed, somewhere loaded. */    private static LivingEntity maidEntity(MinecraftServer server, UUID id) {
         for (ServerLevel level : server.getAllLevels()) {
             if (level.getEntity(id) instanceof LivingEntity maid
                     && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(maid)
