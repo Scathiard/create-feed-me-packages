@@ -29,7 +29,7 @@ class Phantom102GateTest {
         assertEquals("(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/item/ItemStack;)Z",
                 members.get("AirCourierHelper#canReceiveDelivery"));
         assertEquals("(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/item/ItemStack;Z)Lnet/minecraft/server/level/ServerPlayer;",
-                members.get("AirCourierHelper#findTargetPlayer3"));
+                members.get("AirCourierHelper#findTargetPlayer@3"));
         assertEquals("(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/resources/ResourceKey;Lnet/minecraft/core/BlockPos;)Z",
                 members.get("AirCourierDispatchService#canReceiveCarrierTarget"));
         assertEquals("Z", members.get("field AirCourierTask#returningUndeliveredPackage"));

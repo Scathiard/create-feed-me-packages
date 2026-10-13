@@ -96,30 +96,30 @@ public final class Phantom102Gate {
         try {
             boolean field = key.startsWith("field ");
             String plain = field ? key.substring("field ".length()) : key;
+            String expected = Phantom102Shape.members().get(key);
+            if (expected == null) return null;
             int hash = plain.indexOf('#');
             if (hash < 0) return null;
             String simpleClass = plain.substring(0, hash);
             String member = plain.substring(hash + 1);
+            // An "@n" suffix only exists to keep overloaded members distinct as map keys; matching is by descriptor.
+            int overload = member.indexOf('@');
+            if (overload >= 0) member = member.substring(0, overload);
             Class<?> type = Class.forName(PACKAGE + simpleClass, false, Phantom102Gate.class.getClassLoader());
             if (field) {
                 Field declared = type.getDeclaredField(member);
                 return descriptor(declared.getType());
             }
-            int arity = -1;
-            if (member.endsWith("3") && !member.equals("<init>")) {
-                arity = 3;
-                member = member.substring(0, member.length() - 1);
-            }
+            // Match the measured descriptor itself - never an arity guess: members range from 0 to 5 parameters,
+            // and two overloads can share a name.
             if (member.equals("<init>")) {
                 for (Constructor<?> constructor : type.getDeclaredConstructors())
-                    if (constructor.getParameterCount() == 5) return methodDescriptor(constructor.getParameterTypes(), void.class);
+                    if (methodDescriptor(constructor.getParameterTypes(), void.class).equals(expected)) return expected;
                 return null;
             }
             for (Method method : type.getDeclaredMethods()) {
                 if (!method.getName().equals(member)) continue;
-                if (arity >= 0 && method.getParameterCount() != arity) continue;
-                if (arity < 0 && method.getParameterCount() != 2) continue;
-                return methodDescriptor(method.getParameterTypes(), method.getReturnType());
+                if (methodDescriptor(method.getParameterTypes(), method.getReturnType()).equals(expected)) return expected;
             }
             return null;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError absent) {

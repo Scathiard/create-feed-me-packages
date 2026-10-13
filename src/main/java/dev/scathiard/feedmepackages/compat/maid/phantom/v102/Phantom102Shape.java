@@ -37,7 +37,7 @@ public final class Phantom102Shape {
         m.put("AirCourierHelper#canReceiveDelivery", "(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/item/ItemStack;)Z");
         m.put("AirCourierHelper#findTargetPlayer", "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/item/ItemStack;)Lnet/minecraft/server/level/ServerPlayer;");
         m.put("AirCourierHelper#findTargetPlayerAnyDimension", "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/item/ItemStack;)Lnet/minecraft/server/level/ServerPlayer;");
-        m.put("AirCourierHelper#findTargetPlayer3", "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/item/ItemStack;Z)Lnet/minecraft/server/level/ServerPlayer;");
+        m.put("AirCourierHelper#findTargetPlayer@3", "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/item/ItemStack;Z)Lnet/minecraft/server/level/ServerPlayer;");
         m.put("AirCourierDispatchService#canReceiveCarrierTarget", "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/resources/ResourceKey;Lnet/minecraft/core/BlockPos;)Z");
         // --- launch (L5) ---
         m.put("AirCourierBeltHooks#launchPackageCourier", "(Lcom/simibubi/create/content/kinetics/belt/BeltBlockEntity;Lcom/simibubi/create/content/kinetics/belt/transport/TransportedItemStack;)Z");
