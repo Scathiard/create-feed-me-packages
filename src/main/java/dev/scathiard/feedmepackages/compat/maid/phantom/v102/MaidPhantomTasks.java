@@ -112,6 +112,26 @@ public final class MaidPhantomTasks {
         }
     }
 
+    /**
+     * True only for the return leg that has <b>no source port</b> - the mission the target mod reserves for "carry the
+     * carrier back to the real source player". Only this one is ours to redirect to the maid.
+     *
+     * <p>When a source port exists the mission is {@code CARRIER_RETURN} instead, and the native rule (as well as the
+     * user's ruling, "a player carrier returns to its port") is to fly the carrier back to that port. The user verified
+     * exactly that behaviour on the belt path, so it must stay untouched: redirecting it would steal a correct return.
+     */
+    public static boolean returnsToSourcePlayer(Object task) {
+        if (!available() || task == null) return false;
+        try {
+            if (!(mission.invoke(task) instanceof Enum<?> current)
+                    || !current.name().equals("CARRIER_RETURN_TO_PLAYER")) return false;
+            if (Boolean.TRUE.equals(returningUndeliveredPackage.get(task))) return false;
+            return box.invoke(task) instanceof ItemStack item && item.isEmpty();
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return false;
+        }
+    }
+
     // --- native carrier item and task ending -------------------------------------------------------------------
     // Only the return leg needs these, and the native carrier does not exist during flight at all: the target mod
     // creates it from AllItems.MINI_PHANTOM.asStack() at the moment of delivery (measured). So we create it from the

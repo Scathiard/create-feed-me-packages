@@ -49,9 +49,10 @@ public abstract class Phantom102FlightMixin {
         fmp$maid = null;
         if (!fmp$enabled()) return;
         LivingEntity maid = MaidPhantomTasks.maidRecipient(server, this);
-        // Return leg (the carrier coming home): the package is gone and the native player slot holds her owner, which
-        // is byte-identical to a player's own carrier return - only our own registry can tell them apart.
-        if (maid == null && MaidPhantomTasks.onReturnLeg(this)) maid = MaidPhantomTasks.maidFor(this, server);
+        // Return leg with no source port (the carrier would go to her owner): the native player slot holds that owner,
+        // byte-identical to a player's own carrier return, so only our own registry can tell them apart. A carrier
+        // return that DOES have a source port must stay native - it flies home to that port, which the user verified.
+        if (maid == null && MaidPhantomTasks.returnsToSourcePlayer(this)) maid = MaidPhantomTasks.maidFor(this, server);
         if (maid == null) return;
         Object target = MaidPhantomFlight.flightTarget(maid);
         if (target == null) return;
@@ -92,7 +93,7 @@ public abstract class Phantom102FlightMixin {
     @Unique private boolean fmp$handOver(MinecraftServer server) {
         LivingEntity maid = fmp$maid;
         if (maid == null || server == null) return false;
-        if (MaidPhantomTasks.onReturnLeg(this)) {
+        if (MaidPhantomTasks.returnsToSourcePlayer(this)) {
             // The native carrier does not exist during flight - the target mod creates it from its own item registry at
             // the moment of delivery. We create it from that same source and hand it to her. When she cannot take it we
             // do not cancel: the native path then drops it exactly where the courier now is, at her feet, instead of us

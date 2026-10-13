@@ -842,6 +842,17 @@ public final class MaidTests {
         // 1: the measured return-leg criteria recognise it.
         h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.onReturnLeg(task),
                 "A carrier return was not recognised as a return leg");
+        // 1b: a carrier return that has a source port must NOT be ours - it has to fly home to that port (native, and
+        // the user verified it on the belt path). This is the guard against redirecting a correct return.
+        var portFactory = Class.forName("com.yision.phantom.logistics.courier.AirCourierTask").getMethod(
+                "forCarrierReturn", UUID.class, ServerLevel.class, net.minecraft.resources.ResourceKey.class,
+                BlockPos.class, Vec3.class, Vec3.class, Vec3.class);
+        Object portTask = portFactory.invoke(null, UUID.randomUUID(), h.getLevel(), h.getLevel().dimension(),
+                f.maid.blockPosition(), f.maid.position(), new Vec3(0, 0, 1), new Vec3(0, 0, .3));
+        h.assertTrue(portTask != null, "Native carrier-return-to-port task was not created");
+        h.assertTrue(!dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
+                        .returnsToSourcePlayer(portTask),
+                "A carrier return with a source port must never be redirected to the maid");
         // 2: an unregistered carrier return is an ordinary player task and must stay one.
         h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
                         .maidFor(task, h.getLevel().getServer()) == null,
