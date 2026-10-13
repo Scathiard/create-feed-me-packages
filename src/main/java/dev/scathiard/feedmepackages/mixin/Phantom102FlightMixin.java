@@ -38,6 +38,8 @@ public abstract class Phantom102FlightMixin {
 
     /** The maid this task follows right now; refreshed on every flight resolution. */
     @Unique private LivingEntity fmp$maid;
+    /** The maid this task was last seen tracking, kept only so a transition can be reported once. */
+    @Unique private LivingEntity fmp$tracked;
 
     @Unique private boolean fmp$enabled() {
         return Phantom102Gate.usable(true) && OptionalMixins.phantom102FlightCompatible();
@@ -49,13 +51,30 @@ public abstract class Phantom102FlightMixin {
         fmp$maid = null;
         if (!fmp$enabled()) return;
         LivingEntity maid = MaidPhantomTasks.maidRecipient(server, this);
+        String leg = "outbound";
         // Return leg with no source port (the carrier would go to her owner): the native player slot holds that owner,
         // byte-identical to a player's own carrier return, so only our own registry can tell them apart. A carrier
         // return that DOES have a source port must stay native - it flies home to that port, which the user verified.
-        if (maid == null && MaidPhantomTasks.returnsToSourcePlayer(this)) maid = MaidPhantomTasks.maidForReturn(this, server);
-        if (maid == null) return;
+        if (maid == null && MaidPhantomTasks.returnsToSourcePlayer(this)) {
+            maid = MaidPhantomTasks.maidForReturn(this, server);
+            leg = "return";
+        }
+        if (maid == null) {
+            // The most useful diagnostic there is: a task that used to be ours and stopped being ours, with its phase.
+            if (fmp$tracked != null) {
+                MaidPhantomTasks.note("stopped tracking " + fmp$tracked.getUUID() + " at phase "
+                        + MaidPhantomTasks.phaseName(this) + " undeliveredReturn=" + MaidPhantomTasks.undeliveredReturn(this));
+                fmp$tracked = null;
+            }
+            return;
+        }
+        fmp$tracked = maid;
+        MaidPhantomTasks.note("tracking " + maid.getUUID() + " (" + leg + ") phase=" + MaidPhantomTasks.phaseName(this));
         Object target = MaidPhantomFlight.flightTarget(maid);
-        if (target == null) return;
+        if (target == null) {
+            MaidPhantomTasks.note("no native flight target could be built for " + maid.getUUID());
+            return;
+        }
         fmp$maid = maid;
         if (maid.level() instanceof ServerLevel level) MaidPhantomTasks.followDimension(this, level);
         cir.setReturnValue(target);
@@ -79,6 +98,7 @@ public abstract class Phantom102FlightMixin {
         LivingEntity maid = fmp$maid;
         if (maid == null || currentLevel == null || maid.level() != currentLevel) return;
         if (!MaidPhantomFlight.reached(maid, MaidPhantomTasks.position(this))) return;
+        MaidPhantomTasks.note("reached " + maid.getUUID() + " at phase " + MaidPhantomTasks.phaseName(this));
         if (fmp$handOver(server)) ci.cancel();
     }
 
@@ -99,8 +119,12 @@ public abstract class Phantom102FlightMixin {
             // do not cancel: the native path then drops it exactly where the courier now is, at her feet, instead of us
             // inventing a drop or swallowing the item.
             var carrier = MaidPhantomTasks.nativeCarrier();
-            if (carrier == null || carrier.isEmpty()) return false;
+            if (carrier == null || carrier.isEmpty()) {
+                MaidPhantomTasks.note("the native carrier item could not be created");
+                return false;
+            }
             if (!MaidPhantomTasks.handCarrierTo(maid, carrier)) return false;
+            MaidPhantomTasks.note("carrier handed to " + maid.getUUID());
             MaidPhantomTasks.endTask(this);
             return true;
         }

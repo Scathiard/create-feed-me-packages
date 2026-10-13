@@ -229,6 +229,46 @@ public final class MaidPhantomTasks {
         return true;
     }
 
+    /** True once the task has fallen into the native "bring the undelivered package back" path. */
+    public static boolean undeliveredReturn(Object task) {
+        if (!available() || task == null) return false;
+        try {
+            return Boolean.TRUE.equals(returningUndeliveredPackage.get(task));
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return false;
+        }
+    }
+
+    private static Field phaseField;
+    private static boolean phaseReady;
+    private static boolean phaseWiringFailed;
+
+    private static synchronized boolean phaseWired() {
+        if (phaseReady) return true;
+        try {
+            phaseField = Class.forName("com.yision.phantom.logistics.courier.AirCourierTask").getDeclaredField("phase");
+            phaseField.setAccessible(true);
+            phaseReady = true;
+            return true;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
+            if (!phaseWiringFailed) {
+                phaseWiringFailed = true;
+                dev.scathiard.feedmepackages.FeedMePackages.LOGGER.warn("FMP phantom maid: phase not readable; diagnostics only", incompatible);
+            }
+            return false;
+        }
+    }
+
+    /** The task's phase name, for diagnostics only ("?" when unreadable). Never throws. */
+    public static String phaseName(Object task) {
+        if (!phaseWired() || task == null) return "?";
+        try {
+            return phaseField.get(task) instanceof Enum<?> current ? current.name() : "?";
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return "?";
+        }
+    }
+
     /** The package this task is carrying, or null when it cannot be read. */
     public static ItemStack packageOf(Object task) {
         if (!available() || task == null) return null;
@@ -340,18 +380,33 @@ public final class MaidPhantomTasks {
         return null;
     }
 
+    /** One stable line per distinct reason. The real machine is the only place this feature runs for real. */
+    public static void note(String reason) {
+        if (REPORTED.add(reason))
+            dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP phantom maid: " + reason);
+    }
+    private static final java.util.Set<String> REPORTED = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     /**
      * Hand a returned carrier to her: <b>inventory first, then her cache</b>. Simulated on copies - the caller keeps
      * the carrier whenever this returns false, so nothing is consumed or swallowed on a failure.
      */
     public static boolean handCarrierTo(LivingEntity maid, ItemStack carrier) {
-        if (maid == null || carrier == null || carrier.isEmpty()) return false;
+        if (maid == null || carrier == null || carrier.isEmpty()) {
+            note("carrier hand-over refused: nothing to hand");
+            return false;
+        }
         ItemStack rest = carrier.copy();
         var inventory = dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.inventory(maid);
+        boolean fits = false;
         if (inventory != null) {
             for (int slot = 0; slot < inventory.getSlots() && !rest.isEmpty(); slot++) rest = inventory.insertItem(slot, rest, true);
-            if (rest.isEmpty()) return dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.insertInto(maid, carrier.copy());
+            fits = rest.isEmpty();
+            if (fits && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.insertInto(maid, carrier.copy())) return true;
         }
-        return dev.scathiard.feedmepackages.logistics.ReceiveService.receive(MaidAccess.endpoint(maid), carrier.copy());
+        boolean cache = dev.scathiard.feedmepackages.logistics.ReceiveService.receive(
+                MaidAccess.endpoint(maid), carrier.copy());
+        if (!cache) note("carrier hand-over refused: inventoryFits=" + fits + " cache=" + cache);
+        return cache;
     }
 }
