@@ -117,11 +117,12 @@ public final class PhantomDispatch {
                     && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(pet) ? pet : null;
             UUID sourceIdentity = dispatcher != null && api.port.isInstance(target) ? dispatcher.getUUID() : owner;
             if (api.port.isInstance(target)) {
-                // Measured: the port schedules the carrier return to the task's sourcePlayerId, and the slot it actually
-                // reads is this last player-identity argument - handing it the owner made the carrier fly to the owner
-                // even though the dispatcher was a maid. A maid dispatcher therefore contributes her own UUID here.
+                // Reverted to the owner deliberately. Measured on the real machine: filling that slot with the maid made
+                // the port refuse to launch the carrier at all and spit it out as a dropped item, because the port's own
+                // departure step requires a real player. A port destination therefore keeps the owner here, and the
+                // carrier's way home is whatever the port decides (see the plan notes for the takeover option).
                 task = api.airportTask.invoke(null, id, box, level, dimension, api.portPos.invoke(target), origin, direction, motion,
-                        null, null, sourceIdentity, id, sourceIdentity);
+                        null, null, owner, id, owner);
             } else if (api.player.isInstance(target)) {
                 UUID receiver = (UUID) api.playerId.invoke(target);
                 // A maid has no entry in the player list: her own reachability check is what made her a target.
