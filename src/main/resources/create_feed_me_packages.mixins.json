@@ -46,7 +46,8 @@
     "FactoryOrderStampMixin",
     "Phantom102SettlementMixin",
     "Phantom102FlightMixin",
-    "Phantom102LaunchMixin"
+    "Phantom102LaunchMixin",
+    "Phantom102BeltMixin"
   ],
   "client": [
     "ContainerScreenAccess",

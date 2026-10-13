@@ -787,6 +787,12 @@ public final class MaidTests {
                 .maidRecipient(server, task) == f.maid, "The flight layer did not recognise a maid task");
         h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomFlight
                 .flightTarget(f.maid) != null, "No native flight target could be built for the maid");
+        // The belt launch gate is a separate injection: load its target through the mixin layer (this is what applies
+        // it) and require the shape gate to have accepted the measured shape. A mismatch here means the mixin was
+        // silently not applied, which is the one failure this test can rule out without a real belt.
+        Class.forName("com.yision.phantom.logistics.courier.AirCourierBeltHooks");
+        h.assertTrue(dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102BeltCompatible(),
+                "The belt launch gate refused the measured shape; the mixin was not applied");
         // 3: arrival. The hand-over must put the contents in her own cache and consume the package exactly once.
         // 3: arrival. The receiving side only ever takes an FMP-authenticated parcel, so the hand-over must obey
         // exactly one of two contracts, and never anything in between: accepted => the contents are in her cache
