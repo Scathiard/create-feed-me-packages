@@ -114,7 +114,7 @@ public final class ReturnService {
             // and the bee receives its own newly built package, never the plane's object.
             int result = dispatch(endpoint, handle, ledger, slot, CARD, address);
             if (result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null) result = dispatch(endpoint, handle, ledger, slot, BEE, address);
-            if (bearer instanceof ServerPlayer && result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null)
+            if (phantomDispatcher(bearer) && result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null)
                 result = dispatch(endpoint, handle, ledger, slot, PHANTOM, address);
             ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), result);
         }
@@ -162,7 +162,9 @@ public final class ReturnService {
             result = carrierItem == CARD ? TransportDispatch.paperPlane((ServerLevel)bearer.level(), box.copy(), bearer.position())
                     : carrierItem == BEE ? TransportDispatch.bee((ServerLevel)bearer.level(), box.copy(), bearer.blockPosition(), handle.networkId(),
                             bearer instanceof TamableAnimal pet && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(pet) ? pet.getUUID() : null)
-                    : dev.scathiard.feedmepackages.compat.PhantomDispatch.send((ServerPlayer)bearer, box.copy());
+                    : bearer instanceof ServerPlayer phantomSender
+                            ? dev.scathiard.feedmepackages.compat.PhantomDispatch.send(phantomSender, box.copy())
+                            : dev.scathiard.feedmepackages.compat.PhantomDispatch.sendForMaid(bearer, box.copy());
         } finally { OPERATING.remove(handle.cacheId()); }
         if (result.outcome() == TransportDispatch.Outcome.SENT) {
             ledger.finishReturn(hold, bearer.registryAccess());
@@ -187,6 +189,14 @@ public final class ReturnService {
         if (access.status() != AccessGate.Status.RETURN_REFUND || access.handle() == null) return;
         var ledger = CacheLedger.get(endpoint.entity().getServer()); var hold = ledger.returnEscrow(access.handle().cacheId());
         if (hold != null) refundCarrier(endpoint.entity(), ledger, hold);
+    }
+    /**
+     * Phantom carriers may be launched by a real player, or by one of our maids - she launches from her
+     * own position and her owner supplies the native task's player identity. No fake player is involved.
+     */
+    private static boolean phantomDispatcher(LivingEntity bearer) {
+        return bearer instanceof ServerPlayer
+                || (bearer instanceof TamableAnimal pet && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(pet));
     }
     private static boolean originalBearer(LivingEntity bearer, ReturnEscrow hold) {
         if (!bearer.getUUID().equals(hold.handle().playerId()) || !bearer.isAlive() || bearer.isRemoved()) return false;

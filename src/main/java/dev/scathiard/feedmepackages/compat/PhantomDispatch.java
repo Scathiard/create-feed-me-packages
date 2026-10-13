@@ -58,34 +58,55 @@ public final class PhantomDispatch {
     public static boolean carrierUsable(ItemStack stack) {
         return !stack.isEmpty() && stack.getComponentsPatch().isEmpty() && ready();
     }
+    /** A player dispatching: the player is his own HUD/source identity. */
     public static TransportDispatch.Result send(ServerPlayer sender, ItemStack box) {
-        if (!sender.getServer().isSameThread() || !ready()) return TransportDispatch.Result.known(false, "phantom");
+        return launch(sender, sender.getUUID(), box);
+    }
+
+    /**
+     * One of our maids dispatching (she may launch a Phantom like any player can). She is the loader -
+     * level, position and look angle - while her owner supplies the player identity the native task
+     * expects for its source and HUD fields, which is exactly what a real player would contribute.
+     * No fake player is created and no native gate is bypassed.
+     */
+    public static TransportDispatch.Result sendForMaid(net.minecraft.world.entity.LivingEntity maid, ItemStack box) {
+        if (!(maid instanceof net.minecraft.world.entity.TamableAnimal pet) || pet.getOwnerUUID() == null)
+            return TransportDispatch.Result.known(false, "phantom");
+        return launch(maid, pet.getOwnerUUID(), box);
+    }
+
+    private static TransportDispatch.Result launch(net.minecraft.world.entity.LivingEntity bearer, UUID playerIdentity,
+            ItemStack box) {
+        var server = bearer.getServer();
+        if (server == null || !server.isSameThread() || !ready()) return TransportDispatch.Result.known(false, "phantom");
+        if (!(bearer.level() instanceof ServerLevel level)) return TransportDispatch.Result.known(false, "phantom");
         boolean entered = false;
         try {
-            var level = sender.serverLevel(); var origin = sender.position().add(0, 0.01, 0);
+            var origin = bearer.position().add(0, 0.01, 0);
             Object target = api.resolve.invoke(null, level, box, origin, null, null);
             if (target == null || !Boolean.TRUE.equals(api.accepts.invoke(null, level, target, box)))
                 return TransportDispatch.Result.known(false, "phantom");
-            var direction = (Vec3) api.direction.invoke(null, new Vec3(sender.getLookAngle().x, 0, sender.getLookAngle().z));
+            var look = bearer.getLookAngle();
+            var direction = (Vec3) api.direction.invoke(null, new Vec3(look.x, 0, look.z));
             // Actual 1.0.2 bytecode uses direction * native speed + 0.15F vertical lift.
             // Newer source snapshots expose a different helper; do not assume that method exists here.
             var motion = direction.scale(api.takeoffSpeed).add(0, (double) 0.15F, 0);
             Object dimension = api.dimension.invoke(target), task;
-            UUID id = UUID.randomUUID(), owner = sender.getUUID();
+            UUID id = UUID.randomUUID(), owner = playerIdentity;
             if (api.port.isInstance(target)) {
                 task = api.airportTask.invoke(null, id, box, level, dimension, api.portPos.invoke(target), origin, direction, motion,
                         null, null, owner, id, owner);
             } else if (api.player.isInstance(target)) {
                 UUID receiver = (UUID) api.playerId.invoke(target);
-                if (sender.getServer().getPlayerList().getPlayer(receiver) == null) return TransportDispatch.Result.known(false, "phantom");
+                if (server.getPlayerList().getPlayer(receiver) == null) return TransportDispatch.Result.known(false, "phantom");
                 task = api.playerTask.invoke(null, id, box, level, receiver, dimension, origin, direction, motion,
                         null, null, owner, id, owner);
             } else return TransportDispatch.Result.known(false, "phantom");
             if (task == null) return TransportDispatch.Result.known(false, "phantom");
             // Source stock is held by ReturnEscrow before this first externally visible handoff.
             entered = true;
-            api.addTask.invoke(null, sender.getServer(), task);
-            api.notifyHud.invoke(null, sender.getServer(), task);
+            api.addTask.invoke(null, server, task);
+            api.notifyHud.invoke(null, server, task);
             return TransportDispatch.Result.known(true, "phantom");
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             Throwable cause = failure instanceof InvocationTargetException wrapped ? wrapped.getCause() : failure;
