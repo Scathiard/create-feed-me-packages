@@ -149,8 +149,17 @@ public final class ReturnService {
         if (!access.active() || !handle.equals(access.handle()) || ledger.find(handle.cacheId()) != record
                 || !address.equals(ledger.returnAddress(handle.cacheId())) || carrierStack.isEmpty() || !carrierStack.is(carrierItem))
             return RETURN_FAILED;
-        var hold = new ReturnEscrow(UUID.randomUUID(), handle, state.revision(), slot, cell.filter(), amount,
-                carrierStack.copyWithCount(1), carrier.inventorySlot(), carrier.cacheSlot(), carrierItem == CARD ? "paper" : carrierItem == BEE ? "bee" : "phantom", address, false, bearer instanceof TamableAnimal pet ? pet.getOwnerUUID() : null);
+        ReturnEscrow hold;
+        try {
+            hold = new ReturnEscrow(UUID.randomUUID(), handle, state.revision(), slot, cell.filter(), amount,
+                    carrierStack.copyWithCount(1), carrier.inventorySlot(), carrier.cacheSlot(), carrierItem == CARD ? "paper" : carrierItem == BEE ? "bee" : "phantom", address, false, bearer instanceof TamableAnimal pet ? pet.getOwnerUUID() : null);
+        } catch (IllegalArgumentException refused) {
+            // A combination the escrow refuses must never take the server tick down with it: refuse this dispatch
+            // instead, leaving stock, carrier and escrow untouched. (User crash, maid + phantom, 2026-10-13.)
+            FeedMePackages.LOGGER.error("FMP return dispatch refused by the escrow: cache={} transport={} reason={}",
+                    handle.cacheId(), carrierItem == CARD ? "paper" : carrierItem == BEE ? "bee" : "phantom", refused.getMessage());
+            return RETURN_FAILED;
+        }
         ledger.beginReturn(hold, record, bearer.registryAccess());
         // The real carrier moves to escrow before any foreign callback can spend or replace it.
         if (carrier.inventorySlot() >= 0) {
