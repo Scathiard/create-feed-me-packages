@@ -36,33 +36,39 @@ public final class MaidPhantomPortReturn {
     private static Method addTask;
     private static Method onCourierTaskStarted;
 
-    /** True once every member this takeover touches was resolved. Never throws. */
+    /** True once every member this takeover touches was resolved. Never throws, and retries after a failure. */
     public static synchronized boolean available() {
-        if (!attempted) {
-            attempted = true;
+        if (portField != null) return true;
+        try {
+            String root = "com.yision.phantom.";
+            Class<?> queue = Class.forName(root + "block.phantomport.PhantomPortReturnQueue");
+            portField = queue.getDeclaredField("port");
+            portField.setAccessible(true);
+            inventoryField = queue.getDeclaredField("inventory");
+            inventoryField.setAccessible(true);
+            Class<?> inventory = Class.forName(root + "block.phantomport.PhantomPortInventory");
+            // Measured: hasUsableCarrier is not public, so getMethod cannot see it. It is also optional - the item
+            // extraction below is the real test - so a miss here must not disable the takeover.
             try {
-                String root = "com.yision.phantom.";
-                Class<?> queue = Class.forName(root + "block.phantomport.PhantomPortReturnQueue");
-                portField = queue.getDeclaredField("port");
-                portField.setAccessible(true);
-                inventoryField = queue.getDeclaredField("inventory");
-                inventoryField.setAccessible(true);
-                Class<?> inventory = Class.forName(root + "block.phantomport.PhantomPortInventory");
-                hasUsableCarrier = inventory.getMethod("hasUsableCarrier");
-                carrierInventoryField = inventory.getDeclaredField("carrierInventory");
-                carrierInventoryField.setAccessible(true);
-                Class<?> task = Class.forName(root + "logistics.courier.AirCourierTask");
-                forCarrierReturnToPlayer = task.getMethod("forCarrierReturnToPlayer", UUID.class, ServerLevel.class,
-                        UUID.class, net.minecraft.resources.ResourceKey.class, Vec3.class, Vec3.class, Vec3.class);
-                addTask = Class.forName(root + "logistics.courier.AirCourierTaskManager")
-                        .getMethod("addTask", MinecraftServer.class, task);
-                onCourierTaskStarted = Class.forName(root + "logistics.courier.hud.AirCourierHudSync")
-                        .getMethod("onCourierTaskStarted", MinecraftServer.class, task);
-            } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
-                MaidPhantomTasks.note("port return takeover is unavailable: " + incompatible.getClass().getSimpleName()
-                        + ": " + incompatible.getMessage());
-                portField = null;
+                hasUsableCarrier = inventory.getDeclaredMethod("hasUsableCarrier");
+                hasUsableCarrier.setAccessible(true);
+            } catch (ReflectiveOperationException | RuntimeException notPublic) {
+                hasUsableCarrier = null;
             }
+            carrierInventoryField = inventory.getDeclaredField("carrierInventory");
+            carrierInventoryField.setAccessible(true);
+            Class<?> task = Class.forName(root + "logistics.courier.AirCourierTask");
+            forCarrierReturnToPlayer = task.getMethod("forCarrierReturnToPlayer", UUID.class, ServerLevel.class,
+                    UUID.class, net.minecraft.resources.ResourceKey.class, Vec3.class, Vec3.class, Vec3.class);
+            addTask = Class.forName(root + "logistics.courier.AirCourierTaskManager")
+                    .getMethod("addTask", MinecraftServer.class, task);
+            onCourierTaskStarted = Class.forName(root + "logistics.courier.hud.AirCourierHudSync")
+                    .getMethod("onCourierTaskStarted", MinecraftServer.class, task);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
+            // Reported once, but not latched: a later call retries, so one unlucky moment cannot disable the feature.
+            MaidPhantomTasks.note("port return takeover is unavailable: " + incompatible.getClass().getSimpleName()
+                    + ": " + incompatible.getMessage());
+            portField = null;
         }
         return portField != null;
     }
@@ -82,7 +88,9 @@ public final class MaidPhantomPortReturn {
             LivingEntity maid = MaidPhantomTasks.maidByEntity(server, playerId);
             if (maid == null) return false;
             Object inventory = inventoryField.get(queue);
-            if (inventory == null || !Boolean.TRUE.equals(hasUsableCarrier.invoke(inventory))) return false;
+            if (inventory == null) return false;
+            // The usability check is optional (see available()): the extraction below is the real test.
+            if (hasUsableCarrier != null && !Boolean.TRUE.equals(hasUsableCarrier.invoke(inventory))) return false;
             if (!(carrierInventoryField.get(inventory) instanceof net.neoforged.neoforge.items.ItemStackHandler carriers))
                 return false;
             ItemStack taken = carriers.extractItem(0, 1, false);
