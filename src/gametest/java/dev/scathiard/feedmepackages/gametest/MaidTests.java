@@ -857,11 +857,11 @@ public final class MaidTests {
         h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
                         .maidFor(task, h.getLevel().getServer()) == null,
                 "An unregistered carrier return was claimed as ours");
-        // 3: registered, it is hers, and the native carrier goes into her own inventory.
+        // 3: registered as the dispatcher, it is hers, and the native carrier goes into her own inventory.
         h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
-                .remember(task, f.maid), "Our own carrier return could not be registered");
+                .rememberReturn(task, f.maid), "Our own carrier return could not be registered");
         h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
-                        .maidFor(task, h.getLevel().getServer()) == f.maid,
+                        .maidForReturn(task, h.getLevel().getServer()) == f.maid,
                 "A registered carrier return lost its maid");
         var carrier = dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.nativeCarrier();
         h.assertTrue(carrier != null && !carrier.isEmpty(), "The native carrier item could not be created");

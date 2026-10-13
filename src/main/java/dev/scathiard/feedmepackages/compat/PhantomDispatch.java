@@ -126,6 +126,12 @@ public final class PhantomDispatch {
             // player UUID - which is byte-identical to a player's own carrier return, so this marker is the only thing
             // that can tell the two apart when the carrier comes back.
             if (maid != null) dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.remember(task, maid);
+            // A maid may also be the dispatcher (her own cache returning goods). Its return leg must come back to her,
+            // and the native player slot holds her owner in that case, so the field alone cannot tell it from a
+            // player's own carrier return - this registration is the only discriminator.
+            if (bearer instanceof net.minecraft.world.entity.TamableAnimal pet
+                    && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(pet))
+                dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.rememberReturn(task, pet);
             return TransportDispatch.Result.known(true, "phantom");
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             Throwable cause = failure instanceof InvocationTargetException wrapped ? wrapped.getCause() : failure;

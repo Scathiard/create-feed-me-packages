@@ -286,12 +286,26 @@ public final class MaidPhantomTasks {
         }
     }
 
-    /** Registers a task we just dispatched for one of our maids. Only ours: a non-maid or an unwired maid is refused. */
+    /** Registers a task we just dispatched for one of our maids as the <b>recipient</b> of its package. */
     public static boolean remember(Object task, LivingEntity maid) {
+        return remember(task, maid, PhantomMaidTaskMarker.Direction.OUTBOUND);
+    }
+
+    /**
+     * Registers a task a maid <b>dispatched herself</b> (her own cache returning goods). Its return leg has to come
+     * back to her, and the native player slot holds her <i>owner</i> either way, so this entry is the only thing that
+     * can tell her task from a player's own carrier return. Measured from the real machine: without it the carrier
+     * simply follows the native rule and flies to the owner.
+     */
+    public static boolean rememberReturn(Object task, LivingEntity maid) {
+        return remember(task, maid, PhantomMaidTaskMarker.Direction.RETURN);
+    }
+
+    private static boolean remember(Object task, LivingEntity maid, PhantomMaidTaskMarker.Direction direction) {
         UUID taskId = idOf(task);
         if (taskId == null || maid == null) return false;
         if (!MaidAccess.resolve(maid).active()) return false;
-        MAID_TASKS.put(taskId, PhantomMaidTaskMarker.encode(taskId, maid.getUUID(), PhantomMaidTaskMarker.Direction.OUTBOUND));
+        MAID_TASKS.put(taskId, PhantomMaidTaskMarker.encode(taskId, maid.getUUID(), direction));
         return true;
     }
 
@@ -302,12 +316,22 @@ public final class MaidPhantomTasks {
 
     /** The maid recorded for this task, or null. Absent markers and corrupt ones both return null and are dropped. */
     public static LivingEntity maidFor(Object task, MinecraftServer server) {
+        return maidFor(task, server, null);
+    }
+
+    /** The maid recorded as the dispatcher of this task (its return leg is hers), or null. */
+    public static LivingEntity maidForReturn(Object task, MinecraftServer server) {
+        return maidFor(task, server, PhantomMaidTaskMarker.Direction.RETURN);
+    }
+
+    private static LivingEntity maidFor(Object task, MinecraftServer server, PhantomMaidTaskMarker.Direction required) {
         UUID taskId = idOf(task);
         if (taskId == null || server == null) return null;
         String[] stored = MAID_TASKS.get(taskId);
         if (stored == null) return null;
         PhantomMaidTaskMarker.Decoded decoded = PhantomMaidTaskMarker.decode(stored[0], stored[1], stored[2]);
         if (!decoded.marked()) { MAID_TASKS.remove(taskId); return null; }
+        if (required != null && decoded.direction() != required) return null;
         if (!Phantom102Gate.usable(true)) return null;
         if (!dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102FlightCompatible()) return null;
         for (ServerLevel level : server.getAllLevels()) {

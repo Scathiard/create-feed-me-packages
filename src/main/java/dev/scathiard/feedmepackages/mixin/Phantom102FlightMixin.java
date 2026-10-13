@@ -52,7 +52,7 @@ public abstract class Phantom102FlightMixin {
         // Return leg with no source port (the carrier would go to her owner): the native player slot holds that owner,
         // byte-identical to a player's own carrier return, so only our own registry can tell them apart. A carrier
         // return that DOES have a source port must stay native - it flies home to that port, which the user verified.
-        if (maid == null && MaidPhantomTasks.returnsToSourcePlayer(this)) maid = MaidPhantomTasks.maidFor(this, server);
+        if (maid == null && MaidPhantomTasks.returnsToSourcePlayer(this)) maid = MaidPhantomTasks.maidForReturn(this, server);
         if (maid == null) return;
         Object target = MaidPhantomFlight.flightTarget(maid);
         if (target == null) return;
