@@ -44,6 +44,9 @@ public final class MaidPhantomBeltLaunch {
     private static Method findSourcePhantomPortPos;
     private static Method resolvePackageTarget;
     private static Method getLaunchGeometry;
+    private static Method launchSpawnPos;
+    private static Method launchDirection;
+    private static Method launchMotion;
     private static Method forPackageToPlayer;
     private static Method addTask;
     private static Method onCourierTaskStarted;
@@ -90,15 +93,14 @@ public final class MaidPhantomBeltLaunch {
             }
             Object geometry = getLaunchGeometry.invoke(null, level, belt, transported);
             if (geometry == null) return refuse("no native launch geometry");
-            Class<?> geometryType = geometry.getClass();
-            Vec3 spawnPos = (Vec3) geometryType.getMethod("spawnPos").invoke(geometry);
-            Vec3 direction = (Vec3) geometryType.getMethod("direction").invoke(geometry);
-            Vec3 motion = (Vec3) geometryType.getMethod("motion").invoke(geometry);
-            Class<?> taskType = Class.forName(P + "logistics.courier.AirCourierTask");
+            Vec3 spawn = (Vec3) launchSpawnPos.invoke(geometry);
+            Vec3 heading = (Vec3) launchDirection.invoke(geometry);
+            Vec3 velocity = (Vec3) launchMotion.invoke(geometry);
+            if (spawn == null || heading == null || velocity == null) return refuse("incomplete native launch geometry");
             // Slot order as measured: taskId, box, level, maidId, maidDimension, spawnPos, direction, motion,
             // sourceDimension, sourcePos, null, hudEntryId, null - the two nulls are the measured native values.
             Object task = forPackageToPlayer.invoke(null, UUID.randomUUID(), box, level, maidId,
-                    playerTargetType.getMethod("dimension").invoke(target), spawnPos, direction, motion,
+                    playerTargetType.getMethod("dimension").invoke(target), spawn, heading, velocity,
                     sourceDimension, sourcePos, null, getHudEntryId.invoke(null, onBelt), null);
             if (task == null) return refuse("native task factory returned null");
             addTask.invoke(null, server, task);
@@ -161,6 +163,16 @@ public final class MaidPhantomBeltLaunch {
                 getLaunchGeometry = Class.forName(P + "logistics.courier.AirCourierBeltHooks")
                         .getDeclaredMethod("getLaunchGeometry", ServerLevel.class, BeltBlockEntity.class, TransportedItemStack.class);
                 getLaunchGeometry.setAccessible(true);
+                // LaunchGeometry is a package-private nested class in the target mod, so its public accessors are not
+                // invocable from our package: measured in the user's log as IllegalAccessException naming that class.
+                // They are opened here once; every other phantom type we touch is public.
+                Class<?> geometryType = Class.forName(P + "logistics.courier.AirCourierBeltHooks$LaunchGeometry");
+                launchSpawnPos = geometryType.getMethod("spawnPos");
+                launchSpawnPos.setAccessible(true);
+                launchDirection = geometryType.getMethod("direction");
+                launchDirection.setAccessible(true);
+                launchMotion = geometryType.getMethod("motion");
+                launchMotion.setAccessible(true);
                 Class<?> task = Class.forName(P + "logistics.courier.AirCourierTask");
                 forPackageToPlayer = task.getMethod("forPackageToPlayer", UUID.class, ItemStack.class, ServerLevel.class,
                         UUID.class, ResourceKey.class, Vec3.class, Vec3.class, Vec3.class, ResourceKey.class,
