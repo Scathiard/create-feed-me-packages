@@ -48,6 +48,9 @@ public abstract class Phantom102FlightMixin {
     /** Rebuild the flight target from her live position every tick, so she is followed rather than a stale point. */
     @Inject(method = "resolveFlightTarget", at = @At("HEAD"), cancellable = true, remap = false)
     private void fmp$trackMaid(MinecraftServer server, CallbackInfoReturnable<Object> cir) {
+        // One heartbeat line per session: it separates "the flow never ran" from "our injection never saw it", which
+        // no other evidence can. Deduplicated by MaidPhantomTasks.note, so it costs exactly one line.
+        MaidPhantomTasks.note("resolveFlightTarget is being consulted (heartbeat)");
         fmp$maid = null;
         if (!fmp$enabled()) return;
         LivingEntity maid = MaidPhantomTasks.maidRecipient(server, this);
