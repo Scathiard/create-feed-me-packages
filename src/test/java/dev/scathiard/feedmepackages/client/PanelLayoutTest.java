@@ -836,8 +836,8 @@ class PanelLayoutTest {
                 .filter(name -> name.endsWith(".png"))
                 .sorted()
                 .toList();
-        assertEquals(List.of("button.png", "button_fold.png", "button_unfold.png", "logistics_feedback.png", "pallet_slots.png", "panel.png", "slot_source.png"),
-                shipped, "the texture folder must hold the three buttons, logistics feedback, pallet slots, panel and slot art");
+        assertEquals(List.of("button.png", "button_crafting.png", "button_fold.png", "button_maid_pickup.png", "button_unfold.png", "logistics_feedback.png", "pallet_slots.png", "panel.png", "slot_source.png"),
+                shipped, "the texture folder must hold the five distinct buttons and implemented feature sheets");
     }
     /**
      * The three button tooltips are capped at FOUR Chinese characters (user: "按钮说明删减到四个字"), which is what
@@ -1244,5 +1244,24 @@ class PanelLayoutTest {
         assertTrue(java.nio.file.Files.size(java.nio.file.Path.of(
                 "src/main/resources/assets/create_feed_me_packages/textures/gui/slot_source.png")) < 1024,
                 "the cropped sheet should be a small file, not the 256x256 reference");
+    }
+
+    @Test void craftingAndPickupButtonsShareTheFooterButHaveDistinctGlyphs() throws Exception {
+        var root = "/assets/create_feed_me_packages/textures/gui/";
+        var original = javax.imageio.ImageIO.read(getClass().getResource(root + "button.png"));
+        var crafting = javax.imageio.ImageIO.read(getClass().getResource(root + "button_crafting.png"));
+        var pickup = javax.imageio.ImageIO.read(getClass().getResource(root + "button_maid_pickup.png"));
+        for (var icon : List.of(crafting, pickup)) {
+            assertEquals(13, icon.getWidth()); assertEquals(13, icon.getHeight());
+            for (int y=0;y<13;y++) for (int x=0;x<13;x++)
+                if (x<2 || x>10 || y<2 || y>10) assertEquals(original.getRGB(x,y), icon.getRGB(x,y), "Button bevel changed");
+        }
+        assertFalse(Arrays.equals(crafting.getRGB(0,0,13,13,null,0,13), pickup.getRGB(0,0,13,13,null,0,13)));
+        for (int count : new int[]{9,16,24,30,36}) {
+            var layout = PanelLayout.compute(480,400,70,count,0,-1,false); var button = layout.craftingButton();
+            assertEquals(layout.maidPickupButton(), button); assertEquals(13, button.width());
+            assertEquals(layout.transferButton().x()-14, button.x()); assertEquals(layout.foldButton().y(), button.y());
+            assertTrue(button.x() >= layout.bounds().x());
+        }
     }
 }

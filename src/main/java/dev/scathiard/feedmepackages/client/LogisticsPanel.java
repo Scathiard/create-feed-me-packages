@@ -73,6 +73,10 @@ public final class LogisticsPanel {
      * that {@code button.png} held two rounds ago became the fold sheet's slot in turn, and every earlier byte is
      * still recoverable from {@code 参考/} and from the git history.
      */
+    private static final ResourceLocation BUTTON_CRAFTING_TEXTURE = ResourceLocation.fromNamespaceAndPath(
+            FeedMePackages.MOD_ID, "textures/gui/button_crafting.png");
+    private static final ResourceLocation BUTTON_MAID_PICKUP_TEXTURE = ResourceLocation.fromNamespaceAndPath(
+            FeedMePackages.MOD_ID, "textures/gui/button_maid_pickup.png");
     private static final ResourceLocation BUTTON_TEXTURE = ResourceLocation.fromNamespaceAndPath(
             "create_feed_me_packages", "textures/gui/button.png");
     /** The fold sheet (收纳, right-pointing chevron): the fold button while the panel is expanded. */
@@ -973,9 +977,14 @@ public final class LogisticsPanel {
     private static void renderTransferButton(GuiGraphics g) {
         if (maidPanel()) {
             var r = layout.maidPickupButton();
-            iconButton(g, r, BUTTON_TEXTURE, snapshot.maidPickup() ? "maid_pickup_on" : "maid_pickup_off", active());
+            iconButton(g, r, BUTTON_MAID_PICKUP_TEXTURE, snapshot.maidPickup() ? "maid_pickup_on" : "maid_pickup_off", active());
             if (r.width() > 0) mark(g, new PanelLayout.Rect(r.x() + 9, r.y() + 2, 3, 3),
                     snapshot.maidPickup() ? 0xff76ed77 : 0xff696969);
+        } else {
+            var r = layout.craftingButton();
+            iconButton(g, r, BUTTON_CRAFTING_TEXTURE, snapshot.craftingEnabled() ? "crafting_on" : "crafting_off", active());
+            if (r.width() > 0) mark(g, new PanelLayout.Rect(r.x() + 9, r.y() + 2, 3, 3),
+                    snapshot.craftingEnabled() ? 0xff76ed77 : 0xff696969);
         }
         LogisticsPanel.iconButton(g, layout.transferButton(), BUTTON_TEXTURE, "collect_button",
                 LogisticsPanel.collectEnabled());
@@ -1532,6 +1541,13 @@ public final class LogisticsPanel {
             }
             return true;
         }
+        if (!maidPanel() && inputLayout.craftingButton().contains(x, y)) {
+            if (active()) {
+                playButtonClick();
+                send(CacheActions.Action.CRAFTING_ENABLED, -1, snapshot.craftingEnabled() ? 0 : 1, -1, "");
+            }
+            return true;
+        }
         if (inputLayout.transferButton().contains(x, y)) {
             if (!LogisticsPanel.collectEnabled()) {
                 // Disabled (greyed out): the press is swallowed but stays SILENT - no click sound at all. This
@@ -1888,7 +1904,7 @@ public final class LogisticsPanel {
     }
 
     public static boolean fillRecipe(ResourceLocation recipe, boolean maximum) {
-        return LogisticsPanel.recipeReady() && LogisticsPanel.send(CacheActions.Action.FILL_RECIPE, 0, maximum ? 1 : 0, -1, recipe.toString());
+        return LogisticsPanel.recipeReady() && snapshot.craftingEnabled() && LogisticsPanel.send(CacheActions.Action.FILL_RECIPE, 0, maximum ? 1 : 0, -1, recipe.toString());
     }
 
     public static List<PanelLayout.CellBox> visibleCells(Screen candidate) {

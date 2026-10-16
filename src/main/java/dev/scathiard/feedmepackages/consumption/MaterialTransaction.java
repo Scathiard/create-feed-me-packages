@@ -17,28 +17,29 @@ public final class MaterialTransaction {
     private final CacheLedger ledger;
     private final CacheHandle handle;
     private final CacheRecord original;
-    private final boolean preparation;
+    private final boolean preparation, crafting;
     private final long reservationEpoch;
     private final List<ItemStack> before, inventory, preparationInventory;
     private final List<CraftingReservations.Source> allocations = new ArrayList<>();
     private final CacheEdit<ItemVariantKey> edit;
     private boolean committed;
 
-    private MaterialTransaction(ServerPlayer player, CacheHandle handle, boolean preparation) {
+    private MaterialTransaction(ServerPlayer player, CacheHandle handle, boolean preparation, boolean crafting) {
         this.player = player; this.handle = handle; ledger = CacheLedger.get(player.getServer());
-        original = ledger.find(handle.cacheId()); this.preparation = preparation;
+        original = ledger.find(handle.cacheId()); this.preparation = preparation; this.crafting = crafting;
         reservationEpoch = CraftingReservations.epoch();
         before = copyInventory(player); inventory = copies(before); edit = original.state().edit();
         preparationInventory = copies(before);
     }
     public static Optional<MaterialTransaction> open(ServerPlayer player) {
-        return open(player, false);
+        return open(player, false, false);
     }
-    static Optional<MaterialTransaction> prepare(ServerPlayer player) { return open(player, true); }
-    private static Optional<MaterialTransaction> open(ServerPlayer player, boolean preparation) {
+    public static Optional<MaterialTransaction> openCrafting(ServerPlayer player) { return open(player, false, true); }
+    static Optional<MaterialTransaction> prepare(ServerPlayer player) { return open(player, true, true); }
+    private static Optional<MaterialTransaction> open(ServerPlayer player, boolean preparation, boolean crafting) {
         var access = AccessGate.resolve(player);
-        return access.active() && !dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId()) && !player.isSpectator() && player.getInventory().items.size() == 36
-                ? Optional.of(new MaterialTransaction(player, access.handle(), preparation)) : Optional.empty();
+        return access.active() && (!crafting || CacheLedger.get(player.getServer()).find(access.handle().cacheId()).craftingEnabled()) && !dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId()) && !player.isSpectator() && player.getInventory().items.size() == 36
+                ? Optional.of(new MaterialTransaction(player, access.handle(), preparation, crafting)) : Optional.empty();
     }
     public CacheHandle handle() { return handle; }
     public long revision() { return original.state().revision(); }
@@ -124,7 +125,7 @@ public final class MaterialTransaction {
                 || dev.scathiard.feedmepackages.interaction.FluidActions.operating(handle.cacheId())) return false;
         var access = AccessGate.resolve(player); var current = ledger.find(handle.cacheId());
         if (!access.active() || !handle.equals(access.handle()) || current == null
-                || current.state().revision() != revision() || CraftingReservations.epoch() != reservationEpoch) return false;
+                || crafting && !current.craftingEnabled() || current.state().revision() != revision() || CraftingReservations.epoch() != reservationEpoch) return false;
         return matches(before, copyInventory(player));
     }
     /** Call only after destination simulation + validation, with no intervening external callbacks. */

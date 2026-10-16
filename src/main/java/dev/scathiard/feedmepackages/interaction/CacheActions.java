@@ -22,7 +22,7 @@ public final class CacheActions {
     private CacheActions() {}
     /** Opt-in panel drop: the server resolves the exact variant across all pages. */
     public static final int AUTO_DEPOSIT = -2;
-    public enum Action { DEPOSIT, TAKE_CURSOR, TAKE_INVENTORY, SET_GHOST, CLEAR_FILTER, THRESHOLDS, RESET_REQUEST, PREFERENCE, TERMINAL_ENABLED, CLEAR_NETWORK, TAKE_RESIDUAL, FILL_RECIPE, SET_RETURN_ADDRESS, RELEASE_PREVIEW, CREATIVE_BEGIN, CREATIVE_END, COLLECT_MATCHING, SUPPLY_SETTINGS, SET_FLUID_GHOST, TAKE_FLUID, PLACE_FLUID, DEPOSIT_FLUID, RELEASE_FLUID, MAID_PICKUP }
+    public enum Action { DEPOSIT, TAKE_CURSOR, TAKE_INVENTORY, SET_GHOST, CLEAR_FILTER, THRESHOLDS, RESET_REQUEST, PREFERENCE, TERMINAL_ENABLED, CLEAR_NETWORK, TAKE_RESIDUAL, FILL_RECIPE, SET_RETURN_ADDRESS, RELEASE_PREVIEW, CREATIVE_BEGIN, CREATIVE_END, COLLECT_MATCHING, SUPPLY_SETTINGS, SET_FLUID_GHOST, TAKE_FLUID, PLACE_FLUID, DEPOSIT_FLUID, RELEASE_FLUID, MAID_PICKUP, CRAFTING_ENABLED }
     public enum Result { OK, STALE, NOT_ACTIVE, INVALID_ITEM, DUPLICATE_FILTER, FILTER_OCCUPIED, NO_SPACE, INVALID_REQUEST, MISSING_MATERIAL, UNSUPPORTED_RECIPE, TOO_COMPLEX, READ_ONLY, DENIED }
     public record Intent(UUID session, long revision, Action action, int slot, int first, int second, String template) {
         public Intent {
@@ -177,6 +177,15 @@ public final class CacheActions {
         if (CraftingReservations.operating(access.handle().cacheId()) || FluidActions.operating(access.handle().cacheId())) return Result.STALE;
         var ledger = CacheLedger.get(player.getServer()); var before = ledger.find(access.handle().cacheId());
         if (before.state().revision() != intent.revision()) return Result.STALE;
+        if (intent.action() == Action.CRAFTING_ENABLED) {
+            if (PanelAccess.maid(player) || intent.first() < 0 || intent.first() > 1 || intent.slot() != -1
+                    || intent.second() != -1 || !intent.template().isEmpty()) return Result.INVALID_REQUEST;
+            boolean enabled = intent.first() == 1;
+            if (before.craftingEnabled() != enabled)
+                ledger.replace(access.handle(), before.state().revision(), before.withCraftingEnabled(enabled));
+            if (!enabled) CraftingReservations.cancelCache(access.handle().cacheId());
+            return Result.OK;
+        }
         if (intent.action() == Action.MAID_PICKUP) {
             var maid = dev.scathiard.feedmepackages.compat.maid.MaidMenus.target(player.containerMenu);
             if (maid == null || intent.first() < 0 || intent.first() > 1) return Result.INVALID_REQUEST;

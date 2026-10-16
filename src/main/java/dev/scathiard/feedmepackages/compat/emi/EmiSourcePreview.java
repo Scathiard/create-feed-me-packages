@@ -22,7 +22,7 @@ public final class EmiSourcePreview {
             "net.fxnt.fxntstorage.compat.emi.EMICraftingRecipeHandler", "net.fxnt.fxntstorage.compat.emi.EMIStonecuttingRecipeHandler",
             "net.fxnt.fxntstorage.compat.emi.EMIBackpackCraftingRecipeHandler");
     public static List<Slot> append(Object handler, AbstractContainerMenu menu, List<Slot> original) {
-        if (!ClientMaterials.active()) return original;
+        if (!ClientMaterials.craftingEnabled()) return original;
         String name = handler.getClass().getName();
         if (!NATIVE.contains(name) && !FXNT.contains(name)) return original;
         var result = new ArrayList<>(physicalSlots(handler, menu, original));
@@ -40,7 +40,7 @@ public final class EmiSourcePreview {
     }
     /** Query-only view of our aliases; never used as the real destination or network slot list. */
     public static List<Slot> physicalSlots(Object handler, AbstractContainerMenu menu, List<Slot> original) {
-        if (!ClientMaterials.active() || (!NATIVE.contains(handler.getClass().getName()) && !FXNT.contains(handler.getClass().getName()))
+        if (!ClientMaterials.craftingEnabled() || (!NATIVE.contains(handler.getClass().getName()) && !FXNT.contains(handler.getClass().getName()))
                 || !CraftingService.supported(menu)) return original;
         var result = new ArrayList<>(original);
         if (CraftingService.supported(menu)) {

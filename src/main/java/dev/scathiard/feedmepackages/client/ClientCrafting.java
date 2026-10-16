@@ -21,7 +21,7 @@ public final class ClientCrafting {
         return check(player, recipe, true, false, additional);
     }
     private static CraftingService.Result check(Player player, RecipeHolder<CraftingRecipe> recipe, boolean maximum, boolean incrementExisting, int additional) {
-        if (!ClientMaterials.active()) return CraftingService.Result.INACTIVE;
+        if (!ClientMaterials.craftingEnabled()) return CraftingService.Result.INACTIVE;
         if (!CraftingService.supported(player.containerMenu) || !(player.containerMenu.getSlot(1).container instanceof CraftingContainer grid)) return CraftingService.Result.UNSUPPORTED;
         var inventory = MaterialTransaction.copies(player.getInventory().items);
         var originalInventory = MaterialTransaction.copies(inventory);

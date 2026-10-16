@@ -422,4 +422,14 @@ public final class FxntTests {
         helper.assertTrue((Integer) count.invoke(packet, inputs, player.getInventory(), null) == 16 && stock(player) == 128,
                 "Native repeated-input maximum was still capped at one source stack"); helper.succeed();
     }
+
+    @GameTest(template = "empty")
+    public static void pendantToggleLeavesNativeFxntPhysicalFill(GameTestHelper h) throws ReflectiveOperationException {
+        if (!installed(h)) return;
+        var p=setup(h,new ItemStack(Items.STONE),8);CraftingRetrievalContractTests.toggleCrafting(p,false);
+        h.assertTrue(!place(p,Ingredient.of(Items.STONE),1) && stock(p)==8 && p.containerMenu.getSlot(1).getItem().isEmpty(),"Native FXNT bypassed OFF");
+        p.getInventory().setItem(0,new ItemStack(Items.STONE,2));
+        h.assertTrue(place(p,Ingredient.of(Items.STONE),2) && stock(p)==8 && p.getInventory().getItem(0).isEmpty()
+                && p.containerMenu.getSlot(1).getItem().getCount()==2,"OFF broke native FXNT physical fill");h.succeed();
+    }
 }

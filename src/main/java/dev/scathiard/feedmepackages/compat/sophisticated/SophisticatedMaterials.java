@@ -23,13 +23,13 @@ public final class SophisticatedMaterials {
         if (!(player instanceof ServerPlayer server) || input.isEmpty() || CURRENT.get() != null) return false;
         var context = SophisticatedAccess.resolve(player);
         if (context == null || context.wrapper() != wrapper || !context.refill()) return false;
-        var tx = MaterialTransaction.open(server).orElse(null);
+        var tx = MaterialTransaction.openCrafting(server).orElse(null);
         return tx != null && tx.takeCache(input, 1) && context.current() && tx.commit();
     }
     public static Transfer prepare(ServerPlayer player, int menu, int upgrade, UUID cache, RecipeHolder<CraftingRecipe> recipe, boolean maximum) {
         if (CURRENT.get() != null || recipe == null) return null;
         var context = SophisticatedAccess.resolve(player); var access = AccessGate.resolve(player);
-        if (context == null || context.menu().containerId != menu || context.upgrade() != upgrade || !access.active()
+        if (!CraftingService.enabled(player) || context == null || context.menu().containerId != menu || context.upgrade() != upgrade || !access.active()
                 || !access.handle().cacheId().equals(cache) || (CraftingReservations.operating(cache) || dev.scathiard.feedmepackages.interaction.FluidActions.operating(cache))
                 || !context.menu().getCarried().isEmpty()) return null;
         var tx = new Transfer(context, access.handle(), recipe, maximum);

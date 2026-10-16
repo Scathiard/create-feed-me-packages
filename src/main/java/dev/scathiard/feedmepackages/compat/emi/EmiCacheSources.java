@@ -26,7 +26,7 @@ public final class EmiCacheSources {
                 || !supported(player.containerMenu) || !player.containerMenu.stillValid(player) || wanted.isEmpty()
                 || wanted.getCount() < 1 || wanted.getCount() > Math.min(64, wanted.getMaxStackSize())) return original;
         var access = AccessGate.resolve(server);
-        if (!access.active() || CraftingReservations.operating(access.handle().cacheId())) return original;
+        if (!access.active() || !dev.scathiard.feedmepackages.consumption.CraftingService.enabled(server) || CraftingReservations.operating(access.handle().cacheId())) return original;
         var record = CacheLedger.get(server.getServer()).find(access.handle().cacheId());
         for (int slot = 0; slot < record.state().cells().size(); slot++) {
             var cell = record.state().cells().get(slot);

@@ -265,7 +265,7 @@ public final class FoundationTests {
         old.replace(handle, source.state().revision(), source.withState(edit.finish())); old.setReturnAddress(id, "keep-return");
         var eight = old.save(new CompoundTag(), registry); eight.putInt("schema", 8); eight.remove("private_retirements"); eight.remove("return_handoffs");
         for (Tag row : eight.getList("caches", Tag.TAG_COMPOUND)) {
-            ((CompoundTag)row).remove("capacity_rules"); ((CompoundTag)row).remove("astra_fluids");
+            ((CompoundTag)row).remove("crafting_enabled"); ((CompoundTag)row).remove("capacity_rules"); ((CompoundTag)row).remove("astra_fluids");
             for (Tag cell : ((CompoundTag) row).getList("cells", Tag.TAG_COMPOUND)) ((CompoundTag) cell).remove("item_controls");
         }
         var loaded = CacheLedger.load(eight, registry); var record = loaded.find(id);
@@ -492,14 +492,14 @@ public final class FoundationTests {
         var registries=h.getLevel().registryAccess();var ledger=new CacheLedger();var id=ledger.createOrdinary();
         var source=ledger.save(new CompoundTag(),registries);source.putInt("schema",31001);
         for(var element:source.getList("caches",Tag.TAG_COMPOUND)) {
-            var row=(CompoundTag)element;row.remove("capacity_rules");row.getCompound("astra_fluids").remove("capacity_rules");
+            var row=(CompoundTag)element;row.remove("crafting_enabled");row.remove("capacity_rules");row.getCompound("astra_fluids").remove("capacity_rules");
             for(var cell:row.getList("cells",Tag.TAG_COMPOUND))((CompoundTag)cell).getCompound("item_controls").remove("return_batch");
         }
         var loaded=CacheLedger.load(source,registries);
         h.assertTrue(loaded.problem().isEmpty() && loaded.find(id).state().equals(ledger.find(id).state()),"Previous converged schema lost its original state: "+loaded.problem());
         var saved=loaded.save(new CompoundTag(),registries);saved.putInt("schema",31001);
         for(var element:saved.getList("caches",Tag.TAG_COMPOUND)) {
-            var row=(CompoundTag)element;row.remove("capacity_rules");row.getCompound("astra_fluids").remove("capacity_rules");
+            var row=(CompoundTag)element;row.remove("crafting_enabled");row.remove("capacity_rules");row.getCompound("astra_fluids").remove("capacity_rules");
             for(var cell:row.getList("cells",Tag.TAG_COMPOUND))((CompoundTag)cell).getCompound("item_controls").remove("return_batch");
         }
         h.assertTrue(saved.equals(source),"Additive capacity upgrade changed a previous field");h.succeed();
@@ -515,7 +515,7 @@ public final class FoundationTests {
         ledger.replace(handle,before.state().revision(),before.withState(draft.finish()));
         var old=ledger.save(new CompoundTag(),registry);old.putInt("schema",31002);
         for(var element:old.getList("caches",Tag.TAG_COMPOUND)) {
-            var row=(CompoundTag)element;
+            var row=(CompoundTag)element; row.remove("crafting_enabled");
             for(var cell:row.getList("cells",Tag.TAG_COMPOUND))((CompoundTag)cell).getCompound("item_controls").remove("return_batch");
         }
         var loaded=CacheLedger.load(old,registry);
@@ -745,7 +745,9 @@ public final class FoundationTests {
                 var added = new CompoundTag(); added.putInt("version",1); added.putInt("slots",capacity.slots()); added.putInt("groups",capacity.groups());
                 added.put("retained",new ListTag()); added.put("requested",new ListTag()); expected.put("capacity_rules",added);
             }
-            helper.assertTrue(row(ledger, expectedId, registries).equals(expected), "World cache state changed across JVM outside approved additive capacity fields");
+            if (!expected.contains("crafting_enabled")) expected.putBoolean("crafting_enabled", true);
+            helper.assertTrue(row(ledger, expectedId, registries).equals(expected), "World cache state changed across JVM outside approved additive fields");
+            if (probe.data.getBoolean("crafting_toggle_v1")) helper.assertTrue(ledger.find(expectedId).craftingEnabled() == (index != 0), "ON/OFF did not survive the real JVM restart");
             helper.assertTrue(!ledger.cacheFirst(player.getUUID()), "Prior saved preference reactivated after JVM restart");
             helper.assertTrue(player.getInventory().getItem(12).is(Items.DIAMOND) && player.getInventory().getItem(12).getCount() == 13,
                     "Real vanilla player inventory was not restored");
@@ -754,7 +756,7 @@ public final class FoundationTests {
             helper.assertTrue(!residual.isEmpty() && ParcelAuthentication.valid(ledger, registries, residual, residual.get(FmpRegistries.PARCEL_SEAL.get())),
                     "Real saved residual or world authentication state did not survive JVM");
         }
-        var next = new CompoundTag(); next.putUUID("writer", PROCESS); next.putInt("schema", CacheLedger.SCHEMA);
+        var next = new CompoundTag(); next.putUUID("writer", PROCESS); next.putInt("schema", CacheLedger.SCHEMA); next.putBoolean("crafting_toggle_v1",true);
         for (int index = 0; index < players.size(); index++) {
             var player = players.get(index); var handle = AccessGate.resolve(player).handle();
             var before = ledger.find(handle.cacheId()); var edit = before.state().edit();
@@ -764,7 +766,7 @@ public final class FoundationTests {
             var key = ItemVariantKey.of(sample, registries); edit.filter(0, key);
             int capacity = CacheLevel.of(index == 0 ? 2 : 5).capacity(); int groupCapacity = CacheLevel.of(index == 0 ? 2 : 5).groupCapacity(); edit.thresholds(0, groupCapacity, -1);
             UUID order = UUID.randomUUID(); edit.request(0, order, player.getUUID(), 64, false); edit.insert(0, key, groupCapacity * key.stackSize() - 16);
-            ledger.replace(handle, before.state().revision(), new CacheRecord(edit.finish(), before.owner(), Map.of()));
+            ledger.replace(handle, before.state().revision(), new CacheRecord(edit.finish(), before.owner(), Map.of()).withCraftingEnabled(index != 0));
             var box = PackageItem.containing(List.of(key.stack(registries, 32))); String address = SupplyService.address(player);
             PackageItem.addAddress(box, address);
             ParcelAuthentication.apply(ledger, registries, box, new ParcelSeal(UUID.randomUUID(), handle.cacheId(), player.getUUID(), order,
@@ -776,8 +778,9 @@ public final class FoundationTests {
             saveNativePlayer(player);
             next.putUUID("cache_" + index, handle.cacheId()); next.put("record_" + index, row(ledger, handle.cacheId(), registries));
         }
+        boolean toggleChecked = prior && probe.data.getBoolean("crafting_toggle_v1");
         probe.data = next; probe.setDirty();
-        FeedMePackages.LOGGER.info("FMP_CURRENT_PERSISTENCE {} schema={} ordinary+retired exact-state/player-files", prior ? "PRIOR_JVM_PASSED" : "FIRST_WRITE", CacheLedger.SCHEMA);
+        FeedMePackages.LOGGER.info("FMP_CURRENT_PERSISTENCE {} schema={} ordinary+retired exact-state/player-files craftingToggleChecked=" + toggleChecked, prior ? "PRIOR_JVM_PASSED" : "FIRST_WRITE", CacheLedger.SCHEMA);
         helper.succeed();
     }
 

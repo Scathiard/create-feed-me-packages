@@ -95,6 +95,14 @@ public final class CraftingReservations {
         var grid = CraftingService.grid(menu); var raw = ((CraftingItemsAccess)grid).fmp$items();
         strip(raw, session.sources); menu.slotsChanged(grid); menu.broadcastChanges();
     }
+    /** Revoke only crafting leases; cursor previews and actual grid items keep their owners. */
+    public static void cancelCache(UUID cache) {
+        for (var entry : new ArrayList<>(SESSIONS.entrySet())) {
+            var session = entry.getValue();
+            if (session.handle.cacheId().equals(cache) && session.menu.get() != null)
+                cancel(entry.getKey(), session.menu.get());
+        }
+    }
     public static void forget(ServerPlayer player) {
         dev.scathiard.feedmepackages.interaction.CursorReservations.cancel(player);
         var session = SESSIONS.get(player);
@@ -114,7 +122,7 @@ public final class CraftingReservations {
                 || !session.handle.equals(access.handle()) || player.isSpectator()
                 || !MaterialTransaction.matches(session.display, CraftingService.grid(menu).getItems())) return false;
         var record = CacheLedger.get(player.getServer()).find(session.handle.cacheId());
-        if (record == null) return false;
+        if (record == null || !record.craftingEnabled()) return false;
         for (var source : session.sources) {
             if (source.cache) {
                 var cell = record.state().cells().get(source.index);
@@ -153,7 +161,7 @@ public final class CraftingReservations {
             cancel(player, menu); session = null;
         }
         var access = AccessGate.resolve(player);
-        if (player.containerMenu != menu || !CraftingService.supported(menu) || !access.active() || player.isSpectator()) return new Scope(player, null);
+        if (player.containerMenu != menu || !CraftingService.supported(menu) || !access.active() || !CraftingService.enabled(player) || player.isSpectator()) return new Scope(player, null);
         if (click != ClickType.QUICK_CRAFT && click != ClickType.PICKUP_ALL && (slot < 0 || slot > CraftingService.grid(menu).getContainerSize()))
             return new Scope(player, null);
         if (session == null) session = new Session(player, menu, access.handle(), List.of(), CraftingService.grid(menu).getItems());

@@ -20,7 +20,7 @@ public final class ServerCacheSupply implements CacheSupply {
     @Override public List<Entry> available() {
         var entries = new ArrayList<Entry>();
         var access = AccessGate.resolve(player);
-        if (!access.active()) {
+        if (!access.active() || !dev.scathiard.feedmepackages.consumption.CraftingService.enabled(player)) {
             skipped("cache not active");
             return entries;
         }
@@ -51,7 +51,7 @@ public final class ServerCacheSupply implements CacheSupply {
     @Override public int take(int cell, int count) {
         if (count <= 0) return 0;
         var access = AccessGate.resolve(player);
-        if (!access.active()) {
+        if (!access.active() || !dev.scathiard.feedmepackages.consumption.CraftingService.enabled(player)) {
             skipped("cache not active");
             return 0;
         }

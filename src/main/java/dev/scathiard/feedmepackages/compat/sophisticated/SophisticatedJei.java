@@ -26,7 +26,7 @@ public final class SophisticatedJei {
     @SuppressWarnings("unchecked")
     private static boolean fill(AbstractContainerMenu menu, RecipeHolder<?> recipe, Player player, boolean maximum, boolean transfer, boolean requireImprovement) {
         if (!FmpConfig.jeiCraftingEnabled() || !ClientCompatibility.sophisticatedSourcesAvailable()
-                || !ClientMaterials.active() || !(recipe.value() instanceof CraftingRecipe)
+                || !ClientMaterials.craftingEnabled() || !(recipe.value() instanceof CraftingRecipe)
                 || player.containerMenu != menu || !menu.getCarried().isEmpty()) return false;
         var context = SophisticatedAccess.resolve(player);
         if (context == null) return false;

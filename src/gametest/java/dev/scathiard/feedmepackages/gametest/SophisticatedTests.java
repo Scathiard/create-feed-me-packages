@@ -29,7 +29,7 @@ public final class SophisticatedTests {
         return List.of(test("native_fill_and_craft", SophisticatedTests::fill), test("native_maximum", SophisticatedTests::maximum),
                 test("native_refill_opt_in", SophisticatedTests::refill), test("native_remainder", SophisticatedTests::remainder),
                 test("full_displacement", SophisticatedTests::full), test("stale_identity", SophisticatedTests::stale),
-                test("config_and_wire", SophisticatedTests::wire));
+                test("config_and_wire", SophisticatedTests::wire), test("pendant_crafting_toggle", SophisticatedTests::pendantToggle));
     }
     private static TestFunction test(String name, Body body) {
         return new TestFunction("sophisticated", "fmp_sophisticated_" + name, FeedMePackages.MOD_ID + ":empty", 100, 0, true,
@@ -56,11 +56,18 @@ public final class SophisticatedTests {
         }
     }
     private static Fixture setup(GameTestHelper h, Item item, int count) throws ReflectiveOperationException {
+        return setup(h, item, count, true);
+    }
+    private static Fixture setup(GameTestHelper h, Item item, int count, boolean craftingEnabled) throws ReflectiveOperationException {
         h.assertTrue(CompatibilityStatus.sophisticated() == CompatibilityStatus.State.READY, "Sophisticated native ports were not ready");
         var player = TestPlayers.create(h, FmpRegistries.PENDANT.toStack()); ConsumptionTests.seed(player, 0, new ItemStack(item), count);
         var handle = AccessGate.resolve(player).handle();
         h.assertTrue(CacheLedger.get(player.getServer()).find(handle.cacheId()).state().cells().get(0).amount() == count,
                 "Fixture requested more material than its real cache can hold");
+        if (!craftingEnabled) {
+            var off = CraftingRetrievalContractTests.toggleCrafting(player, false);
+            h.assertTrue(off.result() == dev.scathiard.feedmepackages.interaction.CacheActions.Result.OK && !off.craftingEnabled(), "Inventory toggle before opening backpack failed");
+        }
         var bag = createBackpack(player);
         var kind = Class.forName("net.p3pp3rf1y.sophisticatedbackpacks.common.gui.BackpackContext");
         var nativeContext = Class.forName(kind.getName() + "$Item").getConstructor(String.class, int.class).newInstance("main", 8);
@@ -169,6 +176,16 @@ public final class SophisticatedTests {
             FmpConfig.SOPHISTICATED.set(true); FmpConfig.JEI.set(false); FmpConfig.refreshServer();
             h.assertTrue(!f.fill("oak_planks", false) && f.stock() == 8 && f.grid() == 0, "Disabled viewer spent stock");
         } finally { FmpConfig.SOPHISTICATED.set(configured); FmpConfig.JEI.set(jei); FmpConfig.refreshServer(); }
+        h.succeed();
+    }
+
+    private static void pendantToggle(GameTestHelper h) throws ReflectiveOperationException {
+        var f = setup(h, Items.OAK_PLANKS, 10, false); f.refill(true);
+        h.assertTrue(!f.fill("stick", false) && f.stock() == 10, "Transfer bypassed OFF");
+        f.context.grid().get(0).set(new ItemStack(Items.OAK_PLANKS)); f.context.grid().get(3).set(new ItemStack(Items.OAK_PLANKS));
+        f.inventory.setStackInSlot(0, new ItemStack(Items.OAK_PLANKS, 2));
+        f.clickResult(); h.assertTrue(f.grid() == 2 && f.stock() == 10 && f.inventory.getStackInSlot(0).isEmpty(), "OFF blocked native physical refill");
+        f.clickResult(); h.assertTrue(f.grid() == 0 && f.stock() == 10, "OFF still refilled from cache");
         h.succeed();
     }
 }

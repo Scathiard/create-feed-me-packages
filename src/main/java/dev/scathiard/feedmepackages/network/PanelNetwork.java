@@ -59,7 +59,7 @@ public final class PanelNetwork {
         }
     }
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("11-return-batch");
+        var registrar = event.registrar("12-crafting-toggle");
         registrar.playToServer(PanelPackets.Query.TYPE, PanelPackets.Query.CODEC, (packet, context) -> {
             var reply = query((ServerPlayer) context.player(), packet); if (reply != null) context.reply(reply);
         });
@@ -205,6 +205,6 @@ public final class PanelNetwork {
                 new PanelPackets.FluidPreviewView(fluid.slot(), fluid.template(), fluid.amount(), fluid.sequence()),
                 record==null?0:window.firstSlot,record==null?0:record.state().cells().size(),window.columnLimit,
                 access.active() && dev.scathiard.feedmepackages.compat.maid.MaidPickup.enabled(
-                        dev.scathiard.feedmepackages.compat.maid.MaidMenus.target(player.containerMenu)));
+                        dev.scathiard.feedmepackages.compat.maid.MaidMenus.target(player.containerMenu)), record == null || record.craftingEnabled());
     }
 }

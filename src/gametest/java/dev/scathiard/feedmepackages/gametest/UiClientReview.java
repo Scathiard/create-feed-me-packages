@@ -63,7 +63,47 @@ public final class UiClientReview {
                 resize(1280, 800);
                 next();
             }
-            case 14 -> { return true; }
+            case 14 -> {
+                if (!panelReady()) return false;
+                onServer(player -> {
+                    ConsumptionTests.seed(player, 0, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.OAK_LOG), 8);
+                    var recipe = player.getServer().getRecipeManager().byKey(net.minecraft.resources.ResourceLocation.withDefaultNamespace("oak_planks")).orElseThrow();
+                    @SuppressWarnings("unchecked") var crafting = (net.minecraft.world.item.crafting.RecipeHolder<net.minecraft.world.item.crafting.CraftingRecipe>)recipe;
+                    require(dev.scathiard.feedmepackages.consumption.CraftingService.place(player, crafting, false, false, true)
+                            == dev.scathiard.feedmepackages.consumption.CraftingService.Result.OK, "Could not prepare cache-only recipe");
+                }); next();
+            }
+            case 15 -> {
+                if (!panelReady() || TemplateClientReview.snapshot().cells().getFirst().amount() != 8) return false;
+                require(TemplateClientReview.snapshot().craftingEnabled(), "Fresh pendant must start ON");
+                var r = TemplateClientReview.hostLayout().craftingButton(); TemplateClientReview.move(r.x()+6,r.y()+6); next();
+            }
+            case 16 -> {
+                TemplateClientReview.capture("crafting-toggle-on");
+                var r = TemplateClientReview.hostLayout().craftingButton(); TemplateClientReview.click(r.x()+6,r.y()+6); next();
+            }
+            case 17 -> {
+                if (TemplateClientReview.snapshot().craftingEnabled() || dev.scathiard.feedmepackages.client.ClientMaterials.craftingEnabled()) return false;
+                require(dev.scathiard.feedmepackages.client.ClientMaterials.active() && !dev.scathiard.feedmepackages.client.ClientMaterials.stacks().isEmpty()
+                        && dev.scathiard.feedmepackages.client.ClientMaterials.craftingStacks().isEmpty(), "Crafting OFF incorrectly hid all material sources");
+                onServer(player -> {
+                    require(!dev.scathiard.feedmepackages.consumption.CraftingService.enabled(player), "UI OFF did not reach server");
+                    require(dev.scathiard.feedmepackages.consumption.CraftingService.grid(player.containerMenu).getItem(0).isEmpty(), "OFF left an unspent recipe lease");
+                    require(ConsumptionTests.stock(player,0)==8, "OFF consumed the preparation");
+                }); TemplateClientReview.capture("crafting-toggle-off"); next();
+            }
+            case 18 -> { MC.screen.onClose(); openInventory(); }
+            case 19 -> {
+                if (!panelReady()) return false;
+                require(!TemplateClientReview.snapshot().craftingEnabled(), "Reopening reset OFF");
+                var r = TemplateClientReview.hostLayout().craftingButton(); TemplateClientReview.click(r.x()+6,r.y()+6); next();
+            }
+            case 20 -> {
+                if (!TemplateClientReview.snapshot().craftingEnabled() || !dev.scathiard.feedmepackages.client.ClientMaterials.craftingEnabled()) return false;
+                require(!dev.scathiard.feedmepackages.client.ClientMaterials.craftingStacks().isEmpty(), "ON failed to restore client crafting sources");
+                TemplateClientReview.capture("crafting-toggle-restored"); next();
+            }
+            case 21 -> { return true; }
             default -> { }
         }
         return false;
@@ -133,6 +173,8 @@ public final class UiClientReview {
         work = MC.reloadResourcePacks();
         next();
     }
+
+    private static void require(boolean value, String message) { if (!value) throw new IllegalStateException(message); }
 
     private static void next() { phase++; changed = ticks; }
 }

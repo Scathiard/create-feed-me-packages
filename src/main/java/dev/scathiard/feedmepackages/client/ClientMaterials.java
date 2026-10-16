@@ -17,7 +17,7 @@ public final class ClientMaterials {
     private ClientMaterials() {}
     private static UUID generation, cache;
     private static long serial;
-    private static boolean active, first;
+    private static boolean active, first, craftingEnabled;
     private static final Set<String> NOTED = new HashSet<>();
     private static List<ItemStack> prototypes = List.of();
     private static List<Integer> counts = List.of();
@@ -31,15 +31,16 @@ public final class ClientMaterials {
         MaterialHints.receiveOnClient(ClientMaterials::accept); AmmoService.clientQuery(ClientMaterials::ammo);
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> clear());
     }
-    public static void clear() { generation = null; cache = null; serial = 0; active = false; first = false; prototypes = List.of(); counts = List.of(); ownReservations = List.of(); reservedGrid = List.of(); }
+    public static void clear() { generation = null; cache = null; serial = 0; active = false; first = false; craftingEnabled = false; prototypes = List.of(); counts = List.of(); ownReservations = List.of(); reservedGrid = List.of(); }
     public static boolean active() { return active && Minecraft.getInstance().player != null && !Minecraft.getInstance().player.isSpectator(); }
+    public static boolean craftingEnabled() { return active() && craftingEnabled; }
     public static boolean cacheFirst() { return false; }
     public static UUID cacheId() { return cache; }
     public static long version() { return serial; }
     public static List<ItemStack> stacks() {
         return stacks(false);
     }
-    public static List<ItemStack> craftingStacks() { return stacks(true); }
+    public static List<ItemStack> craftingStacks() { return craftingEnabled() ? stacks(true) : List.of(); }
     private static List<ItemStack> stacks(boolean preparing) {
         if (!active()) return List.of();
         var result = new ArrayList<ItemStack>();
@@ -82,7 +83,7 @@ public final class ClientMaterials {
             }
             if (nameless > 0) skip("namelessCellWithStock", nameless + " hinted cell(s) carry stock but no name this client can decode; they stay out of the material view");
             cache = packet.active() ? packet.cache() : null;
-            counts = nextCounts; first = false; active = packet.active(); serial = packet.serial();
+            counts = nextCounts; first = false; active = packet.active(); craftingEnabled = packet.craftingEnabled(); serial = packet.serial();
             ownReservations = nextOwn; reservedGrid = packet.reservedGrid(); menu = packet.menu();
         } catch (IllegalArgumentException invalid) { clear(); FeedMePackages.LOGGER.warn("Rejected invalid material hints: {}", invalid.getMessage()); }
     }

@@ -55,7 +55,7 @@ public final class FxntMaterials {
     public static Inventory countView(Inventory original, List<Ingredient> wanted) {
         if (!FmpConfig.fxntMaterialsEnabled() || !FxntTransferContext.cacheAllowed() || !(original.player instanceof ServerPlayer player) || wanted.isEmpty()) return original;
         var access = AccessGate.resolve(player);
-        if (!access.active() || CraftingReservations.operating(access.handle().cacheId())) return original;
+        if (!access.active() || !dev.scathiard.feedmepackages.consumption.CraftingService.enabled(player) || CraftingReservations.operating(access.handle().cacheId())) return original;
         return new View(original, available(player, CacheLedger.get(player.getServer()).find(access.handle().cacheId()), wanted));
     }
     public static Inventory preview(Inventory original, List<ItemStack> hints, List<Ingredient> wanted) {
@@ -227,7 +227,7 @@ public final class FxntMaterials {
         var target = destinations.get(index);
         if (!player.containerMenu.slots.contains(target) || !target.getItem().isEmpty()) return null;
         var access = AccessGate.resolve(player);
-        if (!access.active() || CraftingReservations.operating(access.handle().cacheId())) return null;
+        if (!access.active() || !dev.scathiard.feedmepackages.consumption.CraftingService.enabled(player) || CraftingReservations.operating(access.handle().cacheId())) return null;
         var record = CacheLedger.get(player.getServer()).find(access.handle().cacheId());
         var offers = available(player, record, List.of(ingredient));
         ItemStack chosen = ItemStack.EMPTY;

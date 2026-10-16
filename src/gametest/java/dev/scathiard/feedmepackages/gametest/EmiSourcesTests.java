@@ -126,4 +126,17 @@ public final class EmiSourcesTests {
         int count = (Integer)method.invoke(null, player, sources, new ArrayList<ItemStack>(), List.of(), new ItemStack(Items.OAK_LOG));
         helper.assertTrue(count == 0 && sources.getFirst().getItem().getCount() == 1, "Stale source was consumed"); helper.succeed();
     }
+
+    @GameTest(template = "empty")
+    public static void pendantToggleLeavesTheNativeEmiPacketAndPhysicalSources(GameTestHelper h) throws ReflectiveOperationException {
+        if (!installed(h)) return;
+        var p = setup(h,new ItemStack(Items.OAK_LOG),12); CraftingRetrievalContractTests.toggleCrafting(p,false);
+        fill(p,new ItemStack(Items.OAK_LOG));
+        h.assertTrue(stock(p)==12 && CraftingService.grid(p.containerMenu).isEmpty(), "Native EMI bypassed OFF");
+        p.getInventory().setItem(8,new ItemStack(Items.OAK_LOG)); fill(p,new ItemStack(Items.OAK_LOG));
+        h.assertTrue(stock(p)==12 && p.containerMenu.getSlot(1).getItem().getCount()==1 && inventory(p,Items.OAK_LOG)==0,"OFF blocked native EMI physical fill");
+        p.containerMenu.clicked(0,0,ClickType.PICKUP,p); p.containerMenu.setCarried(ItemStack.EMPTY);
+        CraftingRetrievalContractTests.toggleCrafting(p,true); fill(p,new ItemStack(Items.OAK_LOG,2));
+        h.assertTrue(stock(p)==10 && p.containerMenu.getSlot(1).getItem().getCount()==2,"ON failed to restore native EMI fill");h.succeed();
+    }
 }

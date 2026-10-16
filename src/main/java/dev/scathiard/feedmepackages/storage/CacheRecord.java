@@ -11,7 +11,7 @@ import java.util.stream.Collectors;
  *  Residuals are actual packages, not counts, and are owned per exact filter variant (one per item cell).
  *  A cell may hold at most one residual; different cells never contend for a shared slot. */
 public record CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<ItemVariantKey, ItemStack> residuals,
-                          CacheFluids fluids) {
+                          CacheFluids fluids, boolean craftingEnabled) {
     public CacheRecord {
         Objects.requireNonNull(state);
         residuals = copyResiduals(residuals);
@@ -28,6 +28,12 @@ public record CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<Item
     public CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<ItemVariantKey, ItemStack> residuals) {
         this(state, owner, residuals, CacheFluids.empty(state));
     }
+    public CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<ItemVariantKey, ItemStack> residuals, CacheFluids fluids) {
+        this(state, owner, residuals, fluids, true);
+    }
+    public CacheRecord withCraftingEnabled(boolean enabled) {
+        return new CacheRecord(state, owner, residuals, fluids, enabled);
+    }
     @Override public Map<ItemVariantKey, ItemStack> residuals() { return copyResiduals(residuals); }
     public ItemStack residual(ItemVariantKey variant) {
         ItemStack stack = residuals.get(variant);
@@ -38,7 +44,7 @@ public record CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<Item
     public boolean blocksReplenishment() { return !residuals.isEmpty() || !fluids.residuals().isEmpty(); }
     public CacheRecord withState(CacheState<ItemVariantKey> next) { return withStates(next, fluids.align(next)); }
     public CacheRecord withStates(CacheState<ItemVariantKey> next, CacheFluids nextFluids) {
-        return new CacheRecord(next, owner, residuals, nextFluids);
+        return new CacheRecord(next, owner, residuals, nextFluids, craftingEnabled);
     }
     public CacheRecord withFluids(CacheFluids next) {
         var context = next.state();
@@ -52,7 +58,7 @@ public record CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<Item
         var next = new HashMap<>(residuals);
         if (box == null || box.isEmpty()) next.remove(variant);
         else next.put(variant, box.copy());
-        return new CacheRecord(state, owner, next, fluids);
+        return new CacheRecord(state, owner, next, fluids, craftingEnabled);
     }
 
     private static Map<ItemVariantKey, ItemStack> copyResiduals(Map<ItemVariantKey, ItemStack> source) {

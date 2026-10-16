@@ -204,6 +204,8 @@
   "gui.create_feed_me_packages.controls.fluid_step": "滚轮：±8 桶",
   "gui.create_feed_me_packages.result.read_only": "配置缩容：仅可取出",
   "gui.create_feed_me_packages.result.denied": "该物品禁止存入",
+  "gui.create_feed_me_packages.crafting_on": "合成取用：开",
+  "gui.create_feed_me_packages.crafting_off": "合成取用：关",
   "gui.create_feed_me_packages.maid_pickup_on": "自动拾取入库：开",
   "gui.create_feed_me_packages.maid_pickup_off": "自动拾取入库：关"
 }

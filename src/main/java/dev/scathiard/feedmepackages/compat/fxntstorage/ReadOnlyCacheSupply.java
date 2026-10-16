@@ -9,7 +9,7 @@ import java.util.List;
 final class ReadOnlyCacheSupply implements CacheSupply {
     @Override public List<Entry> available() {
         var entries = new ArrayList<Entry>();
-        if (!ClientMaterials.active()) return entries;
+        if (!ClientMaterials.craftingEnabled()) return entries;
         var stacks = ClientMaterials.stacks();
         for (int index = 0; index < stacks.size(); index++) {
             var stack = stacks.get(index);

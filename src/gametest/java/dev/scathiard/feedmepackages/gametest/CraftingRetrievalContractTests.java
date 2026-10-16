@@ -68,6 +68,7 @@ public final class CraftingRetrievalContractTests {
     }
     /** The real panel/JEI entry: a live snapshot, then one FILL_RECIPE intent over the panel packet channel. */
     private static CacheActions.Result fill(ServerPlayer player, String recipeId, boolean maximum) {
+        player.tickCount += 4; // Real clients cannot reopen the panel multiple times in the same tick.
         var window = UUID.randomUUID();
         var view = PanelNetwork.query(player, new PanelPackets.Query(window, player.containerMenu.containerId, true));
         var intent = new CacheActions.Intent(view.session(), view.revision(), CacheActions.Action.FILL_RECIPE, 0, maximum ? 1 : 0, -1, recipeId);
@@ -224,5 +225,82 @@ public final class CraftingRetrievalContractTests {
         helper.assertTrue(stock(player, 0) == 29 && inventoryCount(player, Items.IRON_NUGGET) == 9,
                 "Closing after a manual take lost or duplicated material: cache=" + stock(player, 0) + ", nuggets=" + inventoryCount(player, Items.IRON_NUGGET));
         helper.succeed();
+    }
+
+    static PanelPackets.Snapshot toggleCrafting(ServerPlayer player, boolean enabled) {
+        player.tickCount += 4; // Real clients cannot reopen the panel multiple times in the same tick.
+        var window = UUID.randomUUID();
+        var view = PanelNetwork.query(player, new PanelPackets.Query(window, player.containerMenu.containerId, true));
+        var intent = new CacheActions.Intent(view.session(), view.revision(), CacheActions.Action.CRAFTING_ENABLED,
+                -1, enabled ? 1 : 0, -1, "");
+        return PanelNetwork.command(player, new PanelPackets.Command(window, 1, intent, false, "", 0));
+    }
+    @GameTest(template = "empty")
+    public static void craftingToggleRevokesLeasesButLeavesNativeInventoryCrafting(GameTestHelper h) {
+        var p = TestPlayers.create(h, FmpRegistries.PENDANT.toStack()); seed(p, 0, new ItemStack(Items.OAK_LOG), 32);
+        var recipe = recipe(p, "minecraft:oak_planks"); p.awardRecipes(List.of(recipe));
+        h.assertTrue(fill(p, "minecraft:oak_planks", false) == CacheActions.Result.OK, "Cache preparation failed");
+        var cache = AccessGate.resolve(p).handle().cacheId();
+        h.assertTrue(CraftingReservations.reservedCache(cache, 0, null) == 1, "Expected one unspent lease");
+        var off = toggleCrafting(p, false);
+        h.assertTrue(off.result() == CacheActions.Result.OK && !off.craftingEnabled() && stock(p, 0) == 32
+                && gridCount(p, Items.OAK_LOG) == 0 && CraftingReservations.reservedCache(cache, 0, null) == 0,
+                "OFF did not cancel only unspent crafting material");
+        h.assertTrue(fill(p, "minecraft:oak_planks", false) != CacheActions.Result.OK, "Browser request bypassed OFF");
+        p.getInventory().setItem(0, new ItemStack(Items.OAK_LOG, 2));
+        p.inventoryMenu.handlePlacement(false, recipe, p); p.containerMenu.clicked(0, 0, ClickType.QUICK_MOVE, p);
+        h.assertTrue(inventoryCount(p, Items.OAK_PLANKS) == 4 && inventoryCount(p, Items.OAK_LOG) == 1 && stock(p, 0) == 32,
+                "OFF broke the native recipe-book path");
+        p.getInventory().setItem(0, ItemStack.EMPTY);
+        h.assertTrue(toggleCrafting(p, true).craftingEnabled() && fill(p, "minecraft:oak_planks", false) == CacheActions.Result.OK,
+                "ON failed to restore cache sources"); CraftingReservations.cancel(p, p.containerMenu); h.succeed();
+    }
+    @GameTest(template = "empty")
+    public static void craftingToggleBelongsToPendantAndPreservesSaveDefaults(GameTestHelper h) {
+        var p = TestPlayers.create(h, FmpRegistries.PENDANT.toStack()); seed(p, 0, new ItemStack(Items.OAK_LOG), 17);
+        var handle = AccessGate.resolve(p).handle(); var ledger = CacheLedger.get(p.getServer());
+        h.assertTrue(ledger.find(handle.cacheId()).craftingEnabled(), "New pendant must default ON"); toggleCrafting(p, false);
+        var record = ledger.find(handle.cacheId()); var edit = record.state().edit(); edit.upgrade();
+        ledger.replace(handle, record.state().revision(), record.withState(edit.finish()));
+        h.assertTrue(!ledger.find(handle.cacheId()).craftingEnabled(), "Upgrade reset OFF");
+        var pendant = TestPlayers.necklace(p).getStackInSlot(0);
+        TestPlayers.necklace(p).setStackInSlot(0, FmpRegistries.PENDANT.toStack());
+        h.assertTrue(CraftingService.enabled(p), "Another pendant inherited player's OFF");
+        var other = TestPlayers.create(h, pendant); h.assertTrue(!CraftingService.enabled(other), "Giving pendant lost OFF");
+        var saved = ledger.save(new net.minecraft.nbt.CompoundTag(), p.registryAccess());
+        var restored = CacheLedger.load(saved, p.registryAccess());
+        h.assertTrue(restored.problem().isEmpty() && !restored.find(handle.cacheId()).craftingEnabled()
+                && restored.find(handle.cacheId()).state().cells().get(0).amount() == 17, "Save/load lost OFF or stock");
+        var old = saved.copy(); old.putInt("schema", 31003);
+        for (var row : old.getList("caches", net.minecraft.nbt.Tag.TAG_COMPOUND)) ((net.minecraft.nbt.CompoundTag)row).remove("crafting_enabled");
+        var legacy = CacheLedger.load(old, p.registryAccess());
+        h.assertTrue(legacy.problem().isEmpty() && legacy.find(handle.cacheId()).craftingEnabled()
+                && legacy.find(handle.cacheId()).state().cells().get(0).amount() == 17, "Legacy absence must default ON");
+        var corrupt = saved.copy(); corrupt.getList("caches", net.minecraft.nbt.Tag.TAG_COMPOUND).getCompound(0).putByte("crafting_enabled", (byte)2);
+        var locked = CacheLedger.load(corrupt, p.registryAccess());
+        h.assertTrue(!locked.problem().isEmpty() && locked.save(new net.minecraft.nbt.CompoundTag(), p.registryAccess()).equals(corrupt),
+                "Invalid new field was silently reset"); h.succeed();
+    }
+    @GameTest(template = "empty")
+    public static void craftingToggleKeepsAmmoMaterialsAndPublishesBothPacketViews(GameTestHelper h) {
+        var p = TestPlayers.create(h, FmpRegistries.PENDANT.toStack()); seed(p, 0, new ItemStack(Items.ARROW), 10); seed(p, 1, new ItemStack(Items.STONE), 10);
+        var first = dev.scathiard.feedmepackages.network.MaterialHints.next(p); var off = toggleCrafting(p, false);
+        var hints = dev.scathiard.feedmepackages.network.MaterialHints.next(p);
+        h.assertTrue(first.craftingEnabled() && hints != null && hints.active() && !hints.craftingEnabled() && !hints.full(), "Crafting flag delta missing");
+        var buf = new net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(), p.registryAccess());
+        try {
+            PanelPackets.Snapshot.CODEC.encode(buf, off); h.assertTrue(PanelPackets.Snapshot.CODEC.decode(buf).equals(off), "Panel flag wire mismatch");
+            dev.scathiard.feedmepackages.network.MaterialHints.Message.CODEC.encode(buf, hints);
+            h.assertTrue(dev.scathiard.feedmepackages.network.MaterialHints.Message.CODEC.decode(buf).equals(hints), "Hints flag wire mismatch");
+        } finally { buf.release(); }
+        var bow = new ItemStack(Items.BOW); p.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, bow);
+        bow.getItem().releaseUsing(bow, p.level(), p, bow.getUseDuration(p) - 20); h.assertTrue(stock(p, 0) == 9, "OFF disabled native arrows");
+        var tx = dev.scathiard.feedmepackages.consumption.MaterialTransaction.open(p).orElseThrow();
+        h.assertTrue(tx.take(new ItemStack(Items.STONE), 1) && tx.commit() && stock(p, 1) == 9, "OFF disabled other consumers");
+        h.assertTrue(dev.scathiard.feedmepackages.consumption.MaterialTransaction.openCrafting(p).isEmpty(), "Crafting-only transaction bypassed OFF");
+        var supply = new dev.scathiard.feedmepackages.compat.fxntstorage.ServerCacheSupply(p);
+        h.assertTrue(supply.available().isEmpty() && supply.take(1, 1) == 0 && stock(p, 1) == 9, "FXNT direct source bypassed OFF");
+        var originals = List.of(p.inventoryMenu.getSlot(9));
+        h.assertTrue(dev.scathiard.feedmepackages.compat.emi.EmiCacheSources.append(p, originals, new ItemStack(Items.STONE)) == originals, "EMI source bypassed OFF"); h.succeed();
     }
 }

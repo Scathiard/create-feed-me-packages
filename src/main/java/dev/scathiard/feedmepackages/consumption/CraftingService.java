@@ -14,6 +14,11 @@ import java.util.*;
 public final class CraftingService {
     private CraftingService() {}
     public enum Result { OK, INACTIVE, UNSUPPORTED, MISSING, NO_SPACE, STALE, TOO_COMPLEX }
+    public static boolean enabled(ServerPlayer player) {
+        var access = AccessGate.resolve(player);
+        return access.active() && dev.scathiard.feedmepackages.storage.CacheLedger.get(player.getServer())
+                .find(access.handle().cacheId()).craftingEnabled();
+    }
     public static boolean supported(AbstractContainerMenu menu) {
         return (menu.getClass() == InventoryMenu.class || menu.getClass() == CraftingMenu.class)
                 && menu.getSlot(1).container.getClass() == TransientCraftingContainer.class;
@@ -85,7 +90,7 @@ public final class CraftingService {
     }
     @SuppressWarnings("unchecked")
     public static boolean fromRecipeBook(ServerPlayer player, RecipeHolder<?> recipe, boolean maximum) {
-        if (!supported(player.containerMenu) || !AccessGate.resolve(player).active() || !(recipe.value() instanceof CraftingRecipe)) return false;
+        if (!supported(player.containerMenu) || !enabled(player) || !(recipe.value() instanceof CraftingRecipe)) return false;
         var result = place(player, (RecipeHolder<CraftingRecipe>)recipe, maximum, true, true);
         if (result == Result.MISSING) player.connection.send(new ClientboundPlaceGhostRecipePacket(player.containerMenu.containerId, recipe));
         return true;

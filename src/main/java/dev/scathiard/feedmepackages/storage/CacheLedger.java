@@ -21,7 +21,7 @@ import java.util.*;
 /** One world authority. Corrupt data produces a locked ledger, never an empty replacement. */
 public final class CacheLedger extends SavedData {
     public static final String NAME = "create_feed_me_packages_ledger";
-    public static final int SCHEMA = 31003; // Adds return_batch; previous fields and their saved units remain unchanged.
+    public static final int SCHEMA = 31004; // Adds per-cache crafting_enabled; absent means enabled. Older field meanings are unchanged.
     public static final int MAX_REDIRECT_VARIANTS = 4096;
     private static final Factory<CacheLedger> FACTORY = new Factory<>(CacheLedger::new, CacheLedger::load);
     private Map<UUID, CacheRecord> caches = Map.of();
@@ -75,7 +75,7 @@ public final class CacheLedger extends SavedData {
         if (source == null || !owner.equals(source.owner()) || !transfer.cache().equals(personal.get(owner)))
             throw new IllegalStateException("Stale retirement");
         var records = new HashMap<>(caches);
-        records.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals(), source.fluids()));
+        records.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals(), source.fluids(), source.craftingEnabled()));
         var owners = new HashMap<>(personal); owners.remove(owner);
         var completed = new HashMap<>(retirements);
         completed.put(owner, new Retirement(owner, transfer.cache(), receipt, true));
@@ -287,6 +287,7 @@ public final class CacheLedger extends SavedData {
         for (var entry : caches.entrySet()) {
             CacheRecord record = entry.getValue(); var state = record.state(); CompoundTag row = new CompoundTag();
             row.putUUID("id", state.id()); row.putInt("level", state.level()); row.putLong("revision", state.revision());
+            row.putBoolean("crafting_enabled", record.craftingEnabled());
             if (record.owner() != null) row.putUUID("owner", record.owner());
             else retirements.values().stream().filter(r -> r.completed() && r.cache().equals(state.id())).findFirst()
                     .ifPresent(r -> row.putUUID("owner", r.owner())); // Keep the old column's original provenance.
@@ -353,7 +354,7 @@ public final class CacheLedger extends SavedData {
             fields(tag, Set.of("schema", "integrity_key", "caches", "preferences", "redirects", "grants", "returnAddresses", "private_retirements", "return_handoffs"));
             require(tag, "schema", Tag.TAG_INT);
             int sourceSchema = tag.getInt("schema");
-            if (sourceSchema != SCHEMA && sourceSchema != 31002 && sourceSchema != 31001 && sourceSchema != 8 && sourceSchema != 2 && sourceSchema != 4 && sourceSchema != 5 && sourceSchema != 6 && sourceSchema != 7)
+            if (sourceSchema != SCHEMA && sourceSchema != 31003 && sourceSchema != 31002 && sourceSchema != 31001 && sourceSchema != 8 && sourceSchema != 2 && sourceSchema != 4 && sourceSchema != 5 && sourceSchema != 6 && sourceSchema != 7)
                 throw new IllegalArgumentException("Unsupported cache schema");
             require(tag, "integrity_key", Tag.TAG_BYTE_ARRAY);
             if (tag.getByteArray("integrity_key").length != 32) throw new IllegalArgumentException("Invalid world integrity state");
@@ -364,7 +365,8 @@ public final class CacheLedger extends SavedData {
             for (Tag element : rows) {
                 CompoundTag row = (CompoundTag)element;
                 context = "cache row " + cacheIndex++ + (row.hasUUID("id") ? " (" + row.getUUID("id") + ")" : " (invalid identity)");
-                fields(row, sourceSchema >= 31002 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids", CapacityCodec.KEY)
+                fields(row, sourceSchema >= 31004 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids", CapacityCodec.KEY, "crafting_enabled")
+                        : sourceSchema >= 31002 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids", CapacityCodec.KEY)
                         : sourceSchema == 31001 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids")
                         : Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals"));
                 if (sourceSchema >= 31002) require(row, CapacityCodec.KEY, Tag.TAG_COMPOUND);
@@ -444,7 +446,9 @@ public final class CacheLedger extends SavedData {
                     require(row, "astra_fluids", Tag.TAG_COMPOUND);
                     fluids = FluidStorageCodec.read(row.getCompound("astra_fluids"), state, registries);
                 }
-                if (caches.put(id, new CacheRecord(state, owner, residuals, fluids)) != null) throw new IllegalArgumentException("Duplicate cache identity");
+                if (row.contains("crafting_enabled")) bool(row, "crafting_enabled");
+                boolean craftingEnabled = !row.contains("crafting_enabled") || row.getBoolean("crafting_enabled");
+                if (caches.put(id, new CacheRecord(state, owner, residuals, fluids, craftingEnabled)) != null) throw new IllegalArgumentException("Duplicate cache identity");
                 if (owner != null && personal.put(owner, id) != null) throw new IllegalArgumentException("Duplicate personal cache");
             }
             context = "ledger metadata";
@@ -485,7 +489,7 @@ public final class CacheLedger extends SavedData {
                         throw new IllegalArgumentException("Invalid or duplicate retirement");
                     if (transfer.completed()) {
                         var source = caches.get(transfer.cache());
-                        caches.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals(), source.fluids())); personal.remove(transfer.owner());
+                        caches.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals(), source.fluids(), source.craftingEnabled())); personal.remove(transfer.owner());
                     }
                 }
             } else if (tag.contains("private_retirements")) throw new IllegalArgumentException("Retirement in legacy schema");

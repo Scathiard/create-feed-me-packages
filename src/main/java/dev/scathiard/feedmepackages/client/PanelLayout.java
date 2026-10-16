@@ -77,8 +77,9 @@ public record PanelLayout(Rect bounds, List<CellBox> cells, Rect slider, Rect re
      * <p>While the panel is hidden there is no transfer button at all: the only thing on screen is the entry, so
      * this returns an empty rect that no point can fall into.
      */
-    /** Third footer control, used only by a maid panel. Does not move cells or the existing buttons. */
-    public Rect maidPickupButton() {
+    /** Shared footer position: player crafting toggle or maid pickup toggle. */
+    public Rect maidPickupButton() { return craftingButton(); }
+    public Rect craftingButton() {
         if (hidden || compact) return new Rect(bounds.x(), bounds.y(), 0, 0);
         return new Rect(transferButton().x() - BUTTON - 1, buttonY(), BUTTON, BUTTON);
     }

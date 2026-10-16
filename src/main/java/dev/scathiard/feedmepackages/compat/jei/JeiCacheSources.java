@@ -22,7 +22,7 @@ public final class JeiCacheSources {
     public static boolean fill(AbstractContainerMenu menu, Object value, Player player, boolean maximum, boolean transfer) {
         if (!FmpConfig.jeiCraftingEnabled() || player != Minecraft.getInstance().player || player.containerMenu != menu
                 || !CraftingService.supported(menu) || !menu.getCarried().isEmpty()
-                || !ClientMaterials.active() || !LogisticsPanel.recipeReady()
+                || !ClientMaterials.craftingEnabled() || !LogisticsPanel.recipeReady()
                 || !(value instanceof RecipeHolder<?> holder) || !(holder.value() instanceof CraftingRecipe)) return false;
         var recipe = (RecipeHolder<CraftingRecipe>) holder;
         var grid = CraftingService.grid(menu);

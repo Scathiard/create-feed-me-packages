@@ -21,7 +21,7 @@ public abstract class RecipeCollectionHintsMixin {
     @Inject(method = "canCraft", at = @At("TAIL"))
     private void fmp$exact(StackedContents contents, int width, int height, RecipeBook book, CallbackInfo ci) {
         var player = Minecraft.getInstance().player;
-        if (player == null || !ClientMaterials.active() || !CraftingService.supported(player.containerMenu)) return;
+        if (player == null || !ClientMaterials.craftingEnabled() || !CraftingService.supported(player.containerMenu)) return;
         for (var holder : getRecipes()) if (holder.value() instanceof CraftingRecipe recipe && !recipe.getIngredients().isEmpty()) {
             if (recipe.canCraftInDimensions(width, height) && book.contains(holder) && contents.canCraft(recipe, null)
                     && ClientCrafting.check(player, (RecipeHolder<CraftingRecipe>) holder, false, false) == CraftingService.Result.OK) craftable.add(holder);

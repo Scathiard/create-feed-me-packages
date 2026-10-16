@@ -21,7 +21,7 @@ public abstract class RecipeBookHintsMixin {
     @WrapOperation(method = {"initVisuals", "updateStackedContents"}, at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Inventory;fillStackedContents(Lnet/minecraft/world/entity/player/StackedContents;)V"))
     private void fmp$hints(Inventory inventory, StackedContents contents, Operation<Void> original) {
         original.call(inventory, contents);
-        if (ClientMaterials.active() && menu != null && CraftingService.supported(menu))
+        if (ClientMaterials.craftingEnabled() && menu != null && CraftingService.supported(menu))
             for (var stack : ClientMaterials.stacks()) contents.accountStack(stack, stack.getCount());
     }
     @Inject(method = "tick", at = @At("HEAD"))

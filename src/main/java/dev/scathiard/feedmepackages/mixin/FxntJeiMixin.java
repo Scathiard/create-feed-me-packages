@@ -28,7 +28,7 @@ public abstract class FxntJeiMixin {
     @WrapOperation(method = "transferRecipe", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Player;getInventory()Lnet/minecraft/world/entity/player/Inventory;"), remap = false)
     private Inventory fmp$readSources(Player player, Operation<Inventory> original, @Local(argsOnly = true) RecipeHolder<?> recipe) {
         var inventory = original.call(player);
-        return !ClientCompatibility.fxntSourcesAvailable() || !FmpConfig.jeiCraftingEnabled() || !ClientMaterials.active() ? inventory
+        return !ClientCompatibility.fxntSourcesAvailable() || !FmpConfig.jeiCraftingEnabled() || !ClientMaterials.craftingEnabled() ? inventory
                 : FxntMaterials.preview(inventory, ClientMaterials.craftingStacks(), recipe.value().getIngredients());
     }
 }
