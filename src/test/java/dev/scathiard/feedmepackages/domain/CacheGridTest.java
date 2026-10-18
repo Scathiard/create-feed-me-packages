@@ -107,10 +107,10 @@ class CacheGridTest {
         }
     }
 
-    @Test void futurePluginSlotsGrowTheTableWithoutMovingAnything() {
+    @Test void configuredSlotsGrowTheTableWithoutMovingAnything() {
         CacheGrid base = CacheGrid.forLevel(5);
         CacheGrid grown = base.withExtraSlots(10);
-        assertEquals(46, grown.count(), "36 shipped cells + 10 future plugin cells");
+        assertEquals(46, grown.count(), "36 default cells + 10 configured cells");
         for (int slot = 0; slot < base.count(); slot++) {
             assertEquals(base.row(slot), grown.row(slot), "corner row of slot " + slot);
             assertEquals(base.column(slot), grown.column(slot), "corner column of slot " + slot);

@@ -520,11 +520,11 @@ class PanelLayoutTest {
         assertEquals(512, CellControlGeometry.draggedValue(65, 100, 512, 64));
     }
 
-    /** Ten future plugin coordinates (order: "为未来的的拓展性做考虑") must move nothing and stay coherent. */
+    /** Ten additional configured coordinates (order: "为未来的的拓展性做考虑") must move nothing and stay coherent. */
     @Test void tenFuturePluginCoordinatesKeepThePanelCoherent() {
         CacheGrid base = CacheGrid.forLevel(5);
         CacheGrid grown = base.withExtraSlots(10);
-        assertEquals(46, grown.count(), "36 shipped cells + 10 future plugin cells");
+        assertEquals(46, grown.count(), "36 default cells + 10 configured cells");
         var layout = PanelLayout.compute(1080, 400, 40, grown, 0, -1, false);
         assertFalse(layout.compact());
         assertEquals(46, layout.cells().size(), "every future cell must be drawn");
