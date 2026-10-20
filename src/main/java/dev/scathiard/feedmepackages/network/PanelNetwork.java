@@ -59,7 +59,7 @@ public final class PanelNetwork {
         }
     }
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("12-crafting-toggle");
+        var registrar = event.registrar("13-fluid-fill");
         registrar.playToServer(PanelPackets.Query.TYPE, PanelPackets.Query.CODEC, (packet, context) -> {
             var reply = query((ServerPlayer) context.player(), packet); if (reply != null) context.reply(reply);
         });
@@ -100,7 +100,7 @@ public final class PanelNetwork {
     }
     public static PanelPackets.Snapshot command(ServerPlayer player, PanelPackets.Command packet) {
         var window = WINDOWS.get(player);
-        boolean ownsInput = packet.creativeCursor() && (packet.intent().action() == CacheActions.Action.DEPOSIT || packet.intent().action() == CacheActions.Action.DEPOSIT_FLUID);
+        boolean ownsInput = packet.creativeCursor() && (packet.intent().action() == CacheActions.Action.DEPOSIT || (packet.intent().action() == CacheActions.Action.DEPOSIT_FLUID || packet.intent().action() == CacheActions.Action.FILL_FLUID));
         if (window == null || !window.id.equals(packet.window()) || window.menu != player.containerMenu.containerId)
             return ownsInput ? refusal(packet, CacheActions.Result.STALE) : null;
         boolean replyAllowed = BUDGETS.computeIfAbsent(player, p -> new Budget()).action(player.tickCount);

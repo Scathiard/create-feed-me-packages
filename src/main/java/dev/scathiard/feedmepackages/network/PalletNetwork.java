@@ -36,19 +36,20 @@ public final class PalletNetwork {
     public record Selection(int sequence, UUID cache, String encoded) implements CustomPacketPayload {
         public Selection {
             Objects.requireNonNull(cache); Objects.requireNonNull(encoded);
-            if (sequence <= 0 || encoded.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 1024) throw new IllegalArgumentException("Invalid pallet selection");
+            if (sequence <= 0 || encoded.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 1080) throw new IllegalArgumentException("Invalid pallet selection");
         }
         public static final Type<Selection> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "pallet_selection"));
         public static final StreamCodec<RegistryFriendlyByteBuf, Selection> CODEC = StreamCodec.of((b, m) -> {
-            b.writeVarInt(m.sequence); b.writeUUID(m.cache); PanelPackets.text(b, m.encoded, 1024);
+            b.writeVarInt(m.sequence); b.writeUUID(m.cache); PanelPackets.text(b, m.encoded, 1080);
         }, b -> {
-            if (b.readableBytes() > 1100) throw new IllegalArgumentException("Oversized pallet selection");
-            var m = new Selection(b.readVarInt(), b.readUUID(), PanelPackets.text(b, 1024)); PanelPackets.end(b); return m;
+            if (b.readableBytes() > 1200) throw new IllegalArgumentException("Oversized pallet selection");
+            var m = new Selection(b.readVarInt(), b.readUUID(), PanelPackets.text(b, 1080)); PanelPackets.end(b); return m;
         });
         @Override public Type<Selection> type() { return TYPE; }
     }
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar=event.registrar("astra-pallet-2");
+        var registrar=event.registrar("pallet-use-3");
+        PalletFluids.register(registrar);
         registrar.playToClient(Feed.TYPE,Feed.CODEC,(message,context)->feedClient.accept(message));
         registrar.playBidirectional(Selection.TYPE, Selection.CODEC, (message, context) -> {
             if (context.flow().isClientbound()) { client.accept(message); return; }
@@ -62,7 +63,7 @@ public final class PalletNetwork {
                 PalletService.cancelChoice(player, message.cache);
             var choice = PalletService.choice(player);
             PacketDistributor.sendToPlayer(player, new Selection(message.sequence, message.cache,
-                    choice != null && choice.cache().equals(message.cache) ? choice.key().encoded() : ""));
+                    choice != null && choice.cache().equals(message.cache) ? choice.encoded() : ""));
         });
     }
 }

@@ -15,35 +15,39 @@ import net.neoforged.fml.ModList;
 import java.lang.reflect.*;
 import java.util.*;
 
-/** Optional native ports. Only the real BackpackContainer and its own crafting upgrade are accepted. */
+/** Optional native ports. Only the two supported native menus and their own crafting upgrades are accepted. */
 public final class SophisticatedAccess {
     private SophisticatedAccess() {}
-    private record Ports(Class<?> backpack, Class<?> crafting, Method first, Method recipeSlots, Method wrapper,
+    private record Ports(List<Class<?>> menus, Class<?> crafting, Method first, Method recipeSlots, Method wrapper,
                          Method owner, Method id, Method open, Method setOpen, Method setTab, Method openTab,
-                         Method refill, Method recipeUsed, Method transfer) {}
+                         Method refill, Method recipeUsed, Method transfer, Method upgradeSlots) {}
     private static Ports ports;
     public static void initialize() {
-        if (!ModList.get().isLoaded("sophisticatedbackpacks") || !OptionalMixins.sophisticatedCompatible()) return;
+        if (!installed() || !OptionalMixins.sophisticatedCompatible()) return;
         try {
             var loader = SophisticatedAccess.class.getClassLoader();
             String root = "net.p3pp3rf1y.sophisticatedcore.";
-            var backpack = Class.forName("net.p3pp3rf1y.sophisticatedbackpacks.common.gui.BackpackContainer", false, loader);
+            var menus = new ArrayList<Class<?>>();
+            if (ModList.get().isLoaded("sophisticatedbackpacks")) menus.add(Class.forName("net.p3pp3rf1y.sophisticatedbackpacks.common.gui.BackpackContainer", false, loader));
+            if (ModList.get().isLoaded("sophisticatedstorage")) menus.add(Class.forName("net.p3pp3rf1y.sophisticatedstorage.common.gui.StorageContainerMenu", false, loader));
+            var common = Class.forName(root + "common.gui.StorageContainerMenuBase", false, loader);
             var crafting = Class.forName(root + "upgrades.crafting.CraftingUpgradeContainer", false, loader);
             var wrapper = Class.forName(root + "upgrades.crafting.CraftingUpgradeWrapper", false, loader);
             var transfer = Class.forName(root + "compat.recipeviewers.common.CraftingContainerRecipeTransferHandlerServer", false, loader);
-            ports = new Ports(backpack, crafting, backpack.getMethod("getOpenOrFirstCraftingContainer", RecipeType.class),
+            ports = new Ports(List.copyOf(menus), crafting, common.getMethod("getOpenOrFirstCraftingContainer", RecipeType.class),
                     crafting.getMethod("getRecipeSlots"), crafting.getMethod("getUpgradeWrapper"), crafting.getMethod("getPlayer"),
                     crafting.getMethod("getUpgradeContainerId"), crafting.getMethod("isOpen"), crafting.getMethod("setIsOpen", boolean.class),
-                    backpack.getMethod("setOpenTabId", int.class), backpack.getMethod("getOpenContainer"),
+                    common.getMethod("setOpenTabId", int.class), common.getMethod("getOpenContainer"),
                     wrapper.getMethod("shouldRefillCraftingGridNBT"), crafting.getMethod("setRecipeUsed", ResourceLocation.class),
                     transfer.getMethod("setItemsWithStacks", Player.class, ResourceLocation.class, RecipeType.class,
-                            List.class, List.class, List.class, boolean.class));
-            FeedMePackages.LOGGER.info("FMP Sophisticated Backpacks crafting ports ready");
+                            List.class, List.class, List.class, boolean.class), crafting.getMethod("getSlots"));
+            FeedMePackages.LOGGER.info("FMP Sophisticated crafting ports ready");
         } catch (ReflectiveOperationException | LinkageError failed) {
             ports = null;
-            FeedMePackages.LOGGER.warn("FMP Sophisticated Backpacks sources disabled: native ports changed", failed);
+            FeedMePackages.LOGGER.warn("FMP Sophisticated sources disabled: native ports changed", failed);
         }
     }
+    public static boolean installed() { return ModList.get().isLoaded("sophisticatedbackpacks") || ModList.get().isLoaded("sophisticatedstorage"); }
     public static boolean ready() { return ports != null; }
     public static boolean enabled() { return ready() && FmpConfig.sophisticatedEnabled(); }
     public record Context(Player player, AbstractContainerMenu menu, Object crafting, Object wrapper, int upgrade,
@@ -54,6 +58,11 @@ public final class SophisticatedAccess {
             var now = resolve(player);
             return now != null && now.menu == menu && now.crafting == crafting && now.wrapper == wrapper
                     && now.grid.equals(grid) && now.inventory.equals(inventory);
+        }
+        public Slot output() {
+            var slots=(List<?>)invoke(ports.upgradeSlots,crafting);
+            return slots.stream().filter(net.minecraft.world.inventory.ResultSlot.class::isInstance).map(Slot.class::cast)
+                    .filter(s->s.index>=0 && menu.getSlot(s.index)==s).findFirst().orElse(null);
         }
         public boolean refill() { return (boolean) invoke(ports.refill, wrapper); }
         public void open() {
@@ -69,7 +78,7 @@ public final class SophisticatedAccess {
     }
     public static Context resolve(Player player) {
         if (!enabled() || player == null || player.isSpectator() || !player.isAlive()
-                || player.containerMenu == null || !ports.backpack.isInstance(player.containerMenu)) return null;
+                || player.containerMenu == null || ports.menus.stream().noneMatch(type -> type.isInstance(player.containerMenu))) return null;
         var menu = player.containerMenu;
         if (player instanceof ServerPlayer server && (!server.getServer().isSameThread() || !menu.stillValid(player))) return null;
         Object crafting = ((Optional<?>) invoke(ports.first, menu, RecipeType.CRAFTING)).orElse(null);

@@ -76,3 +76,5 @@ worktrees/
 # Ordinary process temp items (2026-10-12, reference AGENTS convention: work/tmp/<task>/).
 # Auto-cleaned per task; never unique evidence or backups.
 work/tmp/
+# Locally pinned optional compatibility artifacts; source URLs and hashes stay alongside.
+dependencies/optional/

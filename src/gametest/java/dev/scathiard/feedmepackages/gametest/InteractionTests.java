@@ -987,7 +987,7 @@ public final class InteractionTests {
         var item=net.minecraft.core.registries.BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse("fluidlogistics:copper_bucket"));
         return net.neoforged.neoforge.fluids.FluidUtil.getFluidHandler(new ItemStack(item)).orElseThrow();
     }
-    private static void seedFluid(ServerPlayer player,int slot,net.neoforged.neoforge.fluids.FluidStack sample) {
+    static void seedFluid(ServerPlayer player,int slot,net.neoforged.neoforge.fluids.FluidStack sample) {
         var handle=AccessGate.resolve(player).handle(); var ledger=CacheLedger.get(player.getServer()); var before=ledger.find(handle.cacheId());
         var edit=before.fluids().state().edit(); var key=dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(sample,player.registryAccess());
         edit.filter(slot,key); edit.insert(slot,key,sample.getAmount());
@@ -1049,7 +1049,35 @@ public final class InteractionTests {
         } finally {denied.set(oldD);allowed.set(oldA);dev.scathiard.feedmepackages.FmpConfig.refreshServer();}
         h.succeed();
     }
-    private static long fluidStock(ServerPlayer player,int slot) {
+    static long fluidStock(ServerPlayer player,int slot) {
         return CacheLedger.get(player.getServer()).find(AccessGate.resolve(player).handle().cacheId()).fluids().state().cells().get(slot).amount();
+    }
+
+    @GameTest(template="empty")
+    public static void cursorContainerRightClickFillsOneAndRejectsFullOutput(GameTestHelper h) {
+        var p=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());seedFluid(p,0,water(2500));
+        p.containerMenu.setCarried(new ItemStack(Items.BUCKET,2));
+        h.assertTrue(fluidAction(p,1,Action.FILL_FLUID,0,0,0,"")==Result.OK && fluidStock(p,0)==1500
+                && p.containerMenu.getCarried().getCount()==1 && p.containerMenu.getCarried().is(Items.BUCKET)
+                && p.getInventory().countItem(Items.WATER_BUCKET)==1,"Cursor fill did not split exactly one empty container");
+        h.assertTrue(fluidAction(p,2,Action.FILL_FLUID,0,0,0,"")==Result.OK && fluidStock(p,0)==500
+                && p.containerMenu.getCarried().is(Items.WATER_BUCKET),"Single cursor container did not become filled");
+        p.containerMenu.setCarried(new ItemStack(Items.BUCKET));
+        h.assertTrue(fluidAction(p,3,Action.FILL_FLUID,0,0,0,"")!=Result.OK && fluidStock(p,0)==500 && p.containerMenu.getCarried().is(Items.BUCKET),"Insufficient liquid created a bucket");
+        seedFluid(p,0,water(2000));for(int i=0;i<36;i++)p.getInventory().setItem(i,new ItemStack(Items.STONE,64));
+        p.containerMenu.setCarried(new ItemStack(Items.BUCKET,2));
+        long before=fluidStock(p,0);
+        h.assertTrue(fluidAction(p,4,Action.FILL_FLUID,0,0,0,"")==Result.NO_SPACE && fluidStock(p,0)==before && p.containerMenu.getCarried().getCount()==2,"Full output destination consumed liquid or container");h.succeed();
+    }
+    @GameTest(template="empty")
+    public static void cursorBottleUsesNativeCreateMilliBucketsAndComponents(GameTestHelper h) {
+        var p=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());seedFluid(p,0,water(1000));
+        var input=new ItemStack(Items.GLASS_BOTTLE);var fluid=water(1000);
+        int needed=com.simibubi.create.content.fluids.transfer.GenericItemFilling.getRequiredAmountForItem(p.level(),input.copy(),fluid.copy());
+        var expected=com.simibubi.create.content.fluids.transfer.GenericItemFilling.fillItem(p.level(),needed,input.copy(),fluid.copy());
+        h.assertTrue(needed>0 && !expected.isEmpty(),"Native water bottle fixture has no valid recipe");
+        p.containerMenu.setCarried(input);
+        h.assertTrue(fluidAction(p,1,Action.FILL_FLUID,0,0,0,"")==Result.OK && fluidStock(p,0)==1000-needed
+                && ItemStack.matches(expected,p.containerMenu.getCarried()),"Bottle fill differed from Create's native fluid amount or potion components");h.succeed();
     }
 }

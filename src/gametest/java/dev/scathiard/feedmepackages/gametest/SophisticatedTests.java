@@ -24,16 +24,27 @@ import java.util.*;
 @GameTestHolder(FeedMePackages.MOD_ID)
 public final class SophisticatedTests {
     @FunctionalInterface interface Body { void run(GameTestHelper h) throws ReflectiveOperationException; }
+    private static final ThreadLocal<Boolean> STORAGE = ThreadLocal.withInitial(()->false);
     @GameTestGenerator public static Collection<TestFunction> installed() {
-        if (!ModList.get().isLoaded("sophisticatedbackpacks")) return List.of();
-        return List.of(test("native_fill_and_craft", SophisticatedTests::fill), test("native_maximum", SophisticatedTests::maximum),
-                test("native_refill_opt_in", SophisticatedTests::refill), test("native_remainder", SophisticatedTests::remainder),
-                test("full_displacement", SophisticatedTests::full), test("stale_identity", SophisticatedTests::stale),
-                test("config_and_wire", SophisticatedTests::wire), test("pendant_crafting_toggle", SophisticatedTests::pendantToggle));
+        var tests=new ArrayList<TestFunction>();
+        for(boolean storage : List.of(false,true)) {
+            if(!ModList.get().isLoaded(storage?"sophisticatedstorage":"sophisticatedbackpacks")) continue;
+            tests.addAll(List.of(test(storage,"native_fill_and_craft",SophisticatedTests::fill),test(storage,"native_maximum",SophisticatedTests::maximum),
+                    test(storage,"native_refill_opt_in",SophisticatedTests::refill),test(storage,"native_remainder",SophisticatedTests::remainder),
+                    test(storage,"full_displacement",SophisticatedTests::full),test(storage,"stale_identity",SophisticatedTests::stale),
+                    test(storage,"config_and_wire",SophisticatedTests::wire),test(storage,"pendant_crafting_toggle",SophisticatedTests::pendantToggle)));
+            if(storage) tests.add(test(true,"native_block_ownership_and_distance",SophisticatedTests::storageDistance));
+            if(ModList.get().isLoaded("emi"))tests.add(test(storage,"native_emi_output_actions",SophisticatedTests::emiOutputs));
+        }
+        return tests;
     }
-    private static TestFunction test(String name, Body body) {
-        return new TestFunction("sophisticated", "fmp_sophisticated_" + name, FeedMePackages.MOD_ID + ":empty", 100, 0, true,
-                h -> { try { body.run(h); } catch (ReflectiveOperationException failed) { throw new IllegalStateException("Native Sophisticated fixture failed", failed); } });
+    private static TestFunction test(boolean storage,String name,Body body) {
+        String family=storage?"sophisticated_storage":"sophisticated";
+        return new TestFunction(family,"fmp_"+family+"_"+name,FeedMePackages.MOD_ID+":empty",100,0,true,h->{
+            STORAGE.set(storage);
+            try { body.run(h); } catch(ReflectiveOperationException failure) { throw new IllegalStateException("Native Sophisticated fixture failed",failure); }
+            finally { STORAGE.remove(); }
+        });
     }
     private record Fixture(ServerPlayer player, ItemStack bag, IItemHandlerModifiable inventory, SophisticatedAccess.Context context, CacheHandle handle) {
         long stock() { return CacheLedger.get(player.getServer()).find(handle.cacheId()).state().cells().get(0).amount(); }
@@ -55,6 +66,20 @@ public final class SophisticatedTests {
             return result == SophisticatedMaterials.Transfer.Result.OK;
         }
     }
+    private static void emiOutputs(GameTestHelper h) throws ReflectiveOperationException {
+        var f=setup(h,Items.OAK_LOG,8);var p=f.player();
+        var cursor=new SophisticatedTransfer.Request(f.context.menu().containerId,f.context.upgrade(),f.handle.cacheId(),ResourceLocation.withDefaultNamespace("oak_planks"),false,TransferOrigin.Viewer.EMI,1);
+        var cursorResult=SophisticatedTransfer.apply(p,cursor);
+        h.assertTrue(cursorResult==SophisticatedMaterials.Transfer.Result.OK && f.stock()==7 && f.grid()==0
+                && p.containerMenu.getCarried().is(Items.OAK_PLANKS) && p.containerMenu.getCarried().getCount()==4,"EMI cursor craft did not use native result exactly once: result="+cursorResult+" stock="+f.stock()+" grid="+f.grid()+" carried="+p.containerMenu.getCarried());
+        var target=p.containerMenu.slots.stream().filter(slot->slot.container==p.getInventory() && slot.getContainerSlot()==0).findFirst().orElseThrow();
+        p.containerMenu.clicked(target.index,0,ClickType.PICKUP,p);
+        var inventory=new SophisticatedTransfer.Request(f.context.menu().containerId,f.context.upgrade(),f.handle.cacheId(),ResourceLocation.withDefaultNamespace("oak_planks"),true,TransferOrigin.Viewer.EMI,2);
+        h.assertTrue(SophisticatedTransfer.apply(p,inventory)==SophisticatedMaterials.Transfer.Result.OK && f.stock()==0,"EMI inventory fill missed cache");
+        int remaining=f.grid();int output=p.getInventory().countItem(Items.OAK_PLANKS);
+        for(int slot=0;slot<f.inventory.getSlots();slot++) {var stack=f.inventory.getStackInSlot(slot);if(stack.is(Items.OAK_PLANKS))output+=stack.getCount();}
+        h.assertTrue(remaining*4+output==32 && p.containerMenu.getCarried().isEmpty(),"Native EMI quick move lost outputs or inputs");h.succeed();
+    }
     private static Fixture setup(GameTestHelper h, Item item, int count) throws ReflectiveOperationException {
         return setup(h, item, count, true);
     }
@@ -68,11 +93,23 @@ public final class SophisticatedTests {
             var off = CraftingRetrievalContractTests.toggleCrafting(player, false);
             h.assertTrue(off.result() == dev.scathiard.feedmepackages.interaction.CacheActions.Result.OK && !off.craftingEnabled(), "Inventory toggle before opening backpack failed");
         }
-        var bag = createBackpack(player);
-        var kind = Class.forName("net.p3pp3rf1y.sophisticatedbackpacks.common.gui.BackpackContext");
-        var nativeContext = Class.forName(kind.getName() + "$Item").getConstructor(String.class, int.class).newInstance("main", 8);
-        var menu = (AbstractContainerMenu) Class.forName("net.p3pp3rf1y.sophisticatedbackpacks.common.gui.BackpackContainer")
-                .getConstructor(int.class, Player.class, kind).newInstance(31, player, nativeContext);
+        ItemStack bag=ItemStack.EMPTY; AbstractContainerMenu menu;
+        if(STORAGE.get()) {
+            var pos=new net.minecraft.core.BlockPos(2,1,2);
+            var block=BuiltInRegistries.BLOCK.get(ResourceLocation.parse("sophisticatedstorage:barrel"));h.setBlock(pos,block);
+            player.setPos(h.absoluteVec(new net.minecraft.world.phys.Vec3(2.5,2,1.5)));
+            var be=h.getBlockEntity(pos);var wrapper=be.getClass().getMethod("getStorageWrapper").invoke(be);
+            var upgrades=(IItemHandlerModifiable)wrapper.getClass().getMethod("getUpgradeHandler").invoke(wrapper);
+            upgrades.setStackInSlot(0,new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse("sophisticatedstorage:crafting_upgrade"))));
+            menu=(AbstractContainerMenu)Class.forName("net.p3pp3rf1y.sophisticatedstorage.common.gui.StorageContainerMenu")
+                    .getConstructor(int.class,Player.class,net.minecraft.core.BlockPos.class).newInstance(31,player,h.absolutePos(pos));
+        } else {
+            bag=createBackpack(player);
+            var kind=Class.forName("net.p3pp3rf1y.sophisticatedbackpacks.common.gui.BackpackContext");
+            var nativeContext=Class.forName(kind.getName()+"$Item").getConstructor(String.class,int.class).newInstance("main",8);
+            menu=(AbstractContainerMenu)Class.forName("net.p3pp3rf1y.sophisticatedbackpacks.common.gui.BackpackContainer")
+                    .getConstructor(int.class,Player.class,kind).newInstance(31,player,nativeContext);
+        }
         // The first UUID initialization can replace the author's cached wrapper. Use the live menu's handler.
         var liveWrapper = menu.getClass().getMethod("getStorageWrapper").invoke(menu);
         var inventory = (IItemHandlerModifiable) liveWrapper.getClass().getMethod("getInventoryHandler").invoke(liveWrapper);
@@ -137,7 +174,7 @@ public final class SophisticatedTests {
     private static void full(GameTestHelper h) throws ReflectiveOperationException {
         var f = setup(h, Items.OAK_LOG, 8);
         for (int i = 0; i < f.inventory.getSlots(); i++) f.inventory.setStackInSlot(i, new ItemStack(Items.COBBLESTONE, 64));
-        for (int i = 0; i < 36; i++) if (i != 8) f.player.getInventory().setItem(i, new ItemStack(Items.COBBLESTONE, 64));
+        for (int i = 0; i < 36; i++) if (STORAGE.get() || i != 8) f.player.getInventory().setItem(i, new ItemStack(Items.COBBLESTONE, 64));
         for (var slot : f.context.grid()) slot.set(new ItemStack(Items.DIRT, 64));
         h.assertTrue(!f.fill("oak_planks", false) && f.stock() == 8 && f.grid() == 576
                 && f.context.grid().stream().allMatch(s -> s.getItem().is(Items.DIRT)), "No-space operation published partial sources or displaced grid");
@@ -187,5 +224,12 @@ public final class SophisticatedTests {
         f.clickResult(); h.assertTrue(f.grid() == 2 && f.stock() == 10 && f.inventory.getStackInSlot(0).isEmpty(), "OFF blocked native physical refill");
         f.clickResult(); h.assertTrue(f.grid() == 0 && f.stock() == 10, "OFF still refilled from cache");
         h.succeed();
+    }
+    private static void storageDistance(GameTestHelper h) throws ReflectiveOperationException {
+        var f=setup(h,Items.OAK_LOG,8);var origin=f.player.position();
+        f.player.setPos(origin.add(50,0,0));
+        h.assertTrue(!f.fill("oak_planks",false) && f.stock()==8 && f.grid()==0,"Distant block menu retained cache access");
+        f.player.setPos(origin);h.setBlock(2,1,2,net.minecraft.world.level.block.Blocks.AIR);
+        h.assertTrue(!f.fill("oak_planks",false) && f.stock()==8,"Removed native storage block retained cache access");h.succeed();
     }
 }

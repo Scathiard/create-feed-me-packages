@@ -57,7 +57,7 @@ public final class FluidActions {
     }
     public static boolean handles(CacheRecord record, int slot, CacheActions.Action action) {
         return switch (action) {
-            case SET_FLUID_GHOST, TAKE_FLUID, PLACE_FLUID, DEPOSIT_FLUID -> true;
+            case SET_FLUID_GHOST, TAKE_FLUID, PLACE_FLUID, DEPOSIT_FLUID, FILL_FLUID -> true;
             default -> slot >= 0 && slot < record.fluids().state().cells().size()
                     && record.fluids().state().cells().get(slot).filter() != null;
         };
@@ -88,6 +88,7 @@ public final class FluidActions {
             }
             case PLACE_FLUID -> { return place(player, handle, before, intent); }
             case DEPOSIT_FLUID -> { return deposit(player, handle, before, intent, carried, creative, sequence); }
+            case FILL_FLUID -> { return fillCursor(player, handle, before, intent, carried, creative, sequence); }
             case SET_FLUID_GHOST -> {
                 if (!carried.isEmpty()) return Result.INVALID_REQUEST;
                 if (cell.amount() != 0 || itemCell.amount() != 0) return Result.FILTER_OCCUPIED;
@@ -148,7 +149,7 @@ public final class FluidActions {
         } catch (IllegalArgumentException invalid) { return Result.INVALID_ITEM; }
         OPERATING.add(handle.cacheId());
         try {
-            var transfer = fill(actual, held.variant(), held.amount(), player.registryAccess());
+            var transfer = fill(actual, held.variant(), held.amount(), player);
             if (transfer == null) return Result.NO_SPACE;
             var baseline = new ArrayList<ItemStack>(); for (int i = 0; i < InventoryTransfer.SLOTS; i++) baseline.add(inventory.getItem(i).copy());
             List<ItemStack> next;
@@ -171,6 +172,40 @@ public final class FluidActions {
             if (remaining == 0) cancel(player);
             else HELD.put(player, new Held(handle, held.session(), held.menu(), held.slot(), held.variant(), held.filterRevision(), remaining, held.sequence()));
             player.containerMenu.broadcastChanges(); return Result.OK;
+        } finally { OPERATING.remove(handle.cacheId()); }
+    }
+
+    /** One container per right-click; a stack keeps its unfilled remainder on the cursor. */
+    private static Result fillCursor(ServerPlayer player, CacheHandle handle, CacheRecord before, CacheActions.Intent intent,
+                                     ItemStack carried, boolean creative, int sequence) {
+        if (carried.isEmpty() || HELD.containsKey(player)) return Result.INVALID_ITEM;
+        int slot = intent.slot(); var cell = before.fluids().state().cells().get(slot);
+        if (cell.filter() == null) return Result.INVALID_ITEM;
+        int available = (int)Math.min(Integer.MAX_VALUE, Math.max(0, cell.amount() - reserved(handle.cacheId(), slot)));
+        if (available == 0) return Result.MISSING_MATERIAL;
+        var original = carried.copy(); var menu = player.containerMenu;
+        OPERATING.add(handle.cacheId());
+        try {
+            var transfer = fill(original, cell.filter(), available, player);
+            if (transfer == null) return Result.INVALID_ITEM;
+            var cursor = transfer.container();
+            InventoryTransfer.Plan insertion = null;
+            if (original.getCount() > 1) {
+                insertion = InventoryTransfer.insert(player.getInventory(), transfer.container(), transfer.container().getCount());
+                if (insertion.moved() != transfer.container().getCount()) return Result.NO_SPACE;
+                cursor = original.copy(); cursor.shrink(1);
+            }
+            if (creative) ItemVariantKey.of(cursor, player.registryAccess());
+            if (player.containerMenu != menu || !stable(player, handle, before)
+                    || !ItemStack.matches(original, creative ? carried : menu.getCarried())
+                    || creative && !menu.getCarried().isEmpty()
+                    || insertion != null && !insertion.stillValid(player.getInventory())) return Result.STALE;
+            var edit = before.fluids().state().edit();
+            if (edit.extract(slot, transfer.amount()) != transfer.amount()) return Result.STALE;
+            CacheLedger.get(player.getServer()).replace(handle, before.state().revision(), before.withFluids(before.fluids().withState(edit.finish())));
+            if (insertion != null) insertion.commit(player.getInventory());
+            CacheActions.cursor(player, cursor, creative, intent.session(), sequence);
+            menu.broadcastChanges(); return Result.OK;
         } finally { OPERATING.remove(handle.cacheId()); }
     }
 
@@ -229,8 +264,42 @@ public final class FluidActions {
         var access = PanelAccess.resolve(player);
         return access.active() && handle.equals(access.handle()) && CacheLedger.get(player.getServer()).find(handle.cacheId()) == before;
     }
+    /** A synchronous native transfer owns this cache while its private source tank is drained. */
+    public static net.minecraft.world.InteractionResult worldUse(ServerPlayer player, CacheHandle handle, int slot,
+            FluidVariantKey key, net.neoforged.neoforge.fluids.capability.templates.FluidTank source, java.util.function.BooleanSupplier operation) {
+        var access=AccessGate.resolve(player);
+        if(!access.active() || !handle.equals(access.handle()) || !OPERATING.add(handle.cacheId())) return net.minecraft.world.InteractionResult.FAIL;
+        int initial=source.getFluidAmount(); boolean success=false;
+        try { success=operation.getAsBoolean(); }
+        finally {
+            try {
+                int consumed=initial-source.getFluidAmount();
+                if(consumed>0) {
+                    var ledger=CacheLedger.get(player.getServer());var record=ledger.find(handle.cacheId());
+                    var cell=record.fluids().state().cells().get(slot);
+                    if(!key.equals(cell.filter()) || cell.amount()-reserved(handle.cacheId(),slot)<consumed)
+                        throw new IllegalStateException("Native fluid use lost its reserved contents");
+                    var edit=record.fluids().state().edit();edit.extract(slot,consumed);
+                    ledger.replace(handle,record.state().revision(),record.withFluids(record.fluids().withState(edit.finish())));
+                    dev.scathiard.feedmepackages.network.PalletNetwork.placed(player,handle.cacheId(),"fluid:"+key.encoded(),cell.amount()>consumed);
+                }
+            } finally { OPERATING.remove(handle.cacheId()); }
+        }
+        return success && source.getFluidAmount()<initial ? net.minecraft.world.InteractionResult.CONSUME : net.minecraft.world.InteractionResult.FAIL;
+    }
     private record Filled(ItemStack container, int amount) {}
-    private static Filled fill(ItemStack original, FluidVariantKey key, int amount, HolderLookup.Provider registries) {
+    private static Filled fill(ItemStack original, FluidVariantKey key, int amount, ServerPlayer player) {
+        var registries = player.registryAccess();
+        if (original.is(net.minecraft.world.item.Items.GLASS_BOTTLE)) {
+            // Native Create bottle rules preserve potion components and use the author's mB amount.
+            var fluid = key.stack(registries, amount);
+            int needed = com.simibubi.create.content.fluids.transfer.GenericItemFilling.getRequiredAmountForItem(player.level(), original.copyWithCount(1), fluid.copy());
+            if (needed <= 0 || needed > amount) return null;
+            var bottle = original.copyWithCount(1);
+            var result = com.simibubi.create.content.fluids.transfer.GenericItemFilling.fillItem(player.level(), needed, bottle, fluid);
+            if (result.isEmpty() || result.getCount() != 1 || !bottle.isEmpty() || amount - fluid.getAmount() != needed) return null;
+            return new Filled(result, needed);
+        }
         try {
             var handler = FluidUtil.getFluidHandler(original.copyWithCount(1)).orElse(null); if (handler == null) return null;
             var initial = totals(handler, registries);

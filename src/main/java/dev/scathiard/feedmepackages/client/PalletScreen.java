@@ -8,7 +8,6 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.item.ItemStack;
 import java.util.*;
 
 /** A held selection binding owns this gesture; neither the attack binding nor the inventory cursor does. */
@@ -22,8 +21,8 @@ public final class PalletScreen extends Screen {
     private long version = -1;
     private String query = "";
     // Freeze identity/order for this short gesture. Stock updates may remove icons, never shift a new item under release.
-    private List<ItemStack> candidates = List.of(), shown = List.of(), available = List.of();
-    private ItemStack focus = ItemStack.EMPTY;
+    private List<PalletMaterial> candidates = List.of(), shown = List.of(), available = List.of();
+    private PalletMaterial focus = PalletMaterial.EMPTY;
     private double pointerX = Double.NaN, pointerY = Double.NaN;
     private long frameTime;
 
@@ -52,17 +51,17 @@ public final class PalletScreen extends Screen {
         refresh();
     }
     private void refresh() {
-        if (version == ClientMaterials.version()) return;
-        version = ClientMaterials.version();
+        if (version == PalletClient.version()) return;
+        version = PalletClient.version();
         available = PalletClient.candidates();
-        if (!inStock(focus)) focus = ItemStack.EMPTY;
+        if (!inStock(focus)) focus = PalletMaterial.EMPTY;
     }
-    private boolean inStock(ItemStack item) {
-        return !item.isEmpty() && available.stream().anyMatch(stack -> ItemStack.isSameItemSameComponents(item, stack));
+    private boolean inStock(PalletMaterial item) {
+        return !item.isEmpty() && available.stream().anyMatch(stack -> item.equals(stack));
     }
-    private int indexOf(ItemStack item) {
+    private int indexOf(PalletMaterial item) {
         if (!item.isEmpty()) for (int i = 0; i < shown.size(); i++)
-            if (ItemStack.isSameItemSameComponents(item, shown.get(i))) return i;
+            if (item.equals(shown.get(i))) return i;
         return -1;
     }
     private void filter() {
@@ -79,10 +78,10 @@ public final class PalletScreen extends Screen {
         pointerY=minecraft.mouseHandler.ypos()*height/minecraft.getWindow().getScreenHeight();
     }
     private PalletLayout.Arc arcLayout() { return PalletLayout.arc(width, height); }
-    private ItemStack gridTarget(double x, double y) {
+    private PalletMaterial gridTarget(double x, double y) {
         for (var tile : layout().tiles())
             if (tile.contains(x, y) && inStock(shown.get(tile.index()))) return shown.get(tile.index());
-        return ItemStack.EMPTY;
+        return PalletMaterial.EMPTY;
     }
     private void point(double x, double y) {
         double delta = Double.isNaN(pointerX) ? 0 : pointerX - x;
@@ -93,7 +92,7 @@ public final class PalletScreen extends Screen {
     }
     private void updateFocus() {
         int selected = navigation.selected();
-        focus = selected >= 0 && inStock(shown.get(selected)) ? shown.get(selected) : ItemStack.EMPTY;
+        focus = selected >= 0 && inStock(shown.get(selected)) ? shown.get(selected) : PalletMaterial.EMPTY;
     }
     @Override public void mouseMoved(double x, double y) { refresh(); point(x, y); super.mouseMoved(x, y); }
     @Override public boolean mouseDragged(double x, double y, int button, double dx, double dy) {
@@ -127,7 +126,7 @@ public final class PalletScreen extends Screen {
                 if (inStock(item)) drawTile(g, item, tile.x(), tile.y());
             }
             var hovered = gridTarget(mouseX,mouseY);
-            if (!hovered.isEmpty()) g.renderTooltip(font, hovered, mouseX, mouseY);
+            if (!hovered.isEmpty()) g.renderTooltip(font, hovered.getHoverName(), mouseX, mouseY);
         }
         long count = shown.stream().filter(this::inStock).count();
         var label = Component.translatable("gui.create_feed_me_packages.pallet.help", ClientBootstrap.PALLET_MODE.getTranslatedKeyMessage(),
@@ -153,7 +152,7 @@ public final class PalletScreen extends Screen {
                 float size=(float)(50*a.unit());
                 g.pose().pushPose(); g.pose().translate(a.x(a.mid(),angle)-size/2,a.y(a.mid(),angle)-size/2,0);
                 g.pose().scale(size/16,size/16,1); g.setColor((float)alpha,(float)alpha,(float)alpha,1);
-                g.renderItem(item,0,0); g.setColor(1,1,1,1); g.pose().popPose();
+                item.render(g,0,0); g.setColor(1,1,1,1); g.pose().popPose();
             }
         }
         PalletArtwork.sector(g,a,a.outer()+2*a.unit(),a.outer()+4*a.unit(),-.66,.66,PalletArtwork.STEEL);
@@ -161,20 +160,20 @@ public final class PalletScreen extends Screen {
         PalletArtwork.marker(g,a);
         PalletArtwork.drive(g,a,navigation.position());
         if(!focus.isEmpty()) {
-            long amount=ClientMaterials.stacks().stream().filter(s->ItemStack.isSameItemSameComponents(s,focus)).mapToLong(ItemStack::getCount).sum();
+            long amount=PalletClient.amount(focus);
             int y=(int)(a.cy()-a.inner()+54*a.unit());
-            String label=font.plainSubstrByWidth(focus.getHoverName().getString(),width-80)+" ×"+amount;
+            String label=font.plainSubstrByWidth(focus.getHoverName().getString(),width-80)+(focus.fluid().isEmpty()?" ×":" ")+amount+(focus.fluid().isEmpty()?"":" mB");
             int w=font.width(label)+14, x=(width-w)/2;
             g.fill(x,y-4,x+w,y+13,0xb0202a2e);g.renderOutline(x,y-4,w,17,PalletArtwork.BRASS);
             g.drawCenteredString(font,label,width/2,y,0xfff0e8d7);
         }
     }
-    private void drawTile(GuiGraphics g, ItemStack item, int x, int y) {
-        drawTile(g, item, x, y, !focus.isEmpty() && ItemStack.isSameItemSameComponents(focus, item));
+    private void drawTile(GuiGraphics g, PalletMaterial item, int x, int y) {
+        drawTile(g, item, x, y, !focus.isEmpty() && focus.equals(item));
     }
-    private void drawTile(GuiGraphics g, ItemStack item, int x, int y, boolean current) {
+    private void drawTile(GuiGraphics g, PalletMaterial item, int x, int y, boolean current) {
         PalletArtwork.gridFrame(g,x,y,current,PalletClient.selected(item));
-        g.renderItem(item, x + 4, y + 4);
+        item.render(g, x + 4, y + 4);
     }
     private void confirm(double x, double y) {
         if(!minecraft.isWindowActive() || minecraft.player==null || !PalletService.holding(minecraft.player)
@@ -222,7 +221,7 @@ public final class PalletScreen extends Screen {
         return super.keyReleased(key, scan, modifiers);
     }
     private void toggle() {
-        ItemStack previous = focus;
+        PalletMaterial previous = focus;
         spiral = !spiral;
         PalletClient.mode(spiral);
         search.visible = search.active = !spiral;
@@ -235,7 +234,7 @@ public final class PalletScreen extends Screen {
             int index = indexOf(previous);
             if (index >= 0) first = index / layout().step() * layout().step();
         }
-        focus = inStock(previous) ? previous : ItemStack.EMPTY;
+        focus = inStock(previous) ? previous : PalletMaterial.EMPTY;
         anchorPointer();
         if(spiral) updateFocus();
     }

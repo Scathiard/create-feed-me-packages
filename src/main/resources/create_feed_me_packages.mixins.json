@@ -48,7 +48,13 @@
     "Phantom102FlightMixin",
     "Phantom102LaunchMixin",
     "Phantom102BeltMixin",
-    "Phantom102PortReturnMixin"
+    "Phantom102PortReturnMixin",
+    "SbwAmmoSourcesMixin",
+    "SbwAmmoCountMixin",
+    "ArsPlaceSourcesMixin",
+    "PalletNativeHandMixin",
+    "PalletNativeUseMixin",
+    "PalletNativeTickMixin"
   ],
   "client": [
     "ContainerScreenAccess",
@@ -68,7 +74,9 @@
     "JeiContextSourcesMixin",
     "JeiSourcesMixin",
     "SophisticatedJeiMixin",
-    "TemplateSelectionMouseMixin"
+    "TemplateSelectionMouseMixin",
+    "PalletNativeClientMixin",
+    "SophisticatedEmiMixin"
   ],
   "injectors": {
     "defaultRequire": 1

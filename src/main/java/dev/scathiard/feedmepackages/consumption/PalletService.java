@@ -15,7 +15,10 @@ import java.util.function.Function;
 /** Player selection is a name, not material. The native placement bridge owns the short-lived lease. */
 public final class PalletService {
     private PalletService() {}
-    public record Choice(UUID cache, ItemVariantKey key) {}
+    public record Choice(UUID cache, ItemVariantKey key, dev.scathiard.feedmepackages.fluid.FluidVariantKey fluid) {
+        public Choice(UUID cache,ItemVariantKey key) { this(cache,key,null); }
+        public String encoded() { return fluid==null ? key.encoded() : "fluid:"+fluid.encoded(); }
+    }
     private static final Map<ServerPlayer, Choice> CHOICES = new WeakHashMap<>();
     private static final Map<ServerPlayer, UUID> CONTEXTS = new WeakHashMap<>();
     private static Function<UseOnContext, InteractionResult> clientUse = context -> InteractionResult.FAIL;
@@ -24,10 +27,12 @@ public final class PalletService {
         return player.isAlive() && !player.isSpectator() && player.getMainHandItem().getItem() instanceof PocketPalletItem;
     }
     public static void tick(ServerPlayer player) {
+        PalletUse.tick(player);
+        dev.scathiard.feedmepackages.network.PalletFluids.tick(player);
         var access = AccessGate.resolve(player); UUID cache = access.active() ? access.handle().cacheId() : null;
         if (!Objects.equals(CONTEXTS.get(player), cache)) { CHOICES.remove(player); if (cache == null) CONTEXTS.remove(player); else CONTEXTS.put(player, cache); }
     }
-    public static void forget(ServerPlayer player) { CHOICES.remove(player); CONTEXTS.remove(player); }
+    public static void forget(ServerPlayer player) { PalletUse.forget(player); CHOICES.remove(player); CONTEXTS.remove(player); }
     public static Choice choice(ServerPlayer player) { tick(player); return CHOICES.get(player); }
     public static void cancelChoice(ServerPlayer player, UUID cache) {
         var choice = choice(player);
@@ -37,11 +42,19 @@ public final class PalletService {
         tick(player); var access = AccessGate.resolve(player);
         if (!holding(player) || !access.active() || !access.handle().cacheId().equals(cache)) return false;
         var record = CacheLedger.get(player.getServer()).find(cache);
+        if(encoded.startsWith("fluid:")) {
+            dev.scathiard.feedmepackages.fluid.FluidVariantKey fluid;
+            try { fluid=dev.scathiard.feedmepackages.fluid.FluidVariantKey.decode(encoded.substring(6),player.registryAccess()); }
+            catch(IllegalArgumentException invalid) { return false; }
+            int slot=record.fluids().state().find(fluid);
+            if(slot<0 || record.fluids().state().cells().get(slot).amount()<=dev.scathiard.feedmepackages.interaction.FluidActions.reserved(cache,slot)) return false;
+            CHOICES.put(player,new Choice(cache,null,fluid));return true;
+        }
         for (int slot = 0; slot < record.state().cells().size(); slot++) {
             var cell = record.state().cells().get(slot);
             if (cell.filter() != null && cell.filter().encoded().equals(encoded)
                     && cell.amount() > CraftingReservations.reservedCache(cache, slot, null)
-                    && cell.filter().stack(player.registryAccess(), 1).getItem() instanceof BlockItem) {
+                    && PalletUse.supported(cell.filter().stack(player.registryAccess(), 1))) {
                 CHOICES.put(player, new Choice(cache, cell.filter())); return true;
             }
         }
@@ -60,6 +73,7 @@ public final class PalletService {
                 || !server.level().mayInteract(server, context.getClickedPos())
                 || !server.level().getWorldBorder().isWithinBounds(context.getClickedPos())
                 || context.getItemInHand() != server.getMainHandItem()) return failed(server, "denied");
+        if(selection.fluid()!=null) return PalletFluidUse.use(server,context,selection.fluid());
         var ledger = CacheLedger.get(server.getServer()); var record = ledger.find(selection.cache());
         for (int slot = 0; slot < record.state().cells().size(); slot++) {
             var cell = record.state().cells().get(slot); if (!selection.key().equals(cell.filter())) continue;

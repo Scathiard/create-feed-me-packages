@@ -350,15 +350,15 @@ public final class EmiClientReview {
         return dev.emi.emi.api.recipe.EmiPlayerInventory.of(Minecraft.getInstance().player).inventory.values().stream()
                 .filter(s -> s.getItemStack().is(Items.OAK_LOG)).mapToLong(dev.emi.emi.api.stack.EmiStack::getAmount).sum();
     }
-    private static void emiOpen(String id) { dev.emi.emi.api.EmiApi.displayRecipe(emiRecipe(id)); }
-    private static boolean emiDispatch(String id, dev.emi.emi.api.recipe.handler.EmiCraftContext.Destination destination, int amount) throws ReflectiveOperationException {
+    static void emiOpen(String id) { dev.emi.emi.api.EmiApi.displayRecipe(emiRecipe(id)); }
+    static boolean emiDispatch(String id, dev.emi.emi.api.recipe.handler.EmiCraftContext.Destination destination, int amount) throws ReflectiveOperationException {
         return (boolean) Class.forName("dev.emi.emi.registry.EmiRecipeFiller").getMethod("performFill",
                 dev.emi.emi.api.recipe.EmiRecipe.class, net.minecraft.client.gui.screens.inventory.AbstractContainerScreen.class,
                 dev.emi.emi.api.recipe.handler.EmiCraftContext.Type.class, dev.emi.emi.api.recipe.handler.EmiCraftContext.Destination.class, int.class)
                 .invoke(null, emiRecipe(id), dev.emi.emi.api.EmiApi.getHandledScreen(),
                         dev.emi.emi.api.recipe.handler.EmiCraftContext.Type.CRAFTABLE, destination, amount);
     }
-    private static void emiClickFill() throws ReflectiveOperationException {
+    static void emiClickFill() throws ReflectiveOperationException {
         var screen = Minecraft.getInstance().screen;
         require(screen != null && screen.getClass().getName().equals("dev.emi.emi.screen.RecipeScreen"), "Native EMI recipe screen is not open");
         var field = screen.getClass().getDeclaredField("currentPage"); field.setAccessible(true);

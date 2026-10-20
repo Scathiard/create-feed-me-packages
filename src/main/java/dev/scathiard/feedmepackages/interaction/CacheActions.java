@@ -22,7 +22,7 @@ public final class CacheActions {
     private CacheActions() {}
     /** Opt-in panel drop: the server resolves the exact variant across all pages. */
     public static final int AUTO_DEPOSIT = -2;
-    public enum Action { DEPOSIT, TAKE_CURSOR, TAKE_INVENTORY, SET_GHOST, CLEAR_FILTER, THRESHOLDS, RESET_REQUEST, PREFERENCE, TERMINAL_ENABLED, CLEAR_NETWORK, TAKE_RESIDUAL, FILL_RECIPE, SET_RETURN_ADDRESS, RELEASE_PREVIEW, CREATIVE_BEGIN, CREATIVE_END, COLLECT_MATCHING, SUPPLY_SETTINGS, SET_FLUID_GHOST, TAKE_FLUID, PLACE_FLUID, DEPOSIT_FLUID, RELEASE_FLUID, MAID_PICKUP, CRAFTING_ENABLED }
+    public enum Action { DEPOSIT, TAKE_CURSOR, TAKE_INVENTORY, SET_GHOST, CLEAR_FILTER, THRESHOLDS, RESET_REQUEST, PREFERENCE, TERMINAL_ENABLED, CLEAR_NETWORK, TAKE_RESIDUAL, FILL_RECIPE, SET_RETURN_ADDRESS, RELEASE_PREVIEW, CREATIVE_BEGIN, CREATIVE_END, COLLECT_MATCHING, SUPPLY_SETTINGS, SET_FLUID_GHOST, TAKE_FLUID, PLACE_FLUID, DEPOSIT_FLUID, RELEASE_FLUID, MAID_PICKUP, CRAFTING_ENABLED, FILL_FLUID }
     public enum Result { OK, STALE, NOT_ACTIVE, INVALID_ITEM, DUPLICATE_FILTER, FILTER_OCCUPIED, NO_SPACE, INVALID_REQUEST, MISSING_MATERIAL, UNSUPPORTED_RECIPE, TOO_COMPLEX, READ_ONLY, DENIED }
     public record Intent(UUID session, long revision, Action action, int slot, int first, int second, String template) {
         public Intent {
@@ -131,7 +131,7 @@ public final class CacheActions {
         // they drop a stack into a chest), so the narrow door is safe. Every other action keeps the old rule.
         if (player.gameMode.isCreative() && player.containerMenu instanceof InventoryMenu
                 && (intent.action() == Action.DEPOSIT || intent.action() == Action.TAKE_CURSOR
-                        || intent.action() == Action.TAKE_RESIDUAL || intent.action() == Action.DEPOSIT_FLUID))
+                        || intent.action() == Action.TAKE_RESIDUAL || (intent.action() == Action.DEPOSIT_FLUID || intent.action() == Action.FILL_FLUID)))
             return Result.INVALID_REQUEST;
         return execute(player, intent, null, requestSeq);
     }
@@ -142,7 +142,7 @@ public final class CacheActions {
 
     public static Result executeCreative(ServerPlayer player, Intent intent, String template, int count, int requestSeq) {
         if (!player.getAbilities().instabuild || !player.gameMode.isCreative() || !(player.containerMenu instanceof InventoryMenu)
-                || !(intent.action() == Action.DEPOSIT || intent.action() == Action.TAKE_CURSOR || intent.action() == Action.TAKE_RESIDUAL || intent.action() == Action.DEPOSIT_FLUID))
+                || !(intent.action() == Action.DEPOSIT || intent.action() == Action.TAKE_CURSOR || intent.action() == Action.TAKE_RESIDUAL || (intent.action() == Action.DEPOSIT_FLUID || intent.action() == Action.FILL_FLUID)))
             return Result.INVALID_REQUEST;
         ItemStack cursor;
         try {

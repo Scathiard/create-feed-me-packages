@@ -123,7 +123,7 @@
   "message.create_feed_me_packages.retirement.done": "旧私人库存已转入普通供应链坠。",
   "message.create_feed_me_packages.retirement.failed": "旧库存转交暂缓，数据已保留。请查看日志并备份存档。",
   "item.create_feed_me_packages.pocket_pallet": "拣货夹",
-  "item.create_feed_me_packages.pocket_pallet.tip": "按住 %s 选方块；%s 从缓存放置。",
+  "item.create_feed_me_packages.pocket_pallet.tip": "按住 %s 选料；%s 使用。",
   "key.create_feed_me_packages.pallet_select": "拣货夹：选择方块",
   "key.create_feed_me_packages.pallet_mode": "拣货夹：切换显示模式",
   "key.create_feed_me_packages.select_template": "面板：选择过滤模板",
@@ -135,9 +135,9 @@
   "gui.create_feed_me_packages.pallet.grid": "网格",
   "gui.create_feed_me_packages.pallet.spiral": "圆弧",
   "gui.create_feed_me_packages.pallet.drag": "左右拖动 · 松开确认",
-  "gui.create_feed_me_packages.pallet.empty": "没有匹配且有货的可放置方块",
+  "gui.create_feed_me_packages.pallet.empty": "没有可用物资",
   "message.create_feed_me_packages.pallet.no_access": "请先佩戴可访问库存的坠子。",
-  "message.create_feed_me_packages.pallet.no_selection": "先用选料键选择缓存中的方块。",
+  "message.create_feed_me_packages.pallet.no_selection": "请先选择物资",
   "message.create_feed_me_packages.pallet.missing": "选中的方块缺货；没有改选其他材料。",
   "message.create_feed_me_packages.pallet.denied": "无法在这里放置，库存未扣减。",
   "message.create_feed_me_packages.pallet.busy": "当前有放置操作未结束，请稍后再试。",
@@ -207,5 +207,10 @@
   "gui.create_feed_me_packages.crafting_on": "合成取用：开",
   "gui.create_feed_me_packages.crafting_off": "合成取用：关",
   "gui.create_feed_me_packages.maid_pickup_on": "自动拾取入库：开",
-  "gui.create_feed_me_packages.maid_pickup_off": "自动拾取入库：关"
+  "gui.create_feed_me_packages.maid_pickup_off": "自动拾取入库：关",
+  "gui.create_feed_me_packages.compat.sbw_config_disabled": "卓越前线缓存弹药已被服务器禁用",
+  "gui.create_feed_me_packages.compat.sbw_server_mismatch": "卓越前线接口不匹配：缓存弹药已停用",
+  "gui.create_feed_me_packages.compat.sbw_client_mismatch": "客户端卓越前线接口不匹配：缓存弹药预览已停用",
+  "gui.create_feed_me_packages.compat.ars_config_disabled": "新生魔艺缓存放置已被服务器禁用",
+  "gui.create_feed_me_packages.compat.ars_server_mismatch": "新生魔艺接口不匹配：缓存放置已停用"
 }

@@ -13,6 +13,7 @@ def referenceRoot = file('reference-build-safe')
 def referenceOutput = new File(referenceRoot, 'v0.3.0-converged')
 // （不覆盖 layout.buildDirectory：主线用 Gradle 默认 build/）
 def dependencyInput = new File(referenceRoot, 'v0.3.0-astra')
+def optionalInput = file('dependencies/optional')
 // Repackaged's required library already embeds Compat Manager.
 if (project.hasProperty('withRepackaged') && !project.hasProperty('withDeployer')) project.ext.set('withDeployer', true)
 
@@ -20,7 +21,7 @@ def runProfile = "neo${project.neo_version}" + (project.hasProperty('withCourier
         (project.hasProperty('withMobile') ? '-mobile' : '') +
         (project.hasProperty('withPhantom') ? '-phantom102' : '') +
         (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-converged1'
-['withTacz','withWand','withGadgets','withEffortless','withEmi','withFxnt','withSophisticated','withMaid','withFluid','withFactory','withDeployer','withRepackaged','withConnected','withCraftingTweaks','withGravestone','withCorpse','withTombstone','withTomsStorage','withPolymorph','withMouseTweaks','withModernFix','withLithium'].each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
+['withStorage','withArs','withSbw','withTacz','withWand','withGadgets','withEffortless','withEmi','withFxnt','withSophisticated','withMaid','withFluid','withFactory','withDeployer','withRepackaged','withConnected','withCraftingTweaks','withGravestone','withCorpse','withTombstone','withTomsStorage','withPolymorph','withMouseTweaks','withModernFix','withLithium'].each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
 if (project.hasProperty('mobile_runtime_version')) {
     if (!project.hasProperty('withMobile') || project.property('mobile_runtime_version').toString() != '0.7.8')
         throw new GradleException('The explicit Mobile Packages runtime input is pinned to 0.7.8 and requires withMobile')
@@ -91,6 +92,7 @@ sourceSets {
 }
 
 repositories {
+    maven { url = 'https://api.modrinth.com/maven'; content { includeGroup 'maven.modrinth' } }
     maven { url = new File(dependencyInput, 'dependencies/maven'); content { includeGroup 'dev.emi' } }
     maven { url = 'https://repo.sleeping.town/'; content { includeGroup 'dev.emi' } }
     maven { url = 'https://maven.createmod.net' }
@@ -126,7 +128,7 @@ dependencies {
         def artifact = layout.buildDirectory.file("libs/create-feed-me-packages-${project.version}.jar").get().asFile
         if (!artifact.isFile()) throw new GradleException('Build the main JAR before packaged verification')
         localRuntime files(artifact)
-        if (project.hasProperty('fmpArtifactProbe')) localRuntime files(new File(referenceOutput, 'fmp-artifact-probe.jar'))
+        if (project.hasProperty('fmpArtifactProbe')) localRuntime files(layout.buildDirectory.file('probes/fmp-artifact-probe.jar'))
         if (project.hasProperty('fmpMaidTransportProbe')) localRuntime files(layout.buildDirectory.file('probes/fmp-maid-transport-test-probe.jar'))
     }
 
@@ -189,7 +191,24 @@ dependencies {
         if (!maid.isFile()) throw new GradleException('Missing pinned isolated Touhou Little Maid artifact')
         localRuntime files(maid)
     }
-    if (project.hasProperty('withSophisticated')) {
+    if (project.hasProperty('withStorage')) {
+        localRuntime files(new File(optionalInput, 'sophisticated-storage/1.21.1-1.6.7.2184/sophisticatedstorage-1.21.1-1.6.7.2184.jar'))
+        localRuntime files(new File(optionalInput, 'sophisticated-core/1.21.1-1.5.16.2422/sophisticatedcore-1.21.1-1.5.16.2422.jar'))
+    }
+    def ars = new File(optionalInput, 'ars-nouveau/5.13.3/ars_nouveau-1.21.1-5.13.3.jar')
+    def sbw = new File(optionalInput, 'superb-warfare/0.8.9.2/superbwarfare-0.8.9.2-mc1.21.1-c22d98c2.jar')
+    // Compile-time ports only; never an FMP loader dependency or bundled mod.
+    compileOnly(ars.isFile() ? files(ars) : 'maven.modrinth:TKB6INcv:yWDnir1o')
+    compileOnly(sbw.isFile() ? files(sbw) : 'maven.modrinth:Cd3DYqzn:bl7W8fjU')
+    if (project.hasProperty('withArs')) localRuntime files(ars)
+    if (project.hasProperty('withSbw')) {
+        localRuntime files(sbw, new File(optionalInput, 'kotlin-for-forge/5.12.0/kotlinforforge-5.12.0-all.jar'))
+    }
+    if (project.hasProperty('withArs') || project.hasProperty('withSbw'))
+        localRuntime files(new File(optionalInput, 'geckolib/4.9.3/geckolib-neoforge-1.21.1-4.9.3.jar'))
+    if (project.hasProperty('withSophisticated') && project.hasProperty('withStorage'))
+        localRuntime files(new File(optionalInput,'sophisticated-backpacks/1.21.1-3.26.13.2214/sophisticatedbackpacks-1.21.1-3.26.13.2214.jar'))
+    if (project.hasProperty('withSophisticated') && !project.hasProperty('withStorage')) {
         ['sophisticatedbackpacks/3.26.3.2158/sophisticatedbackpacks-1.21.1-3.26.3.2158.jar',
          'sophisticatedcore/1.5.1.2341/sophisticatedcore-1.21.1-1.5.1.2341.jar'].each { path ->
             def artifact = new File(dependencyInput, 'dependencies/artifacts/' + path)
@@ -256,7 +275,7 @@ neoForge {
             if (project.hasProperty('fmpCompatReview')) {
                 if (!project.hasProperty('fmpGameTests') && !project.hasProperty('fmpArtifactProbe')) throw new GradleException('Compatibility review requires isolated test sources or external artifact probe')
                 def review = project.property('fmpCompatReview').toString()
-                if (!(review in ['templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','feedback','tacz','wand','gadgets','effortless','craftingtweaks','mousetweaks','toms','toms-network','toms-polymorph','polymorph','ui']))
+                if (!(review in ['templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','materials','sbw','feedback','tacz','wand','gadgets','effortless','craftingtweaks','mousetweaks','toms','toms-network','toms-polymorph','polymorph','ui']))
                     throw new GradleException('Unknown compatibility review')
                 systemProperty 'fmp.compatReview', review
             }
@@ -363,6 +382,7 @@ tasks.register('phantomProbeJar', Jar) {
         if (project.hasProperty('fmpMaidTransportProbe')) {
             include 'dev/scathiard/feedmepackages/gametest/MaidTests*.class'
             include 'dev/scathiard/feedmepackages/gametest/ConsumptionTests*.class'
+        include 'dev/scathiard/feedmepackages/gametest/SophisticatedTests*.class'
             include 'dev/scathiard/feedmepackages/gametest/InteractionTests*.class'
             include 'data/create_feed_me_packages/structure/empty.nbt'
             include 'data/create_feed_me_packages/recipe/test_remainder.json'
@@ -400,7 +420,7 @@ side="BOTH"
 tasks.register('artifactProbeJar', Jar) {
     dependsOn tasks.named('gameTestClasses'), artifactProbeMetadata
     archiveFileName = 'fmp-artifact-probe.jar'
-    destinationDirectory = referenceOutput
+    destinationDirectory = layout.buildDirectory.dir('probes')
     from(sourceSets.gameTest.output) {
         // Never create split packages with production domain/service classes from legacy test fixtures.
         // Only native client drivers and their item/container fixtures belong here. Including all
@@ -410,6 +430,7 @@ tasks.register('artifactProbeJar', Jar) {
         include 'dev/scathiard/feedmepackages/gametest/LegacyOwnership*.class'
         include 'dev/scathiard/feedmepackages/gametest/ArtifactProbeBootstrap*.class'
         include 'dev/scathiard/feedmepackages/gametest/ConsumptionTests*.class'
+        include 'dev/scathiard/feedmepackages/gametest/SophisticatedTests*.class'
         include 'dev/scathiard/feedmepackages/gametest/GadgetsTests*.class'
         include 'dev/scathiard/feedmepackages/gametest/InteractionTests*.class'
         include 'dev/scathiard/feedmepackages/gametest/TestPlayers*.class'

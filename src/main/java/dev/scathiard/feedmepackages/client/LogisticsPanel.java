@@ -187,7 +187,7 @@ public final class LogisticsPanel {
 
     private record Predict(UUID window, UUID session, int slot, String variant, int sequence, long baseSerial, int result) {}
     private enum QueuedClickKind {
-        COPY_ADDRESS, SCROLL, TOGGLE_SLOT, CLEAR_FILTER, DEPOSIT, DEPOSIT_FLUID, TAKE_INVENTORY, TAKE_CURSOR
+        COPY_ADDRESS, SCROLL, TOGGLE_SLOT, CLEAR_FILTER, DEPOSIT, DEPOSIT_FLUID, FILL_FLUID, TAKE_INVENTORY, TAKE_CURSOR
     }
     private record QueuedPanelClick(UUID window, UUID session, QueuedClickKind kind, int slot, int button, int row, String template) {}
     private static Component feedback;
@@ -1375,7 +1375,7 @@ public final class LogisticsPanel {
                 return new QueuedPanelClick(window, snapshot.session(), QueuedClickKind.CLEAR_FILTER, box.slot(), button, -1, cell.template());
             }
             if (!LogisticsPanel.MC.player.containerMenu.getCarried().isEmpty()) {
-                return new QueuedPanelClick(window, snapshot.session(), Screen.hasAltDown() || cell.fluid() ? QueuedClickKind.DEPOSIT_FLUID : QueuedClickKind.DEPOSIT, box.slot(), button, -1, cell.template());
+                return new QueuedPanelClick(window, snapshot.session(), cell.fluid() && button == 1 && !Screen.hasAltDown() ? QueuedClickKind.FILL_FLUID : Screen.hasAltDown() || cell.fluid() ? QueuedClickKind.DEPOSIT_FLUID : QueuedClickKind.DEPOSIT, box.slot(), button, -1, cell.template());
             }
             return new QueuedPanelClick(window, snapshot.session(), Screen.hasShiftDown() ? QueuedClickKind.TAKE_INVENTORY : QueuedClickKind.TAKE_CURSOR, box.slot(), button, -1, cell.template());
         }
@@ -1414,6 +1414,7 @@ public final class LogisticsPanel {
         }
         switch (click.kind()) {
             case CLEAR_FILTER -> LogisticsPanel.send(CacheActions.Action.CLEAR_FILTER, click.slot(), 0, -1, "");
+            case FILL_FLUID -> LogisticsPanel.send(CacheActions.Action.FILL_FLUID, click.slot(), 0, 0, "");
             case DEPOSIT_FLUID -> LogisticsPanel.send(CacheActions.Action.DEPOSIT_FLUID, click.slot(), 0, 0, "");
             case DEPOSIT -> LogisticsPanel.send(CacheActions.Action.DEPOSIT, click.slot(), click.button() == 1 ? 1 : 0, -1, "");
             case TAKE_INVENTORY -> {
@@ -1632,7 +1633,7 @@ public final class LogisticsPanel {
             return;
         }
         if (aimed >= 0 && (Screen.hasAltDown() || snapshot.cells().get(aimed).fluid())) {
-            send(CacheActions.Action.DEPOSIT_FLUID,aimed,0,0,""); return;
+            send(button == 1 && !Screen.hasAltDown() && snapshot.cells().get(aimed).fluid() ? CacheActions.Action.FILL_FLUID : CacheActions.Action.DEPOSIT_FLUID,aimed,0,0,""); return;
         }
         int first = button == 1 ? 1 : 0;
         String carried;
@@ -1924,7 +1925,7 @@ public final class LogisticsPanel {
         if (snapshot == null || snapshot.session() == null || waiting != 0 || cursorPending || pendingCursorChange != null || window == null || !pageReady()) {
             return false;
         }
-        boolean creative = screen instanceof CreativeModeInventoryScreen && (action == CacheActions.Action.DEPOSIT || action == CacheActions.Action.TAKE_CURSOR || action == CacheActions.Action.DEPOSIT_FLUID);
+        boolean creative = screen instanceof CreativeModeInventoryScreen && (action == CacheActions.Action.DEPOSIT || action == CacheActions.Action.TAKE_CURSOR || (action == CacheActions.Action.DEPOSIT_FLUID || action == CacheActions.Action.FILL_FLUID));
         String cursor = "";
         int count = 0;
         if (creative && !(held = LogisticsPanel.MC.player.containerMenu.getCarried()).isEmpty()) {
@@ -1938,7 +1939,7 @@ public final class LogisticsPanel {
             }
         }
         boolean cellAction = switch (action) {
-            case SET_GHOST, SET_FLUID_GHOST, DEPOSIT, DEPOSIT_FLUID, TAKE_CURSOR, TAKE_INVENTORY, TAKE_FLUID,
+            case SET_GHOST, SET_FLUID_GHOST, DEPOSIT, DEPOSIT_FLUID, FILL_FLUID, TAKE_CURSOR, TAKE_INVENTORY, TAKE_FLUID,
                     CLEAR_FILTER, THRESHOLDS, SUPPLY_SETTINGS, RESET_REQUEST -> true;
             default -> false;
         };
@@ -1953,7 +1954,7 @@ public final class LogisticsPanel {
         if (creative) {
             cursorSession = snapshot.session(); cursorOperation = waiting;
             cursorExpected = MC.player.containerMenu.getCarried().copy(); cursorPending = true;
-            if (action == CacheActions.Action.DEPOSIT || action == CacheActions.Action.DEPOSIT_FLUID) pendingCursorChange = new PendingCursorChange(window, cursorSession, waiting, cursorExpected);
+            if (action == CacheActions.Action.DEPOSIT || (action == CacheActions.Action.DEPOSIT_FLUID || action == CacheActions.Action.FILL_FLUID)) pendingCursorChange = new PendingCursorChange(window, cursorSession, waiting, cursorExpected);
             if (action == CacheActions.Action.TAKE_CURSOR) {
                 previewSeq = waiting; previewRemaining = 0; previewVariant = null; previewConfirmed = false;
             } else if (!previewConfirmed) previewSeq = 0;

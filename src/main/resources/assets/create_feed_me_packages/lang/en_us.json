@@ -123,7 +123,7 @@
   "message.create_feed_me_packages.retirement.done": "Legacy stock has moved to an ordinary Supply Chain Pendant.",
   "message.create_feed_me_packages.retirement.failed": "Legacy stock transfer paused; data retained. Check the log and back up your world.",
   "item.create_feed_me_packages.pocket_pallet": "Pocket Pallet",
-  "item.create_feed_me_packages.pocket_pallet.tip": "Hold %s to select; %s places from your cache.",
+  "item.create_feed_me_packages.pocket_pallet.tip": "Hold %s to select; %s to use.",
   "key.create_feed_me_packages.pallet_select": "Pocket Pallet: Select Block",
   "key.create_feed_me_packages.pallet_mode": "Pocket Pallet: Switch Display Mode",
   "key.create_feed_me_packages.select_template": "Panel: Choose Filter Template",
@@ -135,9 +135,9 @@
   "gui.create_feed_me_packages.pallet.grid": "Grid",
   "gui.create_feed_me_packages.pallet.spiral": "Arc",
   "gui.create_feed_me_packages.pallet.drag": "Drag sideways · Release to confirm",
-  "gui.create_feed_me_packages.pallet.empty": "No matching placeable blocks in stock",
+  "gui.create_feed_me_packages.pallet.empty": "No available supplies",
   "message.create_feed_me_packages.pallet.no_access": "Wear a pendant that grants access to your cache.",
-  "message.create_feed_me_packages.pallet.no_selection": "Select a cached block with the material selection key first.",
+  "message.create_feed_me_packages.pallet.no_selection": "Select supplies first",
   "message.create_feed_me_packages.pallet.missing": "Selected block is out of stock. No substitute was selected.",
   "message.create_feed_me_packages.pallet.denied": "Placement denied; cache unchanged.",
   "message.create_feed_me_packages.pallet.busy": "Another placement is still in progress.",
@@ -207,5 +207,10 @@
   "gui.create_feed_me_packages.crafting_on": "Crafting from cache: On",
   "gui.create_feed_me_packages.crafting_off": "Crafting from cache: Off",
   "gui.create_feed_me_packages.maid_pickup_on": "Store picked-up items: on",
-  "gui.create_feed_me_packages.maid_pickup_off": "Store picked-up items: off"
+  "gui.create_feed_me_packages.maid_pickup_off": "Store picked-up items: off",
+  "gui.create_feed_me_packages.compat.sbw_config_disabled": "Cached Superb Warfare ammunition is disabled by the server",
+  "gui.create_feed_me_packages.compat.sbw_server_mismatch": "Superb Warfare API mismatch: cached ammunition disabled",
+  "gui.create_feed_me_packages.compat.sbw_client_mismatch": "Client Superb Warfare API mismatch: cache ammo hints disabled",
+  "gui.create_feed_me_packages.compat.ars_config_disabled": "Cached Ars Nouveau placement is disabled by the server",
+  "gui.create_feed_me_packages.compat.ars_server_mismatch": "Ars Nouveau API mismatch: cached placement disabled"
 }

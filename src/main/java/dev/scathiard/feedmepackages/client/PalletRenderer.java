@@ -70,9 +70,21 @@ public final class PalletRenderer extends BlockEntityWithoutLevelRenderer {
         var cargo=PalletClient.displayed();
         if(motion.cargo() && !cargo.isEmpty()) {
             pose.pushPose();pose.translate(8/16.0,8.9/16.0,motion.cargoZ()/16.0);pose.scale(3/16f,3/16f,3/16f);
-            mc.getItemRenderer().renderStatic(cargo,ItemDisplayContext.NONE,light,overlay,pose,buffers,mc.level,0);
+            if(cargo.fluid().isEmpty()) mc.getItemRenderer().renderStatic(cargo.item(),ItemDisplayContext.NONE,light,overlay,pose,buffers,mc.level,0);
+            else fluidCargo(cargo.fluid(),pose,buffers,light,overlay);
             pose.popPose();
         }
+    }
+    private static void fluidCargo(net.neoforged.neoforge.fluids.FluidStack fluid,PoseStack pose,MultiBufferSource buffers,int light,int overlay) {
+        var ext=IClientFluidTypeExtensions.of(fluid.getFluid()); var texture=ext.getStillTexture(fluid);
+        if(texture==null) return;
+        var sprite=Minecraft.getInstance().getTextureAtlas(net.minecraft.world.inventory.InventoryMenu.BLOCK_ATLAS).apply(texture);
+        var vertices=buffers.getBuffer(RenderType.entityTranslucent(net.minecraft.world.inventory.InventoryMenu.BLOCK_ATLAS));
+        int tint=ext.getTintColor(fluid);var matrix=pose.last();
+        vertices.addVertex(matrix,-.5f,-.5f,0).setColor(tint).setUv(sprite.getU0(),sprite.getV1()).setOverlay(overlay).setLight(light).setNormal(matrix,0,0,1);
+        vertices.addVertex(matrix,.5f,-.5f,0).setColor(tint).setUv(sprite.getU1(),sprite.getV1()).setOverlay(overlay).setLight(light).setNormal(matrix,0,0,1);
+        vertices.addVertex(matrix,.5f,.5f,0).setColor(tint).setUv(sprite.getU1(),sprite.getV0()).setOverlay(overlay).setLight(light).setNormal(matrix,0,0,1);
+        vertices.addVertex(matrix,-.5f,.5f,0).setColor(tint).setUv(sprite.getU0(),sprite.getV0()).setOverlay(overlay).setLight(light).setNormal(matrix,0,0,1);
     }
     private static void part(String name,double x,double y,double z,ItemStack stack,PoseStack pose,MultiBufferSource buffers,int light,int overlay) {
         pose.pushPose();pose.translate(x/16,y/16,z/16);

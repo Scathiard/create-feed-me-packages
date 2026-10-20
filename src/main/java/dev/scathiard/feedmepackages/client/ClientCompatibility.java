@@ -15,8 +15,9 @@ import java.util.Set;
 /** Warn once per changed failure on joining/reload, including players not wearing a pendant. */
 public final class ClientCompatibility {
     private ClientCompatibility() {}
-    private static CompatibilityStatus.State serverFxnt, serverEmi, serverTacz, serverWand, serverGadgets, serverEffortless, serverSophisticated, serverMaid, serverFactory;
+    private static CompatibilityStatus.State serverFxnt, serverEmi, serverTacz, serverWand, serverGadgets, serverEffortless, serverSophisticated, serverMaid, serverFactory, serverSbw, serverArs;
     private static Set<String> reported = Set.of();
+    public static boolean sbwSourcesAvailable() { return serverSbw==CompatibilityStatus.State.READY && OptionalMixins.sbwCompatible(); }
     public static boolean sophisticatedSourcesAvailable() { return serverSophisticated == CompatibilityStatus.State.READY && dev.scathiard.feedmepackages.compat.sophisticated.SophisticatedAccess.enabled(); }
     public static boolean effortlessSourcesAvailable() { return serverEffortless == CompatibilityStatus.State.READY && OptionalMixins.effortlessCompatible(); }
     public static boolean gadgetsSourcesAvailable() { return serverGadgets == CompatibilityStatus.State.READY && OptionalMixins.gadgetsCompatible(); }
@@ -26,21 +27,26 @@ public final class ClientCompatibility {
             && dev.scathiard.feedmepackages.compat.tacz.TaczMaterials.ready()
             && dev.scathiard.feedmepackages.compat.tacz.TaczClientSources.ready(); }
     public static void register() {
-        CompatibilityStatus.receiveOnClient(message -> { serverFxnt = message.fxnt(); serverEmi = message.emi(); serverTacz = message.tacz(); serverWand = message.wand(); serverGadgets = message.gadgets(); serverEffortless = message.effortless(); serverSophisticated = message.sophisticated(); serverMaid = message.maid(); serverFactory = message.factory(); });
-        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> { serverFxnt = null; serverEmi = null; serverTacz = null; serverWand = null; serverGadgets = null; serverEffortless = null; serverSophisticated = null; serverMaid = null; serverFactory = null; reported = Set.of(); });
+        CompatibilityStatus.receiveOnClient(message -> { serverFxnt = message.fxnt(); serverEmi = message.emi(); serverTacz = message.tacz(); serverWand = message.wand(); serverGadgets = message.gadgets(); serverEffortless = message.effortless(); serverSophisticated = message.sophisticated(); serverMaid = message.maid(); serverFactory = message.factory(); serverSbw=message.sbw(); serverArs=message.ars(); });
+        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> { serverFxnt = null; serverEmi = null; serverTacz = null; serverWand = null; serverGadgets = null; serverEffortless = null; serverSophisticated = null; serverMaid = null; serverFactory = null; serverSbw=null; serverArs=null; reported = Set.of(); });
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post event) -> tick());
     }
     private static void tick() {
         var player = Minecraft.getInstance().player;
         if (player == null || serverFxnt == null || player.tickCount % 20 != 0) return;
         var failures = new HashSet<String>();
+        if(serverSbw==CompatibilityStatus.State.CONFIG_DISABLED) failures.add("sbw_config_disabled");
+        else if(serverSbw==CompatibilityStatus.State.API_MISMATCH) failures.add("sbw_server_mismatch");
+        else if(serverSbw==CompatibilityStatus.State.READY && !OptionalMixins.sbwCompatible()) failures.add("sbw_client_mismatch");
+        if(serverArs==CompatibilityStatus.State.CONFIG_DISABLED) failures.add("ars_config_disabled");
+        else if(serverArs==CompatibilityStatus.State.API_MISMATCH) failures.add("ars_server_mismatch");
         if (serverFactory == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("factory_config_disabled");
         else if (serverFactory == CompatibilityStatus.State.API_MISMATCH) failures.add("factory_server_mismatch");
         if (serverMaid == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("maid_config_disabled");
         else if (serverMaid == CompatibilityStatus.State.API_MISMATCH) failures.add("maid_server_mismatch");
         if (serverSophisticated == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("sophisticated_config_disabled");
         else if (serverSophisticated == CompatibilityStatus.State.API_MISMATCH) failures.add("sophisticated_server_mismatch");
-        else if (serverSophisticated == CompatibilityStatus.State.READY && ModList.get().isLoaded("sophisticatedbackpacks")
+        else if (serverSophisticated == CompatibilityStatus.State.READY && dev.scathiard.feedmepackages.compat.sophisticated.SophisticatedAccess.installed()
                 && !dev.scathiard.feedmepackages.compat.sophisticated.SophisticatedAccess.ready()) failures.add("sophisticated_client_mismatch");
         if (serverEffortless == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("effortless_config_disabled");
         else if (serverEffortless == CompatibilityStatus.State.API_MISMATCH) failures.add("effortless_server_mismatch");

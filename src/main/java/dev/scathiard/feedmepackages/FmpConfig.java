@@ -12,9 +12,9 @@ import net.neoforged.neoforge.common.ModConfigSpec;
 public final class FmpConfig {
     private FmpConfig() {}
     public static final ModConfigSpec SERVER_SPEC;
-    public static final ModConfigSpec.BooleanValue TACZ, WAND, GADGETS, EFFORTLESS, JEI, EMI, FXNT, SOPHISTICATED, MAID, FACTORY;
-    private record Enabled(boolean tacz, boolean wand, boolean gadgets, boolean effortless, boolean jei, boolean emi, boolean fxnt, boolean sophisticated, boolean maid, boolean factory) {}
-    private static final Enabled DEFAULTS = new Enabled(true, true, true, true, true, true, true, true, true, true);
+    public static final ModConfigSpec.BooleanValue TACZ, WAND, GADGETS, EFFORTLESS, JEI, EMI, FXNT, SOPHISTICATED, MAID, FACTORY, SBW, ARS;
+    private record Enabled(boolean tacz, boolean wand, boolean gadgets, boolean effortless, boolean jei, boolean emi, boolean fxnt, boolean sophisticated, boolean maid, boolean factory, boolean sbw, boolean ars) {}
+    private static final Enabled DEFAULTS = new Enabled(true, true, true, true, true, true, true, true, true, true, true, true);
     private static volatile Enabled enabled = DEFAULTS;
     public static final List<ModConfigSpec.IntValue> SLOTS = new ArrayList<>(), GROUPS = new ArrayList<>();
     public static final ModConfigSpec.ConfigValue<List<? extends String>> DENIED, ALLOWED;
@@ -38,9 +38,11 @@ public final class FmpConfig {
         JEI = b.comment("Supply cache materials to native JEI transfers.").define("jei_crafting", true);
         EMI = b.comment("Supply cache materials to native EMI transfers.").define("emi_crafting", true);
         FXNT = b.comment("Add cache sources to Create: Storage native recipe transfers.").define("fxnt_materials", true);
-        SOPHISTICATED = b.comment("Add cache sources to Sophisticated Backpacks crafting upgrades.").define("sophisticated_backpacks", true);
+        SOPHISTICATED = b.comment("Add cache sources to Sophisticated Backpacks and Storage crafting upgrades. Legacy setting name is retained.").define("sophisticated_backpacks", true);
         MAID = b.comment("Allow ordinary pendant supplies and direct replenishment for tamed Touhou Little Maids.").define("touhou_little_maid", true);
         FACTORY = b.comment("Use Factory Logistics native ordinary-item dispatch when it replaces Create logistics.").define("factory_logistics", true);
+        SBW = b.comment("Supply ordinary cached ammunition to native held Superb Warfare guns and the current vehicle weapon seat only.").define("superb_warfare_ammo",true);
+        ARS = b.comment("Supply cached blocks last to real-player Ars Nouveau placement spells.").define("ars_nouveau_place",true);
         b.pop().push("cache");
         for(int level=1;level<=5;level++) {
             var value=CacheCapacity.defaults(level);
@@ -64,6 +66,8 @@ public final class FmpConfig {
     public static boolean fxntMaterialsEnabled() { return enabled.fxnt; }
     public static boolean sophisticatedEnabled() { return enabled.sophisticated; }
     public static boolean factoryLogisticsEnabled() { return enabled.factory; }
+    public static boolean sbwEnabled() { return enabled.sbw; }
+    public static boolean arsEnabled() { return enabled.ars; }
     public static boolean maidEnabled() { return enabled.maid; }
     public static void register(ModContainer container, IEventBus bus) {
         container.registerConfig(ModConfig.Type.SERVER, SERVER_SPEC);
@@ -78,7 +82,7 @@ public final class FmpConfig {
             var levels=new ArrayList<CacheCapacity>();
             for(int i=0;i<5;i++)levels.add(new CacheCapacity(SLOTS.get(i).get(),GROUPS.get(i).get()));
             var next=new Rules(levels,new HashSet<>(DENIED.get()),new HashSet<>(ALLOWED.get()));
-            enabled = new Enabled(TACZ.get(), WAND.get(), GADGETS.get(), EFFORTLESS.get(), JEI.get(), EMI.get(), FXNT.get(), SOPHISTICATED.get(), MAID.get(), FACTORY.get()); rules=next; }
+            enabled = new Enabled(TACZ.get(), WAND.get(), GADGETS.get(), EFFORTLESS.get(), JEI.get(), EMI.get(), FXNT.get(), SOPHISTICATED.get(), MAID.get(), FACTORY.get(), SBW.get(), ARS.get()); rules=next; }
         catch (RuntimeException invalid) { enabled = DEFAULTS; rules=defaults(); FeedMePackages.LOGGER.error("FMP configuration rejected; using complete defaults", invalid); }
     }
 }

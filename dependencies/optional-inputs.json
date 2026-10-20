@@ -1,0 +1,118 @@
+{
+  "purpose": "Pinned original optional inputs for test.69; binaries are not bundled or FMP loader dependencies. This is an input inventory, not a dependency resolver; original mod requirements still apply.",
+  "artifacts": [
+    {
+      "source": "https://modrinth.com/mod/ars-nouveau/version/yWDnir1o",
+      "url": "https://cdn.modrinth.com/data/TKB6INcv/versions/yWDnir1o/ars_nouveau-1.21.1-5.13.3.jar",
+      "version": "5.13.3",
+      "sha256": "45c1b6022d8e63464177c1f822bda22c3d6fb66970857fd7677e4e3ccffd259f",
+      "path": "dependencies/optional/ars-nouveau/5.13.3/ars_nouveau-1.21.1-5.13.3.jar"
+    },
+    {
+      "source": "https://modrinth.com/mod/geckolib/version/Grwn5rUB",
+      "url": "https://cdn.modrinth.com/data/8BmcQJ2H/versions/Grwn5rUB/geckolib-neoforge-1.21.1-4.9.3.jar",
+      "version": "4.9.3",
+      "sha256": "20a1995e4074f387ff549e2c57ea79dd7d41ee83c6afb9dd6a6e840e592d1c47",
+      "path": "dependencies/optional/geckolib/4.9.3/geckolib-neoforge-1.21.1-4.9.3.jar"
+    },
+    {
+      "source": "https://modrinth.com/mod/kotlin-for-forge/version/uhJhCT7X",
+      "url": "https://cdn.modrinth.com/data/ordsPcFz/versions/uhJhCT7X/kotlinforforge-5.12.0-all.jar",
+      "sha256": "2785a4dd6de5c6c56065fd8eb789c82771bd2ee773c30794c23160a3b2c39139",
+      "path": "dependencies/optional/kotlin-for-forge/5.12.0/kotlinforforge-5.12.0-all.jar"
+    },
+    {
+      "version": "1.21.1-3.26.13.2214",
+      "id": "AW1Jh0G5",
+      "url": "https://cdn.modrinth.com/data/TyCTlI4b/versions/AW1Jh0G5/sophisticatedbackpacks-1.21.1-3.26.13.2214.jar",
+      "sha256": "7247afbc68e7114dd52a64baf692bac114a58d7c1db929d6d50a0bede7abe30f",
+      "sha512": "4f868b9daa70db36485f6cc2ea7668e7dcab3a15e3c1c5083870376d961def81a22812ae7968dcb1f0d2964392d534f8a338a8e38f8afb3f485c72c11ddfae7e",
+      "path": "dependencies/optional/sophisticated-backpacks/1.21.1-3.26.13.2214/sophisticatedbackpacks-1.21.1-3.26.13.2214.jar"
+    },
+    {
+      "source": "https://modrinth.com/mod/sophisticated-core/version/n2ZY9dML",
+      "url": "https://cdn.modrinth.com/data/nmoqTijg/versions/n2ZY9dML/sophisticatedcore-1.21.1-1.5.16.2422.jar",
+      "version": "1.21.1-1.5.16.2422",
+      "sha256": "a4ee41bb9299b3d842e75b8d4dcfd499d5f108fd2b976364458dc44e94d3d31e",
+      "path": "dependencies/optional/sophisticated-core/1.21.1-1.5.16.2422/sophisticatedcore-1.21.1-1.5.16.2422.jar"
+    },
+    {
+      "source": "https://modrinth.com/mod/sophisticated-storage/version/6B0lbqeG",
+      "url": "https://cdn.modrinth.com/data/hMlaZH8f/versions/6B0lbqeG/sophisticatedstorage-1.21.1-1.6.7.2184.jar",
+      "version": "1.21.1-1.6.7.2184",
+      "sha256": "6c11fa9668c61b6a7b53dbc2b25d988006c356e10d968e26e3b235432204827c",
+      "dependencies": [
+        {
+          "version_id": null,
+          "project_id": "b1fMg6sH",
+          "file_name": null,
+          "dependency_type": "optional"
+        },
+        {
+          "version_id": null,
+          "project_id": "WRaRZdTd",
+          "file_name": null,
+          "dependency_type": "optional"
+        },
+        {
+          "version_id": null,
+          "project_id": "BAscRYKm",
+          "file_name": null,
+          "dependency_type": "optional"
+        },
+        {
+          "version_id": null,
+          "project_id": "vRYk0bv7",
+          "file_name": null,
+          "dependency_type": "optional"
+        },
+        {
+          "version_id": null,
+          "project_id": "u6dRKJwZ",
+          "file_name": null,
+          "dependency_type": "optional"
+        },
+        {
+          "version_id": null,
+          "project_id": "DMu0oBKf",
+          "file_name": null,
+          "dependency_type": "optional"
+        },
+        {
+          "version_id": null,
+          "project_id": "qnQsVE2z",
+          "file_name": null,
+          "dependency_type": "optional"
+        },
+        {
+          "version_id": null,
+          "project_id": "nmoqTijg",
+          "file_name": null,
+          "dependency_type": "required"
+        }
+      ],
+      "path": "dependencies/optional/sophisticated-storage/1.21.1-1.6.7.2184/sophisticatedstorage-1.21.1-1.6.7.2184.jar"
+    },
+    {
+      "source": "https://modrinth.com/mod/superb-warfare/version/bl7W8fjU",
+      "url": "https://cdn.modrinth.com/data/Cd3DYqzn/versions/bl7W8fjU/superbwarfare-0.8.9.2-mc1.21.1-c22d98c2.jar",
+      "version": "0.8.9.2",
+      "sha256": "c06b4da8258adbc7d623c5c8e36ffc642c28831ddf6c9aa9c05c10dd18997490",
+      "dependencies": [
+        {
+          "version_id": null,
+          "project_id": "ordsPcFz",
+          "file_name": null,
+          "dependency_type": "required"
+        },
+        {
+          "version_id": null,
+          "project_id": "TbriQCWD",
+          "file_name": null,
+          "dependency_type": "incompatible"
+        }
+      ],
+      "path": "dependencies/optional/superb-warfare/0.8.9.2/superbwarfare-0.8.9.2-mc1.21.1-c22d98c2.jar"
+    }
+  ]
+}

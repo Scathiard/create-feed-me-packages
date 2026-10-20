@@ -290,7 +290,7 @@ public final class PalletClientReview {
         try {
             if(spiral()) return;
             var method=PalletScreen.class.getDeclaredMethod("gridTarget",double.class,double.class);method.setAccessible(true);
-            var target=(ItemStack)method.invoke(MC.screen,MC.mouseHandler.xpos()/MC.getWindow().getGuiScale(),MC.mouseHandler.ypos()/MC.getWindow().getGuiScale());
+            var target=(PalletMaterial)method.invoke(MC.screen,MC.mouseHandler.xpos()/MC.getWindow().getGuiScale(),MC.mouseHandler.ypos()/MC.getWindow().getGuiScale());
             require(!target.isEmpty(),"Grid showed the prior selection tooltip without hovering a tile");
         } catch(ReflectiveOperationException | RuntimeException failure) { renderFailure=new IllegalStateException("Grid tooltip hover check failed",failure); }
     }
@@ -357,7 +357,8 @@ public final class PalletClientReview {
         blocks=BuiltInRegistries.ITEM.stream().filter(item -> item instanceof BlockItem && BuiltInRegistries.ITEM.getKey(item).getNamespace().equals("minecraft")).limit(35).toList();
         require(blocks.getFirst()==Items.STONE,"Unexpected vanilla registry order");
         for(int i=0;i<34;i++){var key=ItemVariantKey.of(new ItemStack(blocks.get(i)),p.registryAccess());edit.filter(i,key);edit.insert(i,key,7);}
-        var diamond=ItemVariantKey.of(new ItemStack(Items.DIAMOND),p.registryAccess());edit.filter(34,diamond);edit.insert(34,diamond,7);
+        // Weapons remain excluded after materials/foods were admitted.
+        var weapon=ItemVariantKey.of(new ItemStack(Items.BOW),p.registryAccess());edit.filter(34,weapon);edit.insert(34,weapon,7);
         edit.filter(35,ItemVariantKey.of(new ItemStack(blocks.get(34)),p.registryAccess()));
         var state=edit.finish();var frame=old;
         ledger.replace(handle,old.state().revision(),frame.withState(state));p.setItemInHand(InteractionHand.MAIN_HAND,FmpRegistries.POCKET_PALLET.toStack());
@@ -396,7 +397,7 @@ public final class PalletClientReview {
         }
     }
     private static boolean spiral() throws ReflectiveOperationException {var f=PalletScreen.class.getDeclaredField("spiral");f.setAccessible(true);return f.getBoolean(MC.screen);}
-    @SuppressWarnings("unchecked") private static List<ItemStack> shown() throws ReflectiveOperationException {var f=PalletScreen.class.getDeclaredField("shown");f.setAccessible(true);return (List<ItemStack>)f.get(MC.screen);}
+    @SuppressWarnings("unchecked") private static List<PalletMaterial> shown() throws ReflectiveOperationException {var f=PalletScreen.class.getDeclaredField("shown");f.setAccessible(true);return (List<PalletMaterial>)f.get(MC.screen);}
     private static void releaseTile(int index) throws ReflectiveOperationException {
         var method=PalletScreen.class.getDeclaredMethod("layout");method.setAccessible(true);var layout=(PalletLayout.View)method.invoke(MC.screen);
         var tile=layout.tiles().stream().filter(t->t.index()==index).findFirst().orElseThrow();moveGui(tile.x()+12,tile.y()+12);button(2,false);
@@ -410,7 +411,7 @@ public final class PalletClientReview {
     }
     private static void requireFocus(int index) throws ReflectiveOperationException {
         var field = PalletScreen.class.getDeclaredField("focus"); field.setAccessible(true);
-        require(((ItemStack) field.get(MC.screen)).is(blocks.get(index)), "Native spiral hover differs at index " + index);
+        require(((PalletMaterial) field.get(MC.screen)).is(blocks.get(index)), "Native spiral hover differs at index " + index);
     }
     private static void keyState(int key, boolean down) throws ReflectiveOperationException {
         var method = KeyboardHandler.class.getDeclaredMethod("keyPress", long.class, int.class, int.class, int.class, int.class);

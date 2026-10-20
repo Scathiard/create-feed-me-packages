@@ -39,7 +39,7 @@ public final class CraftingReservations {
     }
     private static final Map<ServerPlayer, Session> SESSIONS = new WeakHashMap<>();
     private static long epoch;
-    public static long epoch() { return epoch + dev.scathiard.feedmepackages.interaction.CursorReservations.epoch() + WorldPlacement.epoch(); }
+    public static long epoch() { return epoch + dev.scathiard.feedmepackages.interaction.CursorReservations.epoch() + WorldPlacement.epoch() + CacheUseLease.epoch(); }
     static void install(ServerPlayer player, AbstractContainerMenu menu, CacheHandle handle, List<Source> sources, List<ItemStack> display) {
         SESSIONS.put(player, new Session(player, menu, handle, sources, display)); epoch++;
     }
@@ -52,7 +52,7 @@ public final class CraftingReservations {
         }
         // A cursor preview reserves the same cache stock; every consumer reads this single gate so
         // the reserve is subtracted exactly once (it is shared, not double-counted per caller).
-        return Math.addExact(sum + dev.scathiard.feedmepackages.interaction.CursorReservations.reserved(cache, cell), WorldPlacement.reserved(cache, cell));
+        return Math.addExact(sum + dev.scathiard.feedmepackages.interaction.CursorReservations.reserved(cache, cell), WorldPlacement.reserved(cache, cell) + CacheUseLease.reserved(cache, cell));
     }
     public static int reservedInventory(ServerPlayer player, int slot) {
         var session = SESSIONS.get(player);

@@ -24,20 +24,27 @@ final class SophisticatedClientReview {
     private static int phase, ticks, changed;
     private static UUID cache;
     private static ItemStack bag;
+    private static final boolean STORAGE=net.neoforged.fml.ModList.get().isLoaded("sophisticatedstorage");
+    private static final boolean EMI=net.neoforged.fml.ModList.get().isLoaded("emi");
     private static CompletableFuture<Void> work;
     static boolean tick() throws Exception {
         ticks++;
         if (work != null) { if (!work.isDone()) return false; work.join(); work = null; }
         if (ticks - changed > 700) throw new IllegalStateException("Sophisticated client timeout phase=" + phase);
         if (ticks - changed < 25) return false;
+        if(STORAGE && (phase==1 || phase==13) && !(MC.screen instanceof AbstractContainerScreen<?>)) {
+            var pos=new net.minecraft.core.BlockPos(8,4,8);
+            if(MC.level.getBlockEntity(pos)==null) return false;
+            server(SophisticatedClientReview::openStorage);changed=ticks;return false;
+        }
         switch (phase) {
             case 0 -> { server(SophisticatedClientReview::setup); next(); }
             case 1 -> {
                 if (!(MC.screen instanceof AbstractContainerScreen<?>) || SophisticatedAccess.resolve(MC.player) == null
                         || !ClientMaterials.active() || !ClientCompatibility.sophisticatedSourcesAvailable()) break;
-                JeiClientReview.openTransfer(); next();
+                openTransfer(); next();
             }
-            case 2 -> { JeiClientReview.previewTransfer(); TemplateClientReview.capture("71-sophisticated-native-preview"); JeiClientReview.clickTransfer(); next(); }
+            case 2 -> { previewTransfer(); TemplateClientReview.capture("71-sophisticated-native-preview"); fillTransfer(); next(); }
             case 3 -> {
                 server(p -> require(stock(p) == 8 && grid(p) == 1 && nativeInventory(p).getStackInSlot(0).isEmpty(), "Native bag did not precede cache"));
                 click(result()); next();
@@ -46,10 +53,10 @@ final class SophisticatedClientReview {
                 server(p -> require(stock(p) == 8 && grid(p) == 0 && p.containerMenu.getCarried().getCount() == 4,
                         "Native result click refilled or debited cache")); click(playerSlot(0)); next();
             }
-            case 5 -> { JeiClientReview.openTransfer(); next(); }
-            case 6 -> { JeiClientReview.previewTransfer(); JeiClientReview.clickTransfer(); next(); }
+            case 5 -> { openTransfer(); next(); }
+            case 6 -> { previewTransfer(); fillTransfer(); next(); }
             case 7 -> {
-                server(p -> require(stock(p) == 7 && grid(p) == 1 && p.getInventory().getItem(8) == bag,
+                server(p -> require(stock(p) == 7 && grid(p) == 1 && (STORAGE || p.getInventory().getItem(8) == bag),
                         "Cache wire failed or replaced backpack identity"));
                 TemplateClientReview.capture("72-sophisticated-cache-filled"); click(result()); next();
             }
@@ -57,8 +64,8 @@ final class SophisticatedClientReview {
                 server(p -> require(stock(p) == 7 && grid(p) == 0 && p.containerMenu.getCarried().getCount() == 4,
                         "Cached native craft double-debited or silently refilled")); click(playerSlot(0)); next();
             }
-            case 9 -> { JeiClientReview.openTransfer(); next(); }
-            case 10 -> { JeiClientReview.previewTransfer(); JeiClientReview.transferMaximum(); MC.screen.onClose(); next(); }
+            case 9 -> { openTransfer(); next(); }
+            case 10 -> { previewTransfer(); maximumTransfer(); if(!EMI)MC.screen.onClose(); next(); }
             case 11 -> {
                 server(p -> require(stock(p) == 0 && grid(p) == 7, "Native maximum did not include cache"));
                 TemplateClientReview.capture("73-sophisticated-maximum-filled"); MC.player.closeContainer(); next();
@@ -66,14 +73,14 @@ final class SophisticatedClientReview {
             case 12 -> {
                 server(p -> { setup(p); TestPlayers.necklace(p).setStackInSlot(0, ItemStack.EMPTY); }); next();
             }
-            case 13 -> { if (ClientMaterials.active() || SophisticatedAccess.resolve(MC.player) == null) break; JeiClientReview.openTransfer(); next(); }
-            case 14 -> { JeiClientReview.previewTransfer(); JeiClientReview.clickTransfer(); next(); }
+            case 13 -> { if (ClientMaterials.active() || SophisticatedAccess.resolve(MC.player) == null) break; openTransfer(); next(); }
+            case 14 -> { previewTransfer(); fillTransfer(); next(); }
             case 15 -> {
                 server(p -> require(stock(p) == 8 && grid(p) == 1 && nativeInventory(p).getStackInSlot(0).isEmpty(), "Unworn native JEI path was broken"));
                 next();
             }
             case 16 -> {
-                FeedMePackages.LOGGER.info("FMP_SOPHISTICATED_CLIENT_PASSED nativeMenu=true nativeJeiMouse=true realPayload=true physicalFirst=true exactDebit=true noDefaultRefill=true maximumApi=true unwornFallback=true");
+                FeedMePackages.LOGGER.info("FMP_SOPHISTICATED_CLIENT_PASSED storage="+STORAGE+" emi="+EMI+" nativeMenu=true nativeBrowserMouse=true realPayload=true physicalFirst=true exactDebit=true noDefaultRefill=true maximumApi=true unwornFallback=true");
                 return true;
             }
         }
@@ -83,11 +90,40 @@ final class SophisticatedClientReview {
         try {
             p.closeContainer(); p.getInventory().clearContent(); TestPlayers.necklace(p).setStackInSlot(0, FmpRegistries.PENDANT.toStack());
             ConsumptionTests.seed(p, 0, new ItemStack(Items.OAK_LOG), 8); cache = AccessGate.resolve(p).handle().cacheId();
-            bag = SophisticatedTests.createBackpack(p); p.getInventory().selected = 8; p.inventoryMenu.broadcastChanges();
-            bag.getItem().use(p.level(), p, InteractionHand.MAIN_HAND);
+            if(STORAGE) {
+                for(int x=6;x<=10;x++)for(int z=5;z<=10;z++)p.serverLevel().setBlockAndUpdate(new net.minecraft.core.BlockPos(x,3,z),net.minecraft.world.level.block.Blocks.STONE.defaultBlockState());
+                var pos=new net.minecraft.core.BlockPos(8,4,8);p.teleportTo(p.serverLevel(),8.5,4,6.5,0,0);
+                var block=net.minecraft.core.registries.BuiltInRegistries.BLOCK.get(net.minecraft.resources.ResourceLocation.parse("sophisticatedstorage:barrel"));
+                p.serverLevel().setBlockAndUpdate(pos,block.defaultBlockState());
+                var be=p.serverLevel().getBlockEntity(pos);var wrapper=be.getClass().getMethod("getStorageWrapper").invoke(be);
+                var upgrades=(IItemHandlerModifiable)wrapper.getClass().getMethod("getUpgradeHandler").invoke(wrapper);
+                upgrades.setStackInSlot(0,new ItemStack(net.minecraft.core.registries.BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse("sophisticatedstorage:crafting_upgrade"))));
+                var inventory=(IItemHandlerModifiable)wrapper.getClass().getMethod("getInventoryHandler").invoke(wrapper);
+                for(int i=0;i<inventory.getSlots();i++)inventory.setStackInSlot(i,ItemStack.EMPTY);
+                inventory.setStackInSlot(0,new ItemStack(Items.OAK_LOG));
+                // Wait for the block entity's normal chunk/update packet before the native open-menu packet.
+                return;
+            } else {
+                bag = SophisticatedTests.createBackpack(p); p.getInventory().selected = 8; p.inventoryMenu.broadcastChanges();
+                bag.getItem().use(p.level(), p, InteractionHand.MAIN_HAND);
+            }
             require(SophisticatedAccess.resolve(p) != null, "Native item use did not open its backpack menu");
             nativeInventory(p).setStackInSlot(0, new ItemStack(Items.OAK_LOG)); p.containerMenu.broadcastChanges();
         } catch (ReflectiveOperationException failed) { throw new IllegalStateException(failed); }
+    }
+    private static void openStorage(ServerPlayer p) {
+        var pos=new net.minecraft.core.BlockPos(8,4,8);
+        var hit=new net.minecraft.world.phys.BlockHitResult(net.minecraft.world.phys.Vec3.atCenterOf(pos),net.minecraft.core.Direction.NORTH,pos,false);
+        p.gameMode.useItemOn(p,p.level(),ItemStack.EMPTY,InteractionHand.MAIN_HAND,hit);
+        require(SophisticatedAccess.resolve(p)!=null,"Native barrel use did not open its crafting menu");
+        p.containerMenu.broadcastChanges();
+    }
+    private static void openTransfer() throws Exception { if(EMI)EmiClientReview.emiOpen("oak_planks");else JeiClientReview.openTransfer(); }
+    private static void previewTransfer() throws Exception { if(!EMI)JeiClientReview.previewTransfer(); }
+    private static void fillTransfer() throws Exception { if(EMI)EmiClientReview.emiClickFill();else JeiClientReview.clickTransfer(); }
+    private static void maximumTransfer() throws Exception {
+        if(EMI)require(EmiClientReview.emiDispatch("oak_planks",dev.emi.emi.api.recipe.handler.EmiCraftContext.Destination.NONE,Integer.MAX_VALUE),"EMI native maximum rejected");
+        else JeiClientReview.transferMaximum();
     }
     private static IItemHandlerModifiable nativeInventory(ServerPlayer p) {
         try {

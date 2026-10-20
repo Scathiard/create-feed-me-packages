@@ -12,6 +12,47 @@ import java.util.Set;
 
 /** Inspects bytecode without loading optional game classes during bootstrap. */
 public final class OptionalMixins implements IMixinConfigPlugin {
+    private static Boolean sbwReady;
+    public static boolean sbwCompatible() { return Boolean.TRUE.equals(sbwReady); }
+    private static synchronized boolean inspectSbw() {
+        if (sbwReady != null) return sbwReady;
+        try {
+            var provider = MixinService.getService().getBytecodeProvider();
+            String prefix = "com.atsuishio.superbwarfare.data.gun.";
+            String data = "Lcom/atsuishio/superbwarfare/data/gun/GunData;", consumer = "Lcom/atsuishio/superbwarfare/data/gun/AmmoConsumer;";
+            String entity = "Lnet/minecraft/world/entity/Entity;", cap = "Lnet/neoforged/neoforge/capabilities/EntityCapability;";
+            var gun = provider.getClassNode(prefix + "GunData");
+            boolean ready = hasMethod(gun, "countBackupAmmo", "("+entity+")I")
+                    && gun.fields.stream().anyMatch(f -> f.name.equals("cachedBackupAmmo") && f.desc.equals("I"));
+            for (String type : List.of("ItemAmmoStrategy", "PlayerAmmoStrategy")) {
+                var strategy = provider.getClassNode(prefix + "ammo_consumer_strategy." + type);
+                ready &= calls(strategy, "consume", "("+data+consumer+entity+"I)I", "net/minecraft/world/entity/Entity", "getCapability", "("+cap+")Ljava/lang/Object;") == 1
+                        && calls(strategy, "count", "("+data+consumer+entity+")I", "net/minecraft/world/entity/Entity", "getCapability", "("+cap+")Ljava/lang/Object;") == 1;
+            }
+            var vehicle=provider.getClassNode("com.atsuishio.superbwarfare.entity.vehicle.base.VehicleEntity");
+            ready &= hasMethod(vehicle,"getGunData","(I)"+data) && hasMethod(vehicle,"getNthEntity","(I)"+entity)
+                    && hasMethod(vehicle,"getOrderedPassengers","()Ljava/util/List;") && hasMethod(vehicle,"getAmmoSupplier","()"+entity)
+                    && gun.fields.stream().anyMatch(f->f.name.equals("stack") && f.desc.equals("Lnet/minecraft/world/item/ItemStack;"));
+            if(!ready) LogUtils.getLogger().warn("FMP Superb Warfare adapter disabled: native ammo/seat signatures changed");
+            return sbwReady = ready;
+        } catch (ClassNotFoundException | IOException absent) { return sbwReady = false; }
+    }
+    private static Boolean arsReady;
+    public static boolean arsCompatible() { return Boolean.TRUE.equals(arsReady); }
+    private static boolean inspectArs(String target) {
+        try {
+            var node=MixinService.getService().getBytecodeProvider().getClassNode(target);
+            String prefix="Lcom/hollingsworth/arsnouveau/api/spell/";
+            String place="(Lnet/minecraft/world/phys/BlockHitResult;Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/LivingEntity;"+prefix+"SpellStats;"+prefix+"SpellContext;"+prefix+"SpellResolver;Lnet/minecraft/world/entity/player/Player;)V";
+            String attempt="(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/BlockItem;Lnet/minecraft/world/phys/BlockHitResult;Lnet/minecraft/world/entity/player/Player;)Lnet/minecraft/world/InteractionResult;";
+            String extract="(Ljava/util/function/Predicate;I)Lcom/hollingsworth/arsnouveau/api/item/inv/ExtractedStack;";
+            boolean ready=hasMethod(node,"place",place) && hasMethod(node,"attemptPlace",attempt)
+                    && calls(node,"place",place,"com/hollingsworth/arsnouveau/api/item/inv/InventoryManager","extractItem",extract)==1
+                    && calls(node,"place",place,"com/hollingsworth/arsnouveau/api/item/inv/InventoryManager","extractRandomItem",extract)==1;
+            if(!ready) LogUtils.getLogger().warn("FMP Ars Nouveau adapter disabled: native place/extraction signatures changed");
+            return arsReady=ready;
+        } catch (ClassNotFoundException | IOException absent) { return arsReady=false; }
+    }
     private static boolean factoryReady;
     private static Boolean sophisticatedReady;
     public static boolean sophisticatedCompatible() { return Boolean.TRUE.equals(sophisticatedReady); }
@@ -55,6 +96,8 @@ public final class OptionalMixins implements IMixinConfigPlugin {
     @Override public void onLoad(String mixinPackage) {}
     @Override public String getRefMapperConfig() { return null; }
     @Override public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (mixinClassName.endsWith("ArsPlaceSourcesMixin")) return inspectArs(targetClassName);
+        if (mixinClassName.endsWith("SbwAmmoSourcesMixin") || mixinClassName.endsWith("SbwAmmoCountMixin")) return inspectSbw();
         if (mixinClassName.endsWith("Phantom102SettlementMixin")) {
             // Shape mismatch => this Mixin is not applied at all (no require=0, no behaviour change).
             phantom102Ready = phantom102SettlementTarget(targetClassName);
@@ -147,6 +190,17 @@ public final class OptionalMixins implements IMixinConfigPlugin {
             } catch (ClassNotFoundException | IOException unavailable) { return false; }
         }
         if (mixinClassName.endsWith("SophisticatedRefillMixin") || mixinClassName.endsWith("SophisticatedSourcesMixin")) return inspectSophisticated();
+        if(mixinClassName.endsWith("SophisticatedEmiMixin")) {
+            if(!inspectSophisticated())return false;
+            try {
+                var provider=MixinService.getService().getBytecodeProvider();provider.getClassNode("dev.emi.emi.api.recipe.handler.EmiCraftContext");
+                var type=provider.getClassNode(targetClassName);
+                String arguments="(Ldev/emi/emi/api/recipe/EmiRecipe;Ldev/emi/emi/api/recipe/handler/EmiCraftContext;)Z";
+                return hasMethod(type,"canCraft",arguments) && hasMethod(type,"craft",arguments)
+                        && hasMethod(type,"getInventory","(Lnet/minecraft/client/gui/screens/inventory/AbstractContainerScreen;)Ldev/emi/emi/api/recipe/EmiPlayerInventory;")
+                        && type.fields.stream().anyMatch(f->f.name.equals("recipeType") && f.desc.equals("Lnet/minecraft/world/item/crafting/RecipeType;"));
+            } catch(ClassNotFoundException | IOException unavailable) {return false;}
+        }
         if (mixinClassName.endsWith("SophisticatedJeiMixin")) {
             if (!inspectSophisticated()) return false;
             try {
@@ -218,7 +272,7 @@ public final class OptionalMixins implements IMixinConfigPlugin {
         if (sophisticatedReady != null) return sophisticatedReady;
         try {
             var provider = MixinService.getService().getBytecodeProvider();
-            provider.getClassNode("net.p3pp3rf1y.sophisticatedbackpacks.common.gui.BackpackContainer");
+            provider.getClassNode("net.p3pp3rf1y.sophisticatedcore.common.gui.StorageContainerMenuBase");
             String root = "net.p3pp3rf1y.sophisticatedcore.";
             var wrapper = provider.getClassNode(root + "upgrades.crafting.CraftingUpgradeWrapper");
             var transfer = provider.getClassNode(root + "compat.recipeviewers.common.CraftingContainerRecipeTransferHandlerServer");

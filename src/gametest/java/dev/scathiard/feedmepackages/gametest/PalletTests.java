@@ -153,4 +153,85 @@ public final class PalletTests {
         p.getInventory().add(com.simibubi.create.AllBlocks.SHAFT.asStack());p.inventoryMenu.broadcastChanges();
         h.assertTrue(p.getRecipeBook().contains(recipe.id()),"Native shaft inventory event did not unlock the pallet recipe");h.succeed();
     }
+
+    @GameTest(template="empty")
+    public static void nativeEyeAndAndesiteInteractionsUseCachedMaterial(GameTestHelper h) {
+        var f=setup(h,new ItemStack(Items.ENDER_EYE));h.setBlock(2,1,2,Blocks.END_PORTAL_FRAME);
+        h.assertTrue(f.place().consumesAction() && h.getBlockState(new BlockPos(2,1,2)).getValue(EndPortalFrameBlock.HAS_EYE)
+                && f.stock()==6 && f.player().getMainHandItem()==f.tool(),"Eye insertion did not use exactly one cache eye");
+        h.assertTrue(!f.place().consumesAction() && f.stock()==6,"Filled frame consumed another eye; stock="+f.stock());
+        var alloy=setup(h,com.simibubi.create.AllItems.ANDESITE_ALLOY.asStack());h.setBlock(2,1,2,Blocks.STRIPPED_OAK_LOG);
+        h.assertTrue(alloy.place().consumesAction() && h.getBlockState(new BlockPos(2,1,2)).is(com.simibubi.create.AllBlocks.ANDESITE_CASING.get())
+                && alloy.stock()==6 && alloy.player().getMainHandItem()==alloy.tool(),"Create native casing interaction lost its material hand");h.succeed();
+    }
+    @GameTest(template="empty")
+    public static void nativeTimedFoodCancelFullHungerAndUnequipConserveItems(GameTestHelper h) throws Exception {
+        var f=setup(h,new ItemStack(Items.BREAD));var p=f.player();p.getFoodData().setFoodLevel(10);
+        h.assertTrue(p.gameMode.useItem(p,p.level(),f.tool(),InteractionHand.MAIN_HAND).consumesAction() && p.isUsingItem()
+                && f.stock()==7 && CacheUseLease.reserved(f.handle().cacheId(),0)==1,"Food must reserve without instantly eating");
+        nativeTicks(p,8);p.releaseUsingItem();PalletService.tick(p);
+        h.assertTrue(f.stock()==7 && p.getFoodData().getFoodLevel()==10 && CacheUseLease.reserved(f.handle().cacheId(),0)==0,"Canceled food consumed or leaked a lease");
+        p.gameMode.useItem(p,p.level(),f.tool(),InteractionHand.MAIN_HAND);nativeTicks(p,40);
+        h.assertTrue(f.stock()==6 && p.getFoodData().getFoodLevel()>10 && p.getMainHandItem()==f.tool(),"Native timed food did not finish with the tool intact");
+        p.getFoodData().setFoodLevel(20);p.gameMode.useItem(p,p.level(),f.tool(),InteractionHand.MAIN_HAND);
+        h.assertTrue(!p.isUsingItem() && f.stock()==6,"Full hunger bypassed food's native refusal");
+        p.getFoodData().setFoodLevel(10);p.gameMode.useItem(p,p.level(),f.tool(),InteractionHand.MAIN_HAND);
+        TestPlayers.necklace(p).setStackInSlot(0,ItemStack.EMPTY);nativeTicks(p,40);
+        h.assertTrue(f.stock()==6 && !p.isUsingItem() && p.getFoodData().getFoodLevel()==10,"Unequipped timed food still finished");h.succeed();
+    }
+    private static void nativeTicks(ServerPlayer p,int ticks) throws Exception {
+        var method=net.minecraft.world.entity.LivingEntity.class.getDeclaredMethod("updatingUsingItem");method.setAccessible(true);
+        for(int i=0;i<ticks;i++) { p.tickCount++;method.invoke(p);PalletService.tick(p); }
+    }
+    @GameTest(template="empty")
+    public static void nativeDrinkAndThrownPotionPreserveComponentsAndRemainders(GameTestHelper h) throws Exception {
+        var potion=new ItemStack(Items.POTION);potion.set(DataComponents.POTION_CONTENTS,new net.minecraft.world.item.alchemy.PotionContents(net.minecraft.world.item.alchemy.Potions.LONG_SWIFTNESS));
+        var f=setup(h,potion);long before=f.stock();var p=f.player();p.gameMode.useItem(p,p.level(),f.tool(),InteractionHand.MAIN_HAND);nativeTicks(p,40);
+        h.assertTrue(f.stock()==before-1 && p.hasEffect(net.minecraft.world.effect.MobEffects.MOVEMENT_SPEED)
+                && p.getInventory().countItem(Items.GLASS_BOTTLE)==1 && p.getMainHandItem()==f.tool(),"Drink lost effect, bottle or conservation: stock="+f.stock()+" effect="+p.hasEffect(net.minecraft.world.effect.MobEffects.MOVEMENT_SPEED)+" bottles="+p.getInventory().countItem(Items.GLASS_BOTTLE)+" tool="+(p.getMainHandItem()==f.tool())+" using="+p.isUsingItem()+" remaining="+p.getUseItemRemainingTicks());
+        var splash=new ItemStack(Items.SPLASH_POTION);splash.set(DataComponents.POTION_CONTENTS,potion.get(DataComponents.POTION_CONTENTS));
+        var thrown=setup(h,splash);long beforeThrow=thrown.stock();h.assertTrue(thrown.player().gameMode.useItem(thrown.player(),thrown.player().level(),thrown.tool(),InteractionHand.MAIN_HAND).consumesAction()
+                && thrown.stock()==beforeThrow-1 && thrown.player().getInventory().countItem(Items.GLASS_BOTTLE)==0,"Thrown potion followed the drink path");
+        var entities=h.getLevel().getEntitiesOfClass(net.minecraft.world.entity.projectile.ThrownPotion.class,new AABB(thrown.player().blockPosition()).inflate(4));
+        h.assertTrue(entities.stream().anyMatch(e->e.getOwner()==thrown.player() && e.getItem().get(DataComponents.POTION_CONTENTS).equals(splash.get(DataComponents.POTION_CONTENTS))),"Thrown potion components changed");h.succeed();
+    }
+    @GameTest(template="empty")
+    public static void realBucketReturnsNativeEmptyAndFullOutputRefuses(GameTestHelper h) {
+        var f=setup(h,new ItemStack(Items.WATER_BUCKET));long before=f.stock();var p=f.player();p.setXRot(60);p.setYRot(0);
+        // BucketItem uses the native eye ray even when invoked through useItem.
+        h.setBlock(2,0,2,Blocks.STONE);h.setBlock(2,0,3,Blocks.STONE);
+        h.assertTrue(p.gameMode.useItem(p,p.level(),f.tool(),InteractionHand.MAIN_HAND).consumesAction()
+                && f.stock()==before-1 && p.getInventory().countItem(Items.BUCKET)==1 && p.getMainHandItem()==f.tool(),"Real water bucket did not return its empty bucket: stock="+f.stock()+" buckets="+p.getInventory().countItem(Items.BUCKET)+" hand="+p.getMainHandItem()+" target="+p.pick(5,0,false));
+        for(int i=1;i<36;i++) p.getInventory().setItem(i,new ItemStack(Items.STONE,64));
+        h.assertTrue(p.gameMode.useItem(p,p.level(),f.tool(),InteractionHand.MAIN_HAND)==InteractionResult.FAIL && f.stock()==before-1,"Full remainder destination spent another bucket");h.succeed();
+    }
+    @GameTest(template="empty")
+    public static void pureFluidPlacesWithoutBucketAndHonorsProtection(GameTestHelper h) {
+        var f=setup(h,new ItemStack(Items.STONE));var p=f.player();
+        var water=new net.neoforged.neoforge.fluids.FluidStack(net.minecraft.world.level.material.Fluids.WATER,2500);
+        InteractionTests.seedFluid(p,1,water);
+        var key=dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(water,p.registryAccess());
+        h.assertTrue(PalletService.choose(p,f.handle().cacheId(),"fluid:"+key.encoded()),"Fluid was not selectable");
+        event(f,e->e.setCanceled(true),()->h.assertTrue(f.place()==InteractionResult.FAIL,"Protected pure fluid placement succeeded"));
+        h.assertTrue(InteractionTests.fluidStock(p,1)==2500 && h.getBlockState(new BlockPos(2,2,2)).isAir(),"Canceled liquid changed stock/world");
+        h.assertTrue(f.place().consumesAction() && InteractionTests.fluidStock(p,1)==1500
+                && h.getBlockState(new BlockPos(2,2,2)).getFluidState().isSource() && p.getInventory().countItem(Items.BUCKET)==0
+                && p.getMainHandItem()==f.tool(),"Pure liquid created a bucket or lost native source placement");h.succeed();
+    }
+
+    @GameTest(template="empty")
+    public static void pureFluidFillsNativeTankAndRevokesDuringPermissionCallback(GameTestHelper h) {
+        var f=setup(h,new ItemStack(Items.STONE));var p=f.player();
+        var water=new net.neoforged.neoforge.fluids.FluidStack(net.minecraft.world.level.material.Fluids.WATER,2500);
+        InteractionTests.seedFluid(p,1,water);var key=dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(water,p.registryAccess());
+        PalletService.choose(p,f.handle().cacheId(),"fluid:"+key.encoded());
+        h.setBlock(2,1,2,com.simibubi.create.AllBlocks.FLUID_TANK.get());
+        var target=h.getLevel().getCapability(net.neoforged.neoforge.capabilities.Capabilities.FluidHandler.BLOCK,h.absolutePos(new BlockPos(2,1,2)),Direction.UP);
+        h.assertTrue(target!=null,"Native tank fluid capability missing");
+        h.assertTrue(f.place().consumesAction() && target.getFluidInTank(0).getAmount()==1000 && InteractionTests.fluidStock(p,1)==1500
+                && p.getInventory().countItem(Items.BUCKET)==0,"Pure fluid did not transfer actual liquid into native target");
+        h.setBlock(2,1,2,Blocks.STONE);
+        event(f,e->TestPlayers.necklace(p).setStackInSlot(0,ItemStack.EMPTY),()->h.assertTrue(f.place()==InteractionResult.FAIL,"Fluid permission callback lost access but still placed"));
+        h.assertTrue(f.record().fluids().state().cells().get(1).amount()==1500 && h.getBlockState(new BlockPos(2,2,2)).isAir(),"Revoked fluid transfer left a mutation");h.succeed();
+    }
 }
