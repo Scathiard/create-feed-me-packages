@@ -15,7 +15,7 @@ final class FluidStorageCodec {
     private FluidStorageCodec() {}
 
     static CompoundTag write(CacheFluids fluids, HolderLookup.Provider registries) {
-        var tag = new CompoundTag(); tag.putInt("version", 1);
+        var tag = new CompoundTag(); tag.putInt("version", 2);
         tag.put("cells", writeCells(fluids.state()));
         tag.put(CapacityCodec.KEY, CapacityCodec.write(fluids.state()));
         var orders = new ListTag();
@@ -38,7 +38,8 @@ final class FluidStorageCodec {
 
     static CacheFluids read(CompoundTag tag, CacheState<?> context, HolderLookup.Provider registries) {
         fields(tag, Set.of("version", "cells", "orders", "residuals", CapacityCodec.KEY)); require(tag, "version", Tag.TAG_INT);
-        if (tag.getInt("version") != 1) throw new IllegalArgumentException("Unsupported fluid storage version");
+        int version=tag.getInt("version");
+        if (version != 1 && version != 2) throw new IllegalArgumentException("Unsupported fluid storage version");
         require(tag, "cells", Tag.TAG_COMPOUND); var cells = tag.getCompound("cells");
         fields(cells, Set.of("extent", "entries"));
         var orders = new HashMap<UUID, SupplyOrder<FluidVariantKey>>();
@@ -58,7 +59,7 @@ final class FluidStorageCodec {
                     row.getLong("revision"), row.getInt("remaining"), row.getBoolean("uncertain"));
             if (orders.put(id, order) != null) throw new IllegalArgumentException("Duplicate fluid order");
         }
-        var state = readCells(tag, cells, context, orders, registries);
+        var state = readCells(tag, cells, context, orders, registries, version);
         var residuals = new HashMap<FluidVariantKey, ItemStack>();
         var suspended = new HashMap<FluidVariantKey, CompoundTag>();
         var seen = new HashSet<FluidVariantKey>();
@@ -96,26 +97,37 @@ final class FluidStorageCodec {
             var row = new CompoundTag(); row.putInt("slot", slot);
             if (cell.filter() != null) row.putString("filter", cell.filter().encoded());
             row.putLong("amount", cell.amount()); row.putLong("min", cell.minimum());
-            row.putLong("max", cell.maximum()); row.putLong("revision", cell.filterRevision()); entries.add(row);
+            row.putLong("max", cell.maximum()); row.putLong("revision", cell.filterRevision());
+            // Old min/max remain groups. Exact mB thresholds live in a separate additive column.
+            var controls=new CompoundTag();controls.putInt("lower",cell.settings().lower());controls.putInt("upper",cell.settings().upper());
+            row.put("volume_controls",controls);entries.add(row);
         }
         result.put("entries", entries); return result;
     }
     private static CacheState<FluidVariantKey> readCells(CompoundTag holder, CompoundTag tag, CacheState<?> context,
-            Map<UUID, SupplyOrder<FluidVariantKey>> orders, HolderLookup.Provider registries) {
+            Map<UUID, SupplyOrder<FluidVariantKey>> orders, HolderLookup.Provider registries, int version) {
         require(tag, "extent", Tag.TAG_INT);
         if (tag.getInt("extent") != context.cells().size()) throw new IllegalArgumentException("Fluid cell count differs from cache");
         var cells = new ArrayList<Cell<FluidVariantKey>>(Collections.nCopies(context.cells().size(), Cell.empty()));
         var used = new HashSet<Integer>();
         for (var entry : compounds(tag, "entries")) {
-            var row = (CompoundTag) entry; fields(row, Set.of("slot", "filter", "amount", "min", "max", "revision"));
+            var row = (CompoundTag) entry;
+            fields(row, version==1?Set.of("slot", "filter", "amount", "min", "max", "revision")
+                    :Set.of("slot", "filter", "amount", "min", "max", "revision", "volume_controls"));
             require(row, "slot", Tag.TAG_INT);
             for (String key : List.of("amount", "min", "max", "revision")) require(row, key, Tag.TAG_LONG);
             int slot = row.getInt("slot");
             if (slot < 0 || slot >= cells.size() || !used.add(slot)) throw new IllegalArgumentException("Invalid or duplicate fluid slot");
             if (row.contains("filter")) require(row, "filter", Tag.TAG_STRING);
             var key = row.contains("filter") ? FluidVariantKey.decode(row.getString("filter"), registries) : null;
-            cells.set(slot, new Cell<>(key, Math.toIntExact(row.getLong("amount")), Math.toIntExact(row.getLong("min")),
-                    Math.toIntExact(row.getLong("max")), row.getLong("revision")));
+            int min=Math.toIntExact(row.getLong("min")),max=Math.toIntExact(row.getLong("max"));
+            var settings=dev.scathiard.feedmepackages.domain.CellSettings.fromGroups(key,min,max);
+            if(version>=2) {
+                require(row,"volume_controls",Tag.TAG_COMPOUND);var controls=row.getCompound("volume_controls");
+                fields(controls,Set.of("lower","upper"));require(controls,"lower",Tag.TAG_INT);require(controls,"upper",Tag.TAG_INT);
+                settings=new dev.scathiard.feedmepackages.domain.CellSettings(controls.getInt("lower"),controls.getInt("upper"),1,-1);
+            }
+            cells.set(slot, new Cell<>(key, Math.toIntExact(row.getLong("amount")), min, max, row.getLong("revision"),settings));
         }
         var state = CapacityCodec.read(holder, context.id(), context.level(), context.revision(), cells, orders);
         if (!state.capacity().equals(context.capacity())) throw new IllegalArgumentException("Fluid capacity differs from cache");

@@ -463,6 +463,7 @@ public final class FoundationTests {
         var items=before.state().edit();items.resize(new dev.scathiard.feedmepackages.domain.CacheCapacity(50,32));
         items.filter(0,stone);items.insert(0,stone,1800);items.settings(0,controls);items.filter(49,iron);items.insert(49,iron,11);
         var grown=before.withState(items.finish());ledger.replace(handle,before.state().revision(),grown);var fluids=grown.fluids().state().edit();fluids.filter(40,water);fluids.insert(40,water,24000);
+        var fluidControls=new dev.scathiard.feedmepackages.domain.CellSettings(31000,33000,1,-1);fluids.settings(40,fluidControls);
         long grownRevision=grown.state().revision();grown=grown.withFluids(grown.fluids().withState(fluids.finish()));
         ledger.replace(handle,grownRevision,grown);
         var shrink=grown.state().edit();shrink.resize(new dev.scathiard.feedmepackages.domain.CacheCapacity(9,2));
@@ -476,7 +477,8 @@ public final class FoundationTests {
         var take=restored.state().edit();h.assertTrue(take.extract(49,1)==1,"Hidden retained slot was not extractable");
         take.resize(new dev.scathiard.feedmepackages.domain.CacheCapacity(50,32));restored=restored.withState(take.finish());
         h.assertTrue(restored.state().writable(49) && restored.state().cells().get(49).amount()==10
-                && restored.state().cells().get(0).settings().equals(controls) && restored.fluids().state().writable(40),"Restoring config did not restore exact controls and rights");
+                && restored.state().cells().get(0).settings().equals(controls) && restored.fluids().state().writable(40)
+                && restored.fluids().state().cells().get(40).settings().equals(fluidControls),"Restoring config did not restore exact controls and rights");
         for(int fault=0;fault<3;fault++) {
             var invalid=saved.copy();var row=invalid.getList("caches",Tag.TAG_COMPOUND).getCompound(0);
             if(fault==0)row.remove("capacity_rules");

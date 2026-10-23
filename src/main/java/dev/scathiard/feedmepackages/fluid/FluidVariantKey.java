@@ -12,7 +12,8 @@ import java.nio.charset.StandardCharsets;
 
 /** Exact persistent fluid identity. Amount is stored separately, in mB; no mutable stack escapes. */
 public final class FluidVariantKey implements MaterialVariant {
-    public static final int MILLIBUCKETS_PER_GROUP = 8000;
+    public static final int MILLIBUCKETS_PER_BUCKET = 1000;
+    public static final int MILLIBUCKETS_PER_GROUP = 8 * MILLIBUCKETS_PER_BUCKET;
     public static final int MAX_BYTES = 1024;
     private final CompoundTag template;
     private final String canonical;

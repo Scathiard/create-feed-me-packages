@@ -324,6 +324,29 @@ public final class SupplyTests {
         });
     }
 
+    @GameTest(template="empty", timeoutTicks=160)
+    public static void oneBucketThresholdMakesOneNativeFluidParcel(GameTestHelper h) {
+        if(!fluidReady(h))return;
+        var f=fluidSupply(h,new net.neoforged.neoforge.fluids.FluidStack(net.minecraft.world.level.material.Fluids.WATER,1),false);
+        var before=f.record();var edit=before.fluids().state().edit();
+        edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(1000,2000,1,-1));
+        f.ledger().replace(f.handle(),before.state().revision(),before.withFluids(before.fluids().withState(edit.finish())));
+        var pos=new BlockPos(2,1,2);placeFluidFactory(h,pos,1);
+        h.runAtTickTime(10,()->{
+            fillSource(h,f,pos,3000);connect(h,pos,f.network());SupplyService.tick(f.player());
+            h.assertTrue(f.record().fluids().state().pending(0)==1000,"Fine threshold did not request exactly one bucket");
+        });
+        h.onEachTick(()->{
+            var box=takeOutput(h,pos);if(box.isEmpty())return;
+            h.assertTrue(dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(box).getAmount()==1000,
+                    "Native packager rounded a one-bucket request to a group");
+            h.assertTrue(ReceiveService.receive(f.player(),box) && box.isEmpty()
+                    && f.record().fluids().state().cells().getFirst().amount()==1000 && f.record().fluids().state().pending(0)==0
+                    && source(h,pos).getFluidInTank(0).getAmount()==2000,"One-bucket receipt changed total liquid or in-flight accounting");
+            h.succeed();
+        });
+    }
+
     private static boolean fluidReady(GameTestHelper h) {
         if (!net.neoforged.fml.ModList.get().isLoaded("fluidlogistics")) {
             FeedMePackages.LOGGER.info("FMP_FLUID_SUPPLY_SKIPPED: optional author artifact absent"); h.succeed(); return false;

@@ -151,7 +151,31 @@ public final class FluidClientReview {
             case 41 -> {if(!ready(view)||view.fluidPreview().amount()!=1000)return false;MC.player.closeContainer();MC.setScreen(null);next();}
             case 42 -> {server(p->require(amount(p)==9000 && FluidActions.preview(p).amount()==0 && p.getInventory().countItem(Items.BUCKET)==1
                     && p.getInventory().countItem(Items.WATER_BUCKET)==1 && p.containerMenu.getCarried().isEmpty(),"Closing creative fluid input changed ownership"));next();}
-            case 43 -> {return true;}
+            case 43 -> {server(p->p.setGameMode(GameType.SURVIVAL));next();}
+            case 44 -> {if(MC.gameMode.getPlayerMode()!=GameType.SURVIVAL)return false;MC.setScreen(new InventoryScreen(MC.player));next();}
+            case 45 -> {if(!ready(view))return false;openSliderIfClosed();next();}
+            case 46 -> {scrollThreshold(1,false);next();}
+            case 47 -> {if(!ready(view)||view.cells().get(0).minimum()!=9000)return false;scrollThreshold(1,true);next();}
+            case 48 -> {if(!ready(view)||view.cells().get(0).minimum()!=16000)return false;scrollThreshold(-1,false);next();}
+            case 49 -> {if(!ready(view)||view.cells().get(0).minimum()!=15000)return false;scrollThreshold(-1,true);next();}
+            case 50 -> {if(!ready(view)||view.cells().get(0).minimum()!=8000)return false;startSlider(false,1);next();}
+            case 51 -> {
+                var slider=TemplateClientReview.hostLayout().slider();
+                dragX=dev.scathiard.feedmepackages.client.CellControlGeometry.thumb(slider,3000,view.groupCapacity()*8000);
+                TemplateClientReview.move(dragX,dragY);next();
+            }
+            case 52 -> {TemplateClientReview.mouse(dragX,dragY,0,0);next();}
+            case 53 -> {
+                if(!ready(view)||view.cells().get(0).minimum()!=3000)return false;
+                require(view.cells().get(0).amount()==9000,"Fine controls changed fluid stock");
+                TemplateClientReview.capture("fluid-one-bucket-controls");MC.player.closeContainer();MC.setScreen(null);next();
+            }
+            case 54 -> {MC.setScreen(new InventoryScreen(MC.player));next();}
+            case 55 -> {
+                if(!ready(view))return false;
+                require(view.cells().get(0).minimum()==3000 && view.cells().get(0).maximum()==-1 && view.cells().get(0).amount()==9000,"Fine controls reverted on reopen");
+                FeedMePackages.LOGGER.info("FMP_FLUID_BUCKET_INPUT_PASSED wheel1000=true shiftAlign8000=true drag3000=true reopen=true stockUnchanged=true");return true;
+            }
             default -> throw new IllegalStateException("Unknown fluid input phase");
         }
         return false;
@@ -171,6 +195,15 @@ public final class FluidClientReview {
         long scan=alt?0x38:0x2a;long flags=1L|(scan<<16)|(down?0:0xc0000000L);
         com.sun.jna.platform.win32.User32.INSTANCE.SendMessage(hwnd,alt?(down?0x104:0x105):(down?0x100:0x101),
                 new com.sun.jna.platform.win32.WinDef.WPARAM(alt?0x12:0x10),new com.sun.jna.platform.win32.WinDef.LPARAM(flags));
+    }
+    private static void scrollThreshold(int direction,boolean shift) throws ReflectiveOperationException {
+        var field=dev.scathiard.feedmepackages.client.CellControlGeometry.field(TemplateClientReview.hostLayout().slider(),2);
+        var wheel=TemplateClientReview.class.getDeclaredMethod("wheel",double.class,double.class,double.class);wheel.setAccessible(true);
+        if(shift)windowModifier(false,true);
+        try {
+            require(net.minecraft.client.gui.screens.Screen.hasShiftDown()==shift,"Unexpected Shift state in wheel fixture");
+            wheel.invoke(null,field.x()+8d,field.y()+8d,(double)direction);
+        } finally {if(shift)windowModifier(false,false);}
     }
     private static void openSlider() throws ReflectiveOperationException {var dot=TemplateClientReview.hostLayout().cells().getFirst().dot();TemplateClientReview.click(dot.x()+2,dot.y()+2);}
     private static void openSliderIfClosed() throws ReflectiveOperationException {if(TemplateClientReview.hostLayout().slider()==null)openSlider();}

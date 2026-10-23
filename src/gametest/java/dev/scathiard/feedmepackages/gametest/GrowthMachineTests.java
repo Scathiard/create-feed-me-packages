@@ -54,8 +54,8 @@ public final class GrowthMachineTests {
 
     private static final class AssemblyRun {
         final GameTestHelper helper; BlockPos sawOutput;
-        final int[] targets = {2, 3, 4, 5};
-        int targetIndex, stepIndex, attempts, waiting; boolean inserted, missingChecked;
+        final int[] targets = {2, 3, 4, 5, 0}; // 0: pocket pallet, not a pendant tier.
+        int targetIndex, stepIndex, attempts, waiting; boolean inserted, missingChecked, protectedChecked; int handOffered;
         ItemStack current = ItemStack.EMPTY; ProcessingRecipe<?, ?> step; IItemHandler input, output, hand; IFluidHandler tank;
         AssemblyRun(GameTestHelper helper) { this.helper = helper; }
         void tick() {
@@ -68,9 +68,9 @@ public final class GrowthMachineTests {
             if (targetIndex == targets.length) { helper.succeed(); return; }
             int target = targets[targetIndex];
             var sequence = (SequencedAssemblyRecipe)helper.getLevel().getRecipeManager().byKey(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID,
-                    "sequenced_assembly/" + (target == 0 ? "private_link" : "upgrade_link_" + target))).orElseThrow().value();
+                    target == 0 ? "pocket_pallet" : "sequenced_assembly/upgrade_link_" + target)).orElseThrow().value();
             if (!inserted) {
-                if (current.isEmpty()) current = target == 0 ? new ItemStack(Items.ENDER_PEARL) : FmpRegistries.LINK_FRAMES.get(target - 2).toStack();
+                if (current.isEmpty()) current = target == 0 ? com.simibubi.create.AllItems.EXTENDO_GRIP.asStack() : FmpRegistries.LINK_FRAMES.get(target - 2).toStack();
                 step = sequence.getSequence().get(stepIndex).getRecipe();
                 BlockPos station = step instanceof PressingRecipe ? PRESS.below(2) : step instanceof FillingRecipe ? SPOUT.below(2) : step instanceof DeployerApplicationRecipe ? DEPLOYER.below(2) : SAW;
                 input = items(helper, station); output = station.equals(SAW) ? items(helper, sawOutput) : input;
@@ -81,14 +81,25 @@ public final class GrowthMachineTests {
                     var required = step.getFluidIngredients().getFirst(); tank.drain(1000, IFluidHandler.FluidAction.EXECUTE);
                     helper.assertTrue(tank.fill(required.getFluids()[0].copyWithAmount(required.amount() - 1), IFluidHandler.FluidAction.EXECUTE) == required.amount() - 1, "Spout fixture failed to insert its insufficient amount");
                 }
-                inserted = true; missingChecked = !(step instanceof DeployerApplicationRecipe || step instanceof FillingRecipe); waiting = 0; return;
+                inserted = true; protectedChecked=false; missingChecked = !(step instanceof DeployerApplicationRecipe || step instanceof FillingRecipe); waiting = 0; return;
             }
             waiting++;
             helper.assertTrue(waiting < 160, "Native processing stalled at link " + target + " step " + stepIndex);
             if (!missingChecked) {
                 if (waiting < 25) return;
                 helper.assertTrue(ItemStack.matches(input.getStackInSlot(0), current), "Missing reagent still processed the input");
-                if (step instanceof DeployerApplicationRecipe) helper.assertTrue(hand.insertItem(0, step.getIngredients().get(1).getItems()[0].copyWithCount(2), false).isEmpty(), "Deployer rejected its real reagent");
+                if (step instanceof DeployerApplicationRecipe) {
+                    if(target==0 && stepIndex==3) {
+                        if(!protectedChecked) {
+                            var owned=FmpRegistries.PENDANT.toStack();owned.set(FmpRegistries.IDENTITY.get(),UUID.randomUUID());
+                            helper.assertTrue(hand.insertItem(0,owned,false).isEmpty(),"Protected pendant fixture did not enter the hand");
+                            protectedChecked=true;waiting=0;return;
+                        }
+                        helper.assertTrue(hand.extractItem(0,1,false).has(FmpRegistries.IDENTITY.get()),"Deployer consumed the protected pendant");
+                    }
+                    var ingredient=step.getIngredients().get(1).getItems()[0];handOffered=Math.min(2,ingredient.getMaxStackSize());
+                    helper.assertTrue(hand.insertItem(0,ingredient.copyWithCount(handOffered),false).isEmpty(),"Deployer rejected its real reagent");
+                }
                 else {
                     var required = step.getFluidIngredients().getFirst(); helper.assertTrue(tank.getFluidInTank(0).getAmount() == required.amount() - 1, "Insufficient fluid was charged");
                     tank.fill(required.getFluids()[0].copyWithAmount(required.amount() + 1), IFluidHandler.FluidAction.EXECUTE);
@@ -100,14 +111,14 @@ public final class GrowthMachineTests {
                 if (candidate.isEmpty() || ItemStack.matches(candidate, current)) continue;
                 var result = output.extractItem(slot, 1, false); helper.assertTrue(!result.isEmpty(), "Processed native output was not retrievable");
                 helper.assertTrue(total(input) == 0 && (input == output || total(output) == 0), "Machine retained an extra input/output copy");
-                if (step instanceof DeployerApplicationRecipe) helper.assertTrue(hand.extractItem(0, 64, false).getCount() == 1 && total(hand) == 0, "Deployer did not consume exactly one of two supplied reagents");
+                if (step instanceof DeployerApplicationRecipe) helper.assertTrue(hand.extractItem(0, 64, false).getCount() == handOffered-1 && total(hand) == 0, "Deployer did not consume exactly one supplied reagent");
                 if (step instanceof FillingRecipe) helper.assertTrue(tank.getFluidInTank(0).getAmount() == step.getFluidIngredients().getFirst().amount(), "Spout did not consume exactly one recipe's fluid");
                 current = result; stepIndex++; inserted = false;
                 if (stepIndex < sequence.getSequence().size()) {
                     helper.assertTrue(current.has(AllDataComponents.SEQUENCED_ASSEMBLY) && current.get(AllDataComponents.SEQUENCED_ASSEMBLY).step() == stepIndex, "Native machine skipped the transitional sequence step");
                 } else {
                     helper.assertTrue(!current.has(FmpRegistries.IDENTITY.get()) && !current.has(FmpRegistries.OWNER.get()), "Random manufacturing acquired cache authority");
-                    var wanted = target == 0 ? FmpRegistries.PRIVATE_LINK : FmpRegistries.upgradeLink(target);
+                    var wanted = target == 0 ? FmpRegistries.POCKET_PALLET : FmpRegistries.upgradeLink(target);
                     if (current.is(wanted.get())) { FeedMePackages.LOGGER.info("FMP_PHYSICAL_SEQUENCE_PASSED link={} attempts={}", target, attempts + 1); targetIndex++; attempts = 0; }
                     else helper.assertTrue(++attempts < 12, "No actual link produced in twelve native attempts");
                     stepIndex = 0; current = ItemStack.EMPTY;

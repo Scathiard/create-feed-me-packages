@@ -69,11 +69,22 @@ public final class PalletRenderer extends BlockEntityWithoutLevelRenderer {
         draw(manager.getModel(modelId("outlet_gate")),stack,pose,buffers,light,overlay);pose.popPose();
         var cargo=PalletClient.displayed();
         if(motion.cargo() && !cargo.isEmpty()) {
-            pose.pushPose();pose.translate(8/16.0,8.9/16.0,motion.cargoZ()/16.0);pose.scale(3/16f,3/16f,3/16f);
+            var use=cargo.fluid().isEmpty()?usePose(mc.player,cargo.item(),mc.getTimer().getGameTimeDeltaPartialTick(false))
+                    :dev.scathiard.feedmepackages.domain.PalletUsePose.REST;
+            // Animate the held material, never the housing, tray or jaws.
+            pose.pushPose();pose.translate(8/16.0,(8.9+use.lift())/16.0,motion.cargoZ()/16.0);
+            pose.mulPose(Axis.YP.rotationDegrees((float)use.turn()));pose.scale(3/16f,3/16f,3/16f);
             if(cargo.fluid().isEmpty()) mc.getItemRenderer().renderStatic(cargo.item(),ItemDisplayContext.NONE,light,overlay,pose,buffers,mc.level,0);
             else fluidCargo(cargo.fluid(),pose,buffers,light,overlay);
             pose.popPose();
         }
+    }
+    private static dev.scathiard.feedmepackages.domain.PalletUsePose usePose(net.minecraft.client.player.LocalPlayer player,ItemStack cargo,float partial) {
+        var rest=dev.scathiard.feedmepackages.domain.PalletUsePose.REST;
+        if(player==null || !player.isUsingItem() || player.getUsedItemHand()!=net.minecraft.world.InteractionHand.MAIN_HAND) return rest;
+        var used=player.getUseItem();var animation=used.getUseAnimation();
+        if((animation!=UseAnim.EAT && animation!=UseAnim.DRINK) || !ItemStack.isSameItemSameComponents(used,cargo)) return rest;
+        return dev.scathiard.feedmepackages.domain.PalletUsePose.at(player.getTicksUsingItem()+partial);
     }
     private static void fluidCargo(net.neoforged.neoforge.fluids.FluidStack fluid,PoseStack pose,MultiBufferSource buffers,int light,int overlay) {
         var ext=IClientFluidTypeExtensions.of(fluid.getFluid()); var texture=ext.getStillTexture(fluid);

@@ -101,10 +101,10 @@ public final class CacheActions {
                 if (change.fluid()) {
                     var cell = before.fluids().state().cells().get(slot); var value = change.value();
                     if (cell.filter() == null || cell.filterRevision() != change.filterRevision()) return Result.STALE;
-                    int unit = dev.scathiard.feedmepackages.fluid.FluidVariantKey.MILLIBUCKETS_PER_GROUP;
+                    int unit = dev.scathiard.feedmepackages.fluid.FluidVariantKey.MILLIBUCKETS_PER_BUCKET;
                     if (value.batch() != 1 || value.returnBatch() != 1 || value.pendingLimit() != -1 || value.lower() >= 0 && value.lower() % unit != 0
                             || value.upper() >= 0 && value.upper() % unit != 0) return Result.INVALID_REQUEST;
-                    fluidEdit.thresholds(slot, value.lower() < 0 ? -1 : value.lower() / unit, value.upper() < 0 ? -1 : value.upper() / unit);
+                    fluidEdit.settings(slot, value);
                 } else {
                     var cell=before.state().cells().get(slot);
                     if(cell.filter()==null || cell.filterRevision()!=change.filterRevision()) return Result.STALE;

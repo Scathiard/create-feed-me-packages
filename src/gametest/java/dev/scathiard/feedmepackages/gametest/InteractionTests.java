@@ -653,6 +653,48 @@ public final class InteractionTests {
         helper.succeed();
     }
 
+    @GameTest(template="empty")
+    public static void fluidBucketSettingsPersistWithoutChangingOldGroupFields(GameTestHelper h) {
+        var p=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());seedFluid(p,0,water(1250));
+        h.assertTrue(fluidAction(p,1,Action.THRESHOLDS,0,1,2,"")==Result.OK,"Legacy group fixture failed");
+        var handle=AccessGate.resolve(p).handle();var ledger=CacheLedger.get(p.getServer());
+        var old=ledger.save(new net.minecraft.nbt.CompoundTag(),p.registryAccess());
+        for(var row:old.getList("caches",net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+            var fluid=((net.minecraft.nbt.CompoundTag)row).getCompound("astra_fluids");fluid.putInt("version",1);
+            for(var cell:fluid.getCompound("cells").getList("entries",net.minecraft.nbt.Tag.TAG_COMPOUND))
+                ((net.minecraft.nbt.CompoundTag)cell).remove("volume_controls");
+        }
+        var oldRead=CacheLedger.load(old,p.registryAccess());
+        h.assertTrue(oldRead.problem().isEmpty() && oldRead.find(handle.cacheId()).fluids().state().cells().getFirst().settings().lower()==8000
+                && oldRead.find(handle.cacheId()).fluids().state().cells().getFirst().settings().upper()==16000
+                && oldRead.find(handle.cacheId()).fluids().state().cells().getFirst().amount()==1250,"Legacy 8-bucket groups were reinterpreted or stock rounded");
+        var view=PanelNetwork.query(p,new PanelPackets.Query(UUID.randomUUID(),0,true));
+        var value=new dev.scathiard.feedmepackages.domain.CellSettings(3000,9000,1,-1);
+        var change=new CacheActions.SettingsChange(0,view.cells().getFirst().filterRevision(),value,true);
+        var reply=PanelNetwork.settings(p,new PanelPackets.SettingsBatch(view.window(),view.session(),2,java.util.List.of(change)));
+        h.assertTrue(reply.result()==Result.OK && reply.cells().getFirst().minimum()==3000 && reply.cells().getFirst().maximum()==9000
+                && reply.cells().getFirst().amount()==1250 && reply.cells().getFirst().stackSize()==8000,"One-bucket settings did not reach the authoritative panel snapshot");
+        var actual=ledger.find(handle.cacheId());var cell=actual.fluids().state().cells().getFirst();
+        h.assertTrue(cell.minimum()==1 && cell.maximum()==2 && cell.settings().equals(value)
+                && cell.shortage()==1750 && actual.fluids().state().requestable(0)==1750,"Fine thresholds changed old fields or refill amount");
+        for(int bad:new int[]{999,17000}) {
+            var invalid=new CacheActions.SettingsChange(0,cell.filterRevision(),new dev.scathiard.feedmepackages.domain.CellSettings(-1,bad,1,-1),true);
+            h.assertTrue(CacheActions.settings(p,view.session(),java.util.List.of(invalid))==Result.INVALID_REQUEST
+                    && ledger.find(handle.cacheId()).equals(actual),"Invalid bucket boundary partially changed the cache");
+        }
+        var saved=ledger.save(new net.minecraft.nbt.CompoundTag(),p.registryAccess());var read=CacheLedger.load(saved,p.registryAccess());
+        h.assertTrue(read.problem().isEmpty() && actual.equals(read.find(handle.cacheId())),"Exact mB thresholds/stock changed on reload: "+read.problem());
+        var corrupt=saved.copy();
+        for(var row:corrupt.getList("caches",net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+            var entry=(net.minecraft.nbt.CompoundTag)row;
+            if(entry.getUUID("id").equals(handle.cacheId()))entry.getCompound("astra_fluids").getCompound("cells")
+                    .getList("entries",net.minecraft.nbt.Tag.TAG_COMPOUND).getCompound(0).getCompound("volume_controls").putInt("upper",999999);
+        }
+        var refused=CacheLedger.load(corrupt,p.registryAccess());
+        h.assertTrue(!refused.problem().isEmpty() && refused.save(new net.minecraft.nbt.CompoundTag(),p.registryAccess()).equals(corrupt),"Corrupt fine controls were silently overwritten");
+        h.succeed();
+    }
+
     @GameTest(template = "empty", timeoutTicks = 200)
     public static void multiplePlayersKeepSnapshotsAndIdleWorkBounded(GameTestHelper helper) {
         var fixtures = new java.util.ArrayList<ReceiveTests.Fixture>();

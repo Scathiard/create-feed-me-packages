@@ -74,6 +74,20 @@ class PanelLayoutTest {
         assertEquals(0,recovered.tray(),1e-9);assertTrue(recovered.cargo());
         for(double time:new double[]{-1,0,.1,.2,.35,100})assertFalse(dev.scathiard.feedmepackages.domain.PalletFeedPose.at(time,false).cargo());
     }
+    @Test void consumingCargoBouncesAndSpinsFromNativeUseTimeOnly() {
+        var rest=dev.scathiard.feedmepackages.domain.PalletUsePose.REST;
+        for(double t:new double[]{-1,0,Double.NaN,Double.POSITIVE_INFINITY})
+            assertEquals(rest,dev.scathiard.feedmepackages.domain.PalletUsePose.at(t));
+        var top=dev.scathiard.feedmepackages.domain.PalletUsePose.at(8);
+        assertEquals(1.5,top.lift(),1e-9);assertEquals(90,top.turn(),1e-9);
+        for(int i=0;i<=320;i++) {
+            var pose=dev.scathiard.feedmepackages.domain.PalletUsePose.at(i/10d);
+            assertTrue(pose.lift()>=0 && pose.lift()<=1.5 && pose.turn()>=0 && pose.turn()<360);
+        }
+        assertEquals(rest,dev.scathiard.feedmepackages.domain.PalletUsePose.at(32));
+        assertEquals(dev.scathiard.feedmepackages.domain.PalletUsePose.at(5.25),
+                dev.scathiard.feedmepackages.domain.PalletUsePose.at(37.25));
+    }
     @Test void borderFlashesTwiceAndDarkensInOppositeDirections() {
         var request=dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.REQUEST;
         assertEquals(18,BorderAnimation.sample(request,0,18).to());
@@ -283,9 +297,13 @@ class PanelLayoutTest {
         assertEquals(65, CellControlDraft.wheel(70, -1, 64, 65, 2048, false));
         assertEquals(70, CellControlDraft.wheel(65, 1, 64, 0, 70, false));
     }
-    @Test void fluidWellsKeepTheirVolumeStepWithoutStackAlignment() {
-        assertEquals(8321, CellControlDraft.wheel(321, 1, 8000, 0, 32000, false, false));
-        assertEquals(321, CellControlDraft.wheel(8321, -1, 8000, 0, 32000, false, false));
+    @Test void fluidWellsUseSingleBucketsAndShiftAlignsEightBucketGroups() {
+        assertEquals(1000, CellControlDraft.wheel(0, 1, 1000, 0, 16000, false));
+        assertEquals(2000, CellControlDraft.wheel(1000, 1, 1000, 0, 16000, false));
+        assertEquals(8000, CellControlDraft.wheel(1000, 1, 8000, 0, 16000, false));
+        assertEquals(8000, CellControlDraft.wheel(9000, -1, 8000, 0, 16000, false));
+        assertEquals(16000, CellControlDraft.wheel(8000, 1, 8000, 0, 16000, false));
+        assertEquals(-1, CellControlDraft.wheel(16000, 1, 1000, 0, 16000, true));
     }
     @Test void batchAdjustmentWidensTheRangeWithoutContractingOrChangingTheOtherBatch() {
         var s=new dev.scathiard.feedmepackages.domain.CellSettings(64,70,1,32,1);

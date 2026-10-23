@@ -334,6 +334,17 @@ public final class GrowthTests {
             var input = new SmithingRecipeInput(FmpRegistries.ASSEMBLY_TEMPLATE.toStack(), FmpRegistries.PENDANT.toStack(), FmpRegistries.upgradeLink(target).toStack());
             helper.assertTrue(smith.matches(input, level) && smith.assemble(input, level.registryAccess()).isEmpty(), "Generic recipe execution created an uncommitted pendant");
         }
+        var pallet=(SequencedAssemblyRecipe)manager.byKey(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID,"pocket_pallet")).orElseThrow().value();
+        helper.assertTrue(pallet.getLoops()==1 && pallet.getSequence().size()==4,"Pallet is not the four-step assembly");
+        var pendantIngredient=pallet.getSequence().get(3).getRecipe().getIngredients().get(1);
+        helper.assertTrue(pendantIngredient.test(FmpRegistries.PENDANT.toStack()),"Fresh pendant rejected");
+        for(int fault=0;fault<3;fault++) {
+            var used=FmpRegistries.PENDANT.toStack();
+            if(fault==0)used.set(FmpRegistries.IDENTITY.get(),UUID.randomUUID());
+            if(fault==1)used.set(FmpRegistries.NETWORK.get(),UUID.randomUUID());
+            if(fault==2)used.set(DataComponents.CUSTOM_NAME,net.minecraft.network.chat.Component.literal("Keep me"));
+            helper.assertTrue(!pendantIngredient.test(used),"Assembly can destroy an owned/custom pendant: "+fault);
+        }
         helper.succeed();
     }
 

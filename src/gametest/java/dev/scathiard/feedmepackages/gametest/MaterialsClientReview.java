@@ -28,6 +28,7 @@ final class MaterialsClientReview {
     private static int phase,ticks,changed;
     private static CompletableFuture<Void> work;
     private static BlockPos waterTarget;
+    private static boolean firstUseFrame,secondUseFrame;
     static boolean tick() throws Exception {
         ticks++;
         if(work!=null) { if(!work.isDone()) return false;work.join();work=null; }
@@ -47,18 +48,26 @@ final class MaterialsClientReview {
                         && MC.player.getInventory().getItem(0).is(FmpRegistries.POCKET_PALLET.get()),"Timed client hand lost native food or real tool");
                 TemplateClientReview.capture("materials-eat-native");button(1,false);next();
             }
-            case 5 -> { if(elapsed<12)break;server(p->require(stock(p,0)==8 && !p.isUsingItem(),"Early release spent food or kept eating"));button(1,true);next(); }
-            case 6 -> { if(elapsed<40)break;button(1,false);next(); }
+            case 5 -> { if(elapsed<12)break;verifyCargoPose(false);TemplateClientReview.capture("materials-eat-cancelled");server(p->require(stock(p,0)==8 && !p.isUsingItem(),"Early release spent food or kept eating"));button(1,true);next(); }
+            case 6 -> {
+                if(elapsed>=4 && !firstUseFrame){verifyCargoPose(true);TemplateClientReview.capture("materials-eat-cargo-a");firstUseFrame=true;}
+                if(elapsed>=12 && !secondUseFrame){verifyCargoPose(true);TemplateClientReview.capture("materials-eat-cargo-b");secondUseFrame=true;}
+                if(elapsed<40)break;button(1,false);next();
+            }
             case 7 -> {
-                if(elapsed<12)break;
+                if(elapsed<12)break;verifyCargoPose(false);firstUseFrame=false;secondUseFrame=false;
                 server(p->require(stock(p,0)==7 && p.getFoodData().getFoodLevel()>8 && p.getMainHandItem().is(FmpRegistries.POCKET_PALLET.get()),"Native held food did not complete exactly once"));
                 button(2,true);next();
             }
             case 8 -> { if(elapsed<8)break;select(m->m.is(Items.POTION));next(); }
             case 9 -> { if(elapsed<15)break;button(1,true);next(); }
-            case 10 -> { if(elapsed<40)break;button(1,false);next(); }
+            case 10 -> {
+                if(elapsed>=4 && !firstUseFrame){verifyCargoPose(true);TemplateClientReview.capture("materials-drink-cargo-a");firstUseFrame=true;}
+                if(elapsed>=12 && !secondUseFrame){verifyCargoPose(true);TemplateClientReview.capture("materials-drink-cargo-b");secondUseFrame=true;}
+                if(elapsed<40)break;button(1,false);next();
+            }
             case 11 -> {
-                if(elapsed<12)break;
+                if(elapsed<12)break;verifyCargoPose(false);
                 server(p->require(stock(p,1)==1 && p.getInventory().countItem(Items.GLASS_BOTTLE)==1
                         && p.hasEffect(net.minecraft.world.effect.MobEffects.FIRE_RESISTANCE),"Native potion lost effect/remainder or charged twice"));
                 button(2,true);next();
@@ -96,9 +105,23 @@ final class MaterialsClientReview {
             case 20 -> {
                 FeedMePackages.LOGGER.info("FMP_MATERIALS_CLIENT_PASSED selectorItemsAndFluids=true nativeFoodCancel=true nativeFoodFinish=true potionEffectRemainder=true fluidPlace=true cursorFill=true realToolPreserved=true");next();
             }
-            case 21 -> {return !net.neoforged.fml.ModList.get().isLoaded("ars_nouveau") || ArsClientReview.tick();}
+            case 21 -> {
+                if(!net.neoforged.fml.ModList.get().isLoaded("jei"))return !net.neoforged.fml.ModList.get().isLoaded("ars_nouveau") || ArsClientReview.tick();
+                MC.player.closeContainer();JeiClientReview.openSequence(FmpRegistries.POCKET_PALLET.get());next();
+            }
+            case 22 -> {if(elapsed<15)break;JeiClientReview.verifyGrowthPage();TemplateClientReview.capture("pallet-four-step-assembly-jei");MC.setScreen(null);next();}
+            case 23 -> {return !net.neoforged.fml.ModList.get().isLoaded("ars_nouveau") || ArsClientReview.tick();}
         }
         return false;
+    }
+    private static void verifyCargoPose(boolean active) throws Exception {
+        var method=PalletRenderer.class.getDeclaredMethod("usePose",net.minecraft.client.player.LocalPlayer.class,ItemStack.class,float.class);
+        method.setAccessible(true);var cargo=PalletClient.displayed().item();
+        var pose=(dev.scathiard.feedmepackages.domain.PalletUsePose)method.invoke(null,MC.player,cargo,.25f);
+        require(active?!pose.equals(dev.scathiard.feedmepackages.domain.PalletUsePose.REST):pose.equals(dev.scathiard.feedmepackages.domain.PalletUsePose.REST),"Cargo consumption pose disagrees with native lifecycle: "+pose);
+        if(active)require(method.invoke(null,MC.player,new ItemStack(Items.STONE),.25f).equals(dev.scathiard.feedmepackages.domain.PalletUsePose.REST),"Use animation leaked onto another selected material");
+        var body=PalletClientReview.class.getDeclaredMethod("verifyHandBody");body.setAccessible(true);body.invoke(null);
+        FeedMePackages.LOGGER.info("FMP_CARGO_USE_POSE active={} lift={} turn={} housingFixed=true",active,pose.lift(),pose.turn());
     }
     private static void setup(ServerPlayer p) {
         p.closeContainer();p.getInventory().clearContent();TestPlayers.necklace(p).setStackInSlot(0,FmpRegistries.PENDANT.toStack());

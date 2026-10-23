@@ -1700,15 +1700,15 @@ public final class LogisticsPanel {
         if (!visible()) return false;
         if (!layout.hidden() && layout.slider() != null && layout.slider().contains(x,y)) {
             var draft=controls(); if (draft==null || amount==0 || draggingSlider || draggingMaximum) return true;
-            var value=draft.value(); boolean fluid=snapshot.cells().get(selected).fluid(); int step=fluid?8000:Screen.hasShiftDown()?snapshot.cells().get(selected).stackSize():1;
+            var value=draft.value(); boolean fluid=snapshot.cells().get(selected).fluid(); int step=Screen.hasShiftDown()?snapshot.cells().get(selected).stackSize():fluid?dev.scathiard.feedmepackages.fluid.FluidVariantKey.MILLIBUCKETS_PER_BUCKET:1;
             int direction=amount>0?1:-1, cap=cellCapacity(), nine=9*snapshot.cells().get(selected).stackSize();
             int field=-1; for(int i=0;i<4;i++) if(CellControlGeometry.field(layout.slider(),i).contains(x,y))field=i;
             if(field<0 || fluid && field<2)return true;
             int next=switch(field) {
                 case 0 -> CellControlDraft.wheel(value.batch(),direction,step,1,nine,false);
                 case 1 -> CellControlDraft.wheel(value.returnBatch(),direction,step,1,nine,false);
-                case 2 -> CellControlDraft.wheel(Math.max(0,value.lower()),direction,step,0,value.upper()<0?cap:value.upper(),false,!fluid);
-                default -> CellControlDraft.wheel(value.upper(),direction,step,Math.max(0,value.lower()),cap,true,!fluid);
+                case 2 -> CellControlDraft.wheel(Math.max(0,value.lower()),direction,step,0,value.upper()<0?cap:value.upper(),false);
+                default -> CellControlDraft.wheel(value.upper(),direction,step,Math.max(0,value.lower()),cap,true);
             };
             if(fluid) draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(field==2?(next==0?-1:next):value.lower(),
                     field==3?next:value.upper(),value.batch(),value.pendingLimit(),value.returnBatch()),tick);
@@ -1841,7 +1841,10 @@ public final class LogisticsPanel {
         dragMoved=true; var value=draft.value(); int cap=cellCapacity();
         var cell=snapshot.cells().get(selected);
         int next=CellControlGeometry.draggedValue(dragStartValue,x-dragOriginX,cap,cell.fluid()?1:cell.stackSize());
-        if (cell.fluid()) next=Math.clamp(Math.round(next/8000f)*8000,0,cap);
+        if (cell.fluid()) {
+            int bucket=dev.scathiard.feedmepackages.fluid.FluidVariantKey.MILLIBUCKETS_PER_BUCKET;
+            next=(int)Math.clamp(Math.round((double)next/bucket)*(long)bucket,0,cap);
+        }
         int lower=value.lower(),upper=value.upper();
         if(maximum) upper=next>=cap?-1:Math.max(next,Math.max(0,lower));
         else { lower=Math.min(next,upper<0?cap:upper); if(lower==0) lower=-1; }

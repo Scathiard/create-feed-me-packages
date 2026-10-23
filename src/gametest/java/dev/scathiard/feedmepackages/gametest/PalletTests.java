@@ -140,18 +140,23 @@ public final class PalletTests {
     }
 
     @GameTest(template = "empty")
-    public static void palletSurvivalRecipeLoadsAndUnlocksFromShaft(GameTestHelper h) {
+    public static void palletAssemblyReplacesCheapWorkbenchAndRecognizesGrip(GameTestHelper h) {
         var inputs = new java.util.ArrayList<ItemStack>(java.util.Collections.nCopies(9,ItemStack.EMPTY));
         inputs.set(1,new ItemStack(Items.IRON_INGOT));inputs.set(7,new ItemStack(Items.IRON_INGOT));
         inputs.set(3,com.simibubi.create.AllBlocks.SHAFT.asStack());inputs.set(5,com.simibubi.create.AllBlocks.SHAFT.asStack());
         inputs.set(4,new ItemStack(Items.OAK_PLANKS));
         var grid = net.minecraft.world.item.crafting.CraftingInput.of(3,3,inputs);
-        var recipe = h.getLevel().getRecipeManager().getRecipeFor(net.minecraft.world.item.crafting.RecipeType.CRAFTING,grid,h.getLevel()).orElseThrow();
-        var output = recipe.value().assemble(grid,h.getLevel().registryAccess());
-        h.assertTrue(output.is(FmpRegistries.POCKET_PALLET.get()) && output.getCount()==1,"Workbench inputs did not produce one pallet");
+        var manager=h.getLevel().getRecipeManager();
+        h.assertTrue(manager.getRecipeFor(net.minecraft.world.item.crafting.RecipeType.CRAFTING,grid,h.getLevel()).isEmpty(),"Obsolete cheap workbench recipe is still available");
+        var recipe=manager.byKey(net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID,"pocket_pallet")).orElseThrow();
+        h.assertTrue(recipe.value() instanceof com.simibubi.create.content.processing.sequenced.SequencedAssemblyRecipe
+                && recipe.value().getResultItem(h.getLevel().registryAccess()).is(FmpRegistries.POCKET_PALLET.get()),"New assembly does not produce a pallet");
         var p=TestPlayers.real(h,java.util.UUID.randomUUID());p.initInventoryMenu();
-        p.getInventory().add(com.simibubi.create.AllBlocks.SHAFT.asStack());p.inventoryMenu.broadcastChanges();
-        h.assertTrue(p.getRecipeBook().contains(recipe.id()),"Native shaft inventory event did not unlock the pallet recipe");h.succeed();
+        p.getInventory().add(com.simibubi.create.AllItems.EXTENDO_GRIP.asStack());p.inventoryMenu.broadcastChanges();
+        var advancement=p.getServer().getAdvancements().get(net.minecraft.resources.ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID,"recipes/pocket_pallet"));
+        h.assertTrue(advancement!=null && p.getAdvancements().getOrStartProgress(advancement).isDone(),"Extendo grip inventory event did not complete the recipe discovery criterion");
+        // Create processing recipes are special recipes, not workbench recipe-book entries.
+        h.assertTrue(recipe.value().isSpecial() && !p.getRecipeBook().contains(recipe.id()),"Assembly leaked into the workbench book");h.succeed();
     }
 
     @GameTest(template="empty")

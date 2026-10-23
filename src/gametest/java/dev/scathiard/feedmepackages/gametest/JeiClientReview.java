@@ -169,12 +169,14 @@ public final class JeiClientReview {
         growthRecipe = recipe; runtime.getRecipesGui().showRecipes(manager.getRecipeCategory(RecipeTypes.SMITHING), List.of(recipe), List.of());
     }
     @SuppressWarnings("unchecked") // Create's category uses RecipeHolder<T>; JEI's UID-only lookup erases T.
-    public static void openGrowthSequence() {
+    public static void openGrowthSequence() { openSequence(FmpRegistries.upgradeLink(5).get()); }
+    @SuppressWarnings("unchecked") // Create's JEI category stores recipe holders.
+    static void openSequence(net.minecraft.world.item.Item result) {
         var runtime = FmpJeiPlugin.runtime().orElseThrow(); var manager = runtime.getRecipeManager();
         var registered = manager.getRecipeType(ResourceLocation.fromNamespaceAndPath("create", "sequenced_assembly")).orElseThrow();
         if (registered.getRecipeClass() != RecipeHolder.class) throw new IllegalStateException("Create changed its sequence category recipe representation");
         var type = (mezz.jei.api.recipe.RecipeType<RecipeHolder<SequencedAssemblyRecipe>>)registered;
-        var recipe = manager.createRecipeLookup(type).get().filter(r -> r.value().getResultItem(Minecraft.getInstance().level.registryAccess()).is(FmpRegistries.upgradeLink(5).get())).findFirst().orElseThrow();
+        var recipe = manager.createRecipeLookup(type).get().filter(r -> r.value().getResultItem(Minecraft.getInstance().level.registryAccess()).is(result)).findFirst().orElseThrow();
         growthRecipe = recipe; runtime.getRecipesGui().showRecipes(manager.getRecipeCategory(type), List.of(recipe), List.of());
     }
     public static void verifyGrowthPage() throws Exception {

@@ -1,12 +1,12 @@
 {
   "parent": "minecraft:recipes/root",
   "criteria": {
-    "has_shaft": {
+    "has_extendo_grip": {
       "trigger": "minecraft:inventory_changed",
       "conditions": {
         "items": [
           {
-            "items": "create:shaft"
+            "items": "create:extendo_grip"
           }
         ]
       }
@@ -20,7 +20,7 @@
   },
   "requirements": [
     [
-      "has_shaft",
+      "has_extendo_grip",
       "has_the_recipe"
     ]
   ],
