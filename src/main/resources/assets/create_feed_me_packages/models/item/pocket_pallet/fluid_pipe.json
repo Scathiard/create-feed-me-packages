@@ -1,0 +1,165 @@
+{
+  "credit": "FMP r011 geometry. Create textures referenced at runtime; see META-INF/fmp-pallet-art.txt.",
+  "textures": {
+    "1": "create:block/glass_fluid_pipe",
+    "particle": "create:block/fluid_tank"
+  },
+  "elements": [
+    {
+      "from": [
+        7,
+        7.8,
+        -10.5
+      ],
+      "to": [
+        9,
+        9.8,
+        -7.0
+      ],
+      "faces": {
+        "east": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1"
+        },
+        "west": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1"
+        },
+        "up": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1",
+          "rotation": 90
+        },
+        "down": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1",
+          "rotation": 90
+        }
+      }
+    },
+    {
+      "from": [
+        7,
+        7.8,
+        -7.0
+      ],
+      "to": [
+        9,
+        9.8,
+        -3.0
+      ],
+      "faces": {
+        "east": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1"
+        },
+        "west": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1"
+        },
+        "up": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1",
+          "rotation": 90
+        },
+        "down": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1",
+          "rotation": 90
+        }
+      }
+    },
+    {
+      "from": [
+        7,
+        7.8,
+        -3.0
+      ],
+      "to": [
+        9,
+        9.8,
+        1.0
+      ],
+      "faces": {
+        "east": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1"
+        },
+        "west": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1"
+        },
+        "up": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1",
+          "rotation": 90
+        },
+        "down": {
+          "uv": [
+            0.0,
+            8.0,
+            16.0,
+            16.0
+          ],
+          "texture": "#1",
+          "rotation": 90
+        }
+      }
+    }
+  ]
+}

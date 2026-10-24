@@ -88,6 +88,46 @@ class PanelLayoutTest {
         assertEquals(dev.scathiard.feedmepackages.domain.PalletUsePose.at(5.25),
                 dev.scathiard.feedmepackages.domain.PalletUsePose.at(37.25));
     }
+    @Test void palletMorphReversesFromCurrentPoseAndDoesNotRestartForAnotherFluid() {
+        var morph=new dev.scathiard.feedmepackages.domain.PalletMorph();
+        morph.target(true,10);assertEquals(0,morph.progress(10));assertEquals(.25,morph.progress(10.3),1e-8);
+        morph.target(true,10.3);assertEquals(.5,morph.progress(10.6),1e-8);
+        morph.target(false,10.6);assertEquals(.5,morph.progress(10.6),1e-8);assertEquals(.25,morph.progress(10.9),1e-8);
+        assertEquals(0,morph.progress(11.3));morph.snap(true);assertEquals(1,morph.progress(0));
+        morph.target(false,20);morph.target(true,20.3);assertEquals(.75,morph.progress(20.3),1e-8);assertEquals(1,morph.progress(21));
+    }
+    @Test void palletMorphUsesTheAuthoredHandoffWithoutOverlappingWorkingEnds() {
+        var item=dev.scathiard.feedmepackages.domain.PalletMorph.at(0);
+        assertTrue(item.itemReady() && item.itemVisible() && item.trayVisible());assertFalse(item.fluidVisible());
+        var fluid=dev.scathiard.feedmepackages.domain.PalletMorph.at(1);
+        assertTrue(fluid.fluidVisible());assertFalse(fluid.itemVisible() || fluid.trayVisible());
+        assertEquals(0,fluid.fluidOffset());assertEquals(-90,fluid.gate());
+        for(int i=0;i<=240;i++) {
+            var p=dev.scathiard.feedmepackages.domain.PalletMorph.at(i/240d);
+            assertFalse(p.itemVisible() && p.fluidVisible());assertTrue(p.itemOffset()>=0 && p.itemOffset()<=17);
+            assertTrue(p.fluidOffset()>=0 && p.fluidOffset()<=16.7);
+        }
+    }
+    @Test void retractingFacesCropTheirTextureCoordinatesInsteadOfStretchingThem() {
+        int[] data=clipFixture();var clipped=PalletClipping.clip(data,.25f);
+        assertEquals(4,clipped.size());int cut=0;
+        for(var v:clipped) {
+            float z=Float.intBitsToFloat(v[2]);assertTrue(z<=.25f);
+            assertEquals((z+1)/2,Float.intBitsToFloat(v[5]),1e-7);
+            assertEquals(-1,v[3]);
+            if(z==.25f) cut++;
+        }
+        assertEquals(2,cut);assertEquals(4,PalletClipping.clip(data,2).size());assertTrue(PalletClipping.clip(data,-2).isEmpty());
+        assertArrayEquals(data,clipFixture(),"Clipping must not mutate the shared baked model");
+    }
+    private static int[] clipFixture() {
+        float[][] vertices={{0,0,-1,0,0},{1,0,-1,1,0},{1,0,1,1,1},{0,0,1,0,1}};int[] data=new int[32];
+        for(int i=0;i<4;i++) {
+            for(int j=0;j<3;j++)data[i*8+j]=Float.floatToRawIntBits(vertices[i][j]);
+            data[i*8+3]=-1;data[i*8+4]=Float.floatToRawIntBits(vertices[i][3]);data[i*8+5]=Float.floatToRawIntBits(vertices[i][4]);
+        }
+        return data;
+    }
     @Test void borderFlashesTwiceAndDarkensInOppositeDirections() {
         var request=dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.REQUEST;
         assertEquals(18,BorderAnimation.sample(request,0,18).to());

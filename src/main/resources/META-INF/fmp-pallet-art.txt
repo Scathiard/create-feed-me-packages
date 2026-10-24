@@ -1,9 +1,14 @@
-Pocket Pallet test.65 asset provenance
+Pocket Pallet test.71 asset provenance
 
-Runtime model copies: assets/create_feed_me_packages/models/item/pocket_pallet/{whole,fixed,tray_slide,jaw_left,jaw_right,outlet_gate}.json
-Originals: art/pocket_pallet/r005/exports, supplied and approved by the project owner for local integration.
-The authored rear body retains geometry from Create Extendo Grip. Its texture is referenced as create:item/extendo_grip and is not bundled here.
-The new front texture is the supplied 128 x 128 pocket_pallet_front.png. No preview cargo cube is baked into the exports.
+Original item-mode art: art/pocket_pallet/r005, supplied and approved by the project owner for local integration.
+Dual-mode source: art/pocket_pallet/r011; animated BBModel SHA-256 71fe8876a4ed4b732d027a8e95af03c7650c37cc32c3c46651155bf4955e4e17.
+The art source directories are preserved unchanged. Runtime model copies live in assets/create_feed_me_packages/models/item/pocket_pallet/.
+
+The original body, continuous rails, tray and claws retain their authored geometry and display transforms. The item-mode fixed mesh is split into body, socket, rails and head for the reversible motion. Fluid pipe/head/window geometry comes from r011. Runtime motion uses translated, outlet-clipped faces with interpolated UVs, not the preview helper-bone scaling. The fluid preview uses the selected fluid's native still texture and tint; it is not a second tank.
+
+The authored rear body retains geometry from Create Extendo Grip. Its texture is referenced as create:item/extendo_grip. The existing front texture is the supplied 128 x 128 pocket_pallet_front.png. No preview cargo cube is baked into the runtime exports.
+The new fluid parts reference Create's native textures: create:block/glass_fluid_pipe, create:block/fluid_tank, create:block/fluid_tank_window_single and create:block/spout_nozzle. No Create PNG is bundled by this integration. Source export credits do not override the original asset license.
+
 Create assets are All Rights Reserved, separate from Create code's MIT license. See CREATE-ASSET-LICENSE.md beside this notice.
 This local test candidate does not establish public redistribution permission. Resolve the retained Create geometry's reuse conditions, or replace it, before public release.
 The project's MIT license does not relicense third-party asset rights.

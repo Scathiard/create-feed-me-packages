@@ -18,20 +18,29 @@ import java.util.*;
 public final class PalletClient {
     private static double feedStarted = -1;
     private static long stockVersion = -1, feedReceipts;
-    private static boolean cargo;
+    private static boolean cargo, queuedFeed;
+    private static final dev.scathiard.feedmepackages.domain.PalletMorph morph = new dev.scathiard.feedmepackages.domain.PalletMorph();
     private static PalletMaterial confirmed = PalletMaterial.EMPTY;
     private static dev.scathiard.feedmepackages.domain.PalletFeedPose interrupted;
     private static double time(float partial) {
         var level=Minecraft.getInstance().level;
         return level==null ? 0 : (level.getGameTime()+partial)/20.0;
     }
-    public static void resetMotion() { feedStarted=-1; cargo=false; stockVersion=-1; interrupted=null; }
+    public static void resetMotion() { feedStarted=-1; cargo=false; stockVersion=-1; interrupted=null; queuedFeed=false; morph.snap(!confirmed.fluid().isEmpty()); }
+    public static dev.scathiard.feedmepackages.domain.PalletMorph.Pose modePose(float partial) { return morph.pose(time(partial)); }
+    public static boolean hasCargo() { return cargo; }
     public static long feedReceipts() { return feedReceipts; }
     public static PalletMaterial displayed() { return confirmed; }
     public static dev.scathiard.feedmepackages.domain.PalletFeedPose feedPose(float partial) {
+        if(!modePose(partial).itemReady()) return dev.scathiard.feedmepackages.domain.PalletFeedPose.at(-1,false);
         return dev.scathiard.feedmepackages.domain.PalletFeedPose.interrupted(interrupted,feedStarted<0 ? -1 : time(partial)-feedStarted,cargo);
     }
-    private static void animate(boolean next) { interrupted=feedPose(0);cargo=next; stockVersion=version(); feedStarted=time(0); }
+    private static void animate(boolean next) {
+        cargo=next; stockVersion=version();
+        if(!confirmed.fluid().isEmpty()) { queuedFeed=false;feedStarted=-1;interrupted=null;return; }
+        if(!modePose(0).itemReady()) { queuedFeed=true;feedStarted=-1;interrupted=null;return; }
+        interrupted=feedPose(0);feedStarted=time(0);queuedFeed=false;
+    }
     private PalletClient() {}
     private static UUID cache;
     private static PalletMaterial selected = PalletMaterial.EMPTY;
@@ -50,8 +59,10 @@ public final class PalletClient {
             if (Minecraft.getInstance().player == null) return;
             if (Objects.equals(cache, message.cache()) && sequence == message.sequence()) {
                 selected = PalletMaterial.decode(message.encoded());
-                if(!confirmed.equals(selected)) animate(!selected.isEmpty());
+                boolean changed=!confirmed.equals(selected);
                 confirmed=selected;
+                morph.target(!confirmed.fluid().isEmpty(),time(0));
+                if(changed) animate(!confirmed.isEmpty() && amount(confirmed)>0);
             }
         });
         PalletNetwork.receiveFeedOnClient(message -> {
@@ -107,10 +118,13 @@ public final class PalletClient {
         var player=Minecraft.getInstance().player;
         if(player==null || !PalletService.holding(player) || !ClientMaterials.active()) { resetMotion(); return; }
         if(stockVersion!=version()) {
-            boolean nextCargo=!selected.isEmpty() && candidates().contains(selected);
-            if(!cargo && nextCargo && stockVersion>=0) { interrupted=feedPose(0);feedStarted=time(0); }
+            // The reserved last meal is still in the jaws. Cancelling its use returns
+            // availability; it is not a newly delivered item and must not replay feed.
+            boolean nextCargo=!confirmed.isEmpty() && (candidates().contains(confirmed) || usingCargo(player,confirmed.item()));
+            if(!cargo && nextCargo && stockVersion>=0) animate(nextCargo);
             cargo=nextCargo;stockVersion=version();
         }
+        if(queuedFeed && modePose(0).itemReady()) animate(cargo);
     }
     public static UUID cache() { sync(); return cache; }
     public static PalletMaterial selected() { sync(); return selected; }
@@ -121,6 +135,11 @@ public final class PalletClient {
         if(fluids!=null && Objects.equals(fluids.cache(),ClientMaterials.cacheId()))
             fluids.templates().forEach(key -> all.add(PalletMaterial.decode("fluid:"+key)));
         return List.copyOf(all);
+    }
+    static boolean usingCargo(net.minecraft.client.player.LocalPlayer player,ItemStack cargo) {
+        if(player==null || !player.isUsingItem() || player.getUsedItemHand()!=net.minecraft.world.InteractionHand.MAIN_HAND) return false;
+        var used=player.getUseItem();var animation=used.getUseAnimation();
+        return (animation==UseAnim.EAT || animation==UseAnim.DRINK) && ItemStack.isSameItemSameComponents(used,cargo);
     }
     public static long amount(PalletMaterial material) {
         if(!material.fluid().isEmpty()) {
