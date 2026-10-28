@@ -60,6 +60,9 @@ public final class ClientReview {
     private static void tick(ClientTickEvent.Post event) {
         var mc = Minecraft.getInstance(); ticks++;
         try {
+            ClientReviewLifecycle.start();
+            if (ClientReviewLifecycle.completing()) return;
+            if (work != null && ticks - changed > 2400) throw new IllegalStateException("Client server work timed out in phase " + phase);
             if (work != null) { if (!work.isDone()) return; work.join(); work = null; }
             if (System.getProperty("fmp.foldReview") != null) { reviewFold(); return; }
             if (Boolean.getBoolean("fmp.convergedReview")) { reviewConverged(); return; }
@@ -225,11 +228,11 @@ public final class ClientReview {
                     FeedMePackages.LOGGER.info("FMP_CLIENT_REVIEW_PASSED {}", RUN);
                     advance(); mc.level.disconnect(); mc.disconnect(new TitleScreen());
                 }
-                case 22 -> { if (mc.level == null && mc.getSingleplayerServer() == null) { mc.stop(); advance(); } }
+                case 22 -> { if (mc.level == null && mc.getSingleplayerServer() == null) { ClientReviewLifecycle.finish(); advance(); } }
                 default -> {}
             }
         } catch (Throwable problem) {
-            if (!failed) { failed = true; phase = 99; FeedMePackages.LOGGER.error("FMP_CLIENT_REVIEW_FAILED", problem); capture("failure"); if (mc.level != null) mc.level.disconnect(); mc.disconnect(new TitleScreen()); mc.stop(); }
+            if (!failed) { failed = true; phase = 99; ClientReviewLifecycle.fail(problem, () -> capture("failure")); }
         }
     }
     private static int uiCase;
@@ -451,7 +454,7 @@ public final class ClientReview {
                 finally {convergedTransition=false;}
                 advance();
             }
-            case 32 -> { if(mc.level==null && mc.getSingleplayerServer()==null){mc.stop();advance();} }
+            case 32 -> { if(mc.level==null && mc.getSingleplayerServer()==null){ClientReviewLifecycle.finish();advance();} }
         }
     }
     private static boolean foldTransition;
@@ -566,7 +569,7 @@ public final class ClientReview {
                 advance();
             }
             case 13 -> {
-                if (mc.level == null && mc.getSingleplayerServer() == null) { mc.stop(); advance(); }
+                if (mc.level == null && mc.getSingleplayerServer() == null) { ClientReviewLifecycle.finish(); advance(); }
             }
         }
     }
@@ -689,7 +692,7 @@ public final class ClientReview {
                 else { FeedMePackages.LOGGER.info("FMP_UI_PLACEMENT_REVIEW_PASSED {}", RUN);
                     mc.level.disconnect(); mc.disconnect(new TitleScreen()); advance(); }
             }
-            case 10 -> { if (mc.level == null && mc.getSingleplayerServer() == null) { mc.stop(); advance(); } }
+            case 10 -> { if (mc.level == null && mc.getSingleplayerServer() == null) { ClientReviewLifecycle.finish(); advance(); } }
             default -> {}
         }
     }
@@ -869,15 +872,13 @@ public final class ClientReview {
                 case 17 -> { // tick 开头已 join 异步 server work；确认后再报通过，再干净停止
                     if (ticks - t14Changed < 40) return;
                     FeedMePackages.LOGGER.info("FMP_T14_PASSED {}", RUN);
-                    mc.stop(); t14Next();
+                    ClientReviewLifecycle.finish(); t14Next();
                 }
                 default -> {}
             }
         } catch (Throwable problem) {
             if (!t14Failed) {
-                t14Failed = true; FeedMePackages.LOGGER.error("FMP_T14_FAILED", problem); capture("t14-failure");
-                if (mc.level != null) mc.level.disconnect();
-                mc.disconnect(new TitleScreen());
+                t14Failed = true; ClientReviewLifecycle.fail(problem, () -> capture("t14-failure"));
             }
         }
     }
@@ -1611,7 +1612,7 @@ public final class ClientReview {
     }
     private static void server(Consumer<ServerPlayer> operation) {
         var mc = Minecraft.getInstance(); var server = mc.getSingleplayerServer(); var id = mc.player.getUUID();
-        work = CompletableFuture.runAsync(() -> operation.accept(server.getPlayerList().getPlayer(id)), server);
+        work = ClientReviewResult.enqueue(work, () -> operation.accept(server.getPlayerList().getPlayer(id)), server);
     }
     private static void jei(String method, ServerPlayer player) {
         try {

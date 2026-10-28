@@ -15,9 +15,10 @@ import java.util.Set;
  * <ul>
  *   <li>Only cells that <b>already filter the exact variant</b> take anything. An item with no matching cell
  *       is left exactly where it is: no new filter is created, no empty cell is used.</li>
- *   <li>Each cell takes only what it can still hold: its item capacity
- *       ({@code groupCapacity × stackSize}), and never above its own {@code maximum} — the same
- *       group-based upper threshold the return path reads in {@code ReturnService} ({@code -1} = no limit).</li>
+ *   <li>Each cell takes only what its physical capacity still holds ({@code groupCapacity × stackSize}).
+ *       Its return threshold does not stop a manual collect; it only classifies the excess for feedback.</li>
+ *   <li>The caller supplies only writable, admitted targets and revalidates them before commit.
+ *       {@code itemUnits} describes threshold units, never permission.</li>
  *   <li>What does not fit stays in the inventory. Nothing is dropped, overflowed or returned.</li>
  *   <li>The whole thing is a <b>plan</b>: the caller simulates, then commits once. Any failure before the
  *       commit leaves both sides untouched.</li>

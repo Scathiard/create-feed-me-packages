@@ -84,7 +84,8 @@ public final class MaidTests {
                 test("native_death", MaidTests::death), test("entity_roundtrip", MaidTests::entityRoundtrip),
                 test("network_permission", MaidTests::permission),
                 test("native_panel_access", MaidTests::panelAccess), test("native_panel_revocation", MaidTests::panelRevocation),
-                test("pickup_native_deltas", MaidTests::pickup), test("return_rejection_and_escrow", MaidTests::returnSafety)));
+                test("pickup_native_deltas", MaidTests::pickup), test("handover_unknown_envelope", MaidTests::unknownEnvelope),
+                test("handover_known_conservation", MaidTests::knownEnvelope), test("new_intake_admission", MaidTests::admission), test("return_rejection_and_escrow", MaidTests::returnSafety)));
         if (ModList.get().isLoaded("tacz")) tests.add(test("native_tacz_reload", MaidTests::tacz));
         if (ModList.get().isLoaded("cmpackagecouriers")) {
             tests.add(test("paper_pickup_return", h -> pickupReturn(h, false)));
@@ -102,6 +103,9 @@ public final class MaidTests {
             tests.add(test("phantom_return_after_unwear", h -> phantomPortRoundtrip(h, true)));
             tests.add(test("phantom_real_player_roundtrip", MaidTests::phantomPlayerRoundtrip));
             tests.add(test("phantom_task_persistence", MaidTests::phantomTaskPersistence));
+            tests.add(test("phantom_source_gate", MaidTests::phantomSourceGate));
+            tests.add(test("phantom_marker_failure", MaidTests::phantomMarkerFailure));
+            tests.add(test("phantom_identity_at_admission", MaidTests::phantomIdentityAtAdmission));
             tests.add(test("phantom_port_pre_admission_failure", h -> phantomPortFault(h, false)));
             tests.add(test("phantom_port_post_admission_failure", h -> phantomPortFault(h, true)));
             tests.add(test("phantom_belt_post_admission_failure", MaidTests::phantomBeltFault));
@@ -128,11 +132,11 @@ public final class MaidTests {
         return new TestFunction("maid", "fmp_maid_" + name, FeedMePackages.MOD_ID + ":empty", 650, 0, true,
                 h -> { try { body.run(h); } catch (ReflectiveOperationException failure) { throw new IllegalStateException("Native maid fixture failed", failure); } });
     }
-    private record Fixture(ServerPlayer owner, TamableAnimal maid, CacheLedger ledger, CacheHandle handle, ItemStack pendant, ItemVariantKey key) {
+    record Fixture(ServerPlayer owner, TamableAnimal maid, CacheLedger ledger, CacheHandle handle, ItemStack pendant, ItemVariantKey key) {
         CacheRecord record() { return ledger.find(handle.cacheId()); }
         long stock() { return record().state().cells().get(0).amount(); }
     }
-    private static Fixture setup(GameTestHelper h, ItemStack item, int amount) {
+    static Fixture setup(GameTestHelper h, ItemStack item, int amount) {
         h.assertTrue(MaidCompatibility.ready(), "Maid native API was not registered");
         var owner = TestPlayers.create(h, FmpRegistries.PENDANT.toStack());
          ConsumptionTests.seed(owner, 0, item, amount);
@@ -154,6 +158,68 @@ public final class MaidTests {
         return new Fixture(owner, maid, CacheLedger.get(h.getLevel().getServer()), access.handle(), pendant,
                 ItemVariantKey.of(item, maid.registryAccess()));
     }
+    private static ItemStack handoverBox(Fixture f, ItemStack... goods) {
+        var handler = new net.neoforged.neoforge.items.ItemStackHandler(9);
+        for (int i=0;i<goods.length;i++) handler.setStackInSlot(i, goods[i]);
+        var box = com.simibubi.create.content.logistics.box.PackageItem.containing(handler);
+        com.simibubi.create.content.logistics.box.PackageItem.addAddress(box, MaidAccess.address(f.maid()));
+        return box;
+    }
+    private static void unknownEnvelope(GameTestHelper h) throws ReflectiveOperationException {
+        var f=setup(h,new ItemStack(Items.STONE),0);
+        var variants=new ArrayList<ItemStack>();
+        var unknown=handoverBox(f,new ItemStack(Items.STONE,8));
+        var extra=new CompoundTag();extra.putString("unknown_goods","do not discard");
+        unknown.set(DataComponents.CUSTOM_DATA,net.minecraft.world.item.component.CustomData.of(extra));variants.add(unknown);
+        var oversized=handoverBox(f,new ItemStack(Items.STONE,8));
+        oversized.set(com.simibubi.create.AllDataComponents.PACKAGE_CONTENTS,
+                net.minecraft.world.item.component.ItemContainerContents.fromItems(java.util.Collections.nCopies(10,new ItemStack(Items.STONE))));variants.add(oversized);
+        var stacked=handoverBox(f,new ItemStack(Items.STONE,8));stacked.setCount(2);variants.add(stacked);
+        var player=f.owner();player.setPos(f.maid().position().add(1,0,0));h.getLevel().addNewPlayer(player);
+        onlineOwners(player).put(player.getUUID(),player);
+        for(int i=0;i<player.getInventory().items.size();i++)player.getInventory().setItem(i,new ItemStack(Items.DIRT,64));
+        try {
+            for(var box:variants){var original=box.copy();
+                player.setItemInHand(InteractionHand.MAIN_HAND,box);
+                var event=new net.neoforged.neoforge.event.entity.player.PlayerInteractEvent.EntityInteract(player,InteractionHand.MAIN_HAND,f.maid());
+                net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(event);
+                h.assertTrue(!event.isCanceled()&&ItemStack.matches(original,player.getMainHandItem())&&f.stock()==0,
+                        "Native interaction changed an unrecognized full package");
+                player.setItemInHand(InteractionHand.MAIN_HAND,new ItemStack(Items.DIRT,64));
+                player.containerMenu=panelMenu(player,f.maid(),82);CacheActions.open(player);player.containerMenu.setCarried(box);
+                h.assertTrue(panelAction(player,CacheActions.Action.DEPOSIT,-1,0,"")==CacheActions.Result.OK
+                        &&ItemStack.matches(original,player.containerMenu.getCarried())&&f.stock()==0,"Maid panel changed an unknown package");
+                h.assertTrue(player.getInventory().countItem(Items.DIRT)==36*64,"Unknown handover changed a full inventory");
+                player.containerMenu.setCarried(ItemStack.EMPTY);CacheActions.close(player);player.containerMenu=player.inventoryMenu;
+            }
+        } finally {onlineOwners(player).remove(player.getUUID());player.containerMenu=player.inventoryMenu;}
+        h.succeed();
+    }
+    private static void knownEnvelope(GameTestHelper h) {
+        var f=setup(h,new ItemStack(Items.STONE),124);
+        var box=handoverBox(f,new ItemStack(Items.STONE,8),new ItemStack(Items.DIAMOND,3));
+        h.assertTrue(MaidPackageHandover.deliver(f.owner(),f.maid(),box)==1&&box.isEmpty(),"Known partial parcel refused");
+        h.assertTrue(f.stock()==128&&f.owner().getInventory().countItem(Items.STONE)==4
+                &&f.owner().getInventory().countItem(Items.DIAMOND)==3,"Partial handover did not conserve exact leftovers");
+        var refused=handoverBox(f,new ItemStack(Items.STONE,5));var original=refused.copy();
+        h.assertTrue(MaidPackageHandover.deliver(f.owner(),f.maid(),refused)==0&&ItemStack.matches(refused,original),"Full cache consumed package");
+        h.succeed();
+    }
+    private static void admission(GameTestHelper h) throws ReflectiveOperationException {
+        var f=setup(h,new ItemStack(Items.STONE),7);
+        var oldDenied=FmpConfig.DENIED.get();var oldAllowed=FmpConfig.ALLOWED.get();
+        try {
+            FmpConfig.DENIED.set(List.of("minecraft:stone"));FmpConfig.ALLOWED.set(List.of());FmpConfig.refreshServer();
+            var box=handoverBox(f,new ItemStack(Items.STONE,3));var original=box.copy();
+            h.assertTrue(MaidPackageHandover.deliver(f.owner(),f.maid(),box)==0&&ItemStack.matches(box,original),"Handover bypassed configured admission");
+            MaidPickup.setEnabled(f.maid(),true);nativePickup(f,new ItemStack(Items.STONE,4),false);
+            h.assertTrue(f.stock()==7,"Pickup bypassed configured admission");
+            FmpConfig.ALLOWED.set(List.of("minecraft:stone"));FmpConfig.refreshServer();
+            h.assertTrue(MaidPackageHandover.deliver(f.owner(),f.maid(),box)==1&&f.stock()==10,"Explicit admission allow lost precedence");
+        } finally {FmpConfig.DENIED.set(oldDenied);FmpConfig.ALLOWED.set(oldAllowed);FmpConfig.refreshServer();}
+        h.succeed();
+    }
+
     // ---------------------------------------------------------------------------------------------------
     // Transport bee return to its maid (plan B, user 2026-10-13). The mobile classes are runtime-only inputs,
     // so they are reached reflectively here exactly like the production seam does.
@@ -960,12 +1026,20 @@ public final class MaidTests {
                 }).thenSucceed();
     }
 
+    private static UUID expectedSourceAtAdmission;
+    private static boolean sourcePresentAtAdmission;
     private static boolean failPhantomVisual;
     private static int phantomVisualFailures;
     @net.neoforged.bus.api.SubscribeEvent
     public static void phantomVisualFault(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent event) {
         if (failPhantomVisual && event.getEntity().getClass().getName().equals("com.yision.phantom.entity.courier.AirCourierEntity")) {
             phantomVisualFailures++;
+            if(expectedSourceAtAdmission!=null) try {
+                sourcePresentAtAdmission=livePhantomTasks().stream().anyMatch(task -> {
+                    var maid=dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.maidForReturn(task,event.getLevel().getServer());
+                    return maid!=null&&expectedSourceAtAdmission.equals(maid.getUUID());
+                });
+            } catch(ReflectiveOperationException failure){throw new IllegalStateException(failure);}
             throw new IllegalStateException("FMP test: visual failed after native task admission");
         }
     }
@@ -980,6 +1054,78 @@ public final class MaidTests {
         var field = manager.getDeclaredField("savedData"); field.setAccessible(true);
         Object data = field.get(null);
         return (List<?>) data.getClass().getMethod("getTasks").invoke(data);
+    }
+
+    private static Fixture sourceReturnFixture(GameTestHelper h) {
+        var f=setup(h,new ItemStack(Items.STONE),100);
+        var carrier=new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse("createphantom:mini_phantom")));
+        MaidCompatibility.inventory(f.maid()).setStackInSlot(0,carrier);
+        f.pendant().set(FmpRegistries.NETWORK.get(),UUID.randomUUID());
+        var before=f.record();var edit=before.state().edit();
+        edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(-1,64,1,-1));
+        f.ledger().replace(f.handle(),before.state().revision(),before.withState(edit.finish()));
+        String address="SourceGuard-"+UUID.randomUUID();
+        f.ledger().setReturnAddress(f.handle().cacheId(),address);PhantomCompatibilityTests.port(h,address);
+        return f;
+    }
+    private static void phantomSourceGate(GameTestHelper h) throws ReflectiveOperationException {
+        h.assertTrue(dev.scathiard.feedmepackages.compat.PhantomDispatch.ready(),"Native Phantom API unavailable");
+        var f=sourceReturnFixture(h);
+        var gate=dev.scathiard.feedmepackages.compat.maid.phantom.v102.Phantom102Gate.class.getDeclaredField("verdict");gate.setAccessible(true);
+        dev.scathiard.feedmepackages.compat.maid.phantom.v102.Phantom102Gate.verdict();Object prior=gate.get(null);
+        int before=livePhantomTasks().size();
+        try {
+            gate.set(null,"disabled reason=test-shape-mismatch");ReturnService.check(MaidAccess.endpoint(f.maid()));
+            h.assertTrue(f.stock()==100&&f.ledger().returnEscrow(f.handle().cacheId())==null
+                    &&livePhantomTasks().size()==before,"Source maid dispatched despite unavailable recovery capability");
+            h.assertTrue(MaidCompatibility.inventory(f.maid()).getStackInSlot(0).getCount()==1,"Disabled route charged its carrier");
+        } finally {gate.set(null,prior);}
+        var box=handoverBox(f,new ItemStack(Items.STONE,36));
+        PackageItem.addAddress(box,f.ledger().returnAddress(f.handle().cacheId()));
+        for(String member:List.of("phantom102FlightReady","phantom102PortReturnReady")) {
+            var field=dev.scathiard.feedmepackages.mixin.OptionalMixins.class.getDeclaredField(member);field.setAccessible(true);
+            Object saved=field.get(null);
+            try {
+                field.set(null,false);
+                h.assertTrue(!dev.scathiard.feedmepackages.compat.PhantomDispatch.canDispatch(f.maid(),box)
+                        &&dev.scathiard.feedmepackages.compat.PhantomDispatch.sendForMaid(f.maid(),box).outcome()
+                        ==dev.scathiard.feedmepackages.compat.TransportDispatch.Outcome.NOT_SENT,"Missing route hook still launched: "+member);
+                h.assertTrue(dev.scathiard.feedmepackages.compat.PhantomDispatch.canDispatch(f.owner(),box),"Maid-only hook disabled native player route: "+member);
+            }finally {field.set(null,saved);}
+        }
+        h.assertTrue(livePhantomTasks().size()==before&&f.stock()==100,"Route probes changed cargo or native tasks");
+        h.succeed();
+    }
+    private static void phantomMarkerFailure(GameTestHelper h) throws ReflectiveOperationException {
+        var f=sourceReturnFixture(h);int before=livePhantomTasks().size();
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.available(),"Task bridge unavailable");
+        var id=dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.class.getDeclaredField("id");id.setAccessible(true);
+        Object saved=id.get(null);
+        try {
+            // Simulate an unusable task identifier after construction but before native publication.
+            id.set(null,Object.class.getMethod("toString"));ReturnService.check(MaidAccess.endpoint(f.maid()));
+            h.assertTrue(f.stock()==100&&MaidCompatibility.inventory(f.maid()).getStackInSlot(0).getCount()==1
+                    &&f.ledger().returnEscrow(f.handle().cacheId())==null&&livePhantomTasks().size()==before,
+                    "Failed identity registration published cargo or retained a debit");
+        } finally {id.set(null,saved);}
+        h.succeed();
+    }
+    private static void phantomIdentityAtAdmission(GameTestHelper h) throws ReflectiveOperationException {
+        var f=sourceReturnFixture(h);int before=livePhantomTasks().size();
+        phantomVisualFailures=0;sourcePresentAtAdmission=false;expectedSourceAtAdmission=f.maid().getUUID();failPhantomVisual=true;
+        try {ReturnService.check(MaidAccess.endpoint(f.maid()));}
+        finally {failPhantomVisual=false;expectedSourceAtAdmission=null;}
+        h.assertTrue(phantomVisualFailures==1&&livePhantomTasks().size()==before+1,"Fault did not occur inside native task admission");
+        h.assertTrue(sourcePresentAtAdmission,"Published task had no source maid identity at first external callback");
+        var hold=f.ledger().returnEscrow(f.handle().cacheId());
+        h.assertTrue(hold!=null&&!hold.rejected(),"Uncertain admission refunded stock/carrier");
+        ReturnService.check(MaidAccess.endpoint(f.maid()));
+        h.assertTrue(livePhantomTasks().size()==before+1&&f.ledger().returnEscrow(f.handle().cacheId())==hold,"Uncertain task was resent");
+        var task=livePhantomTasks().getLast();var type=task.getClass();
+        var tag=(CompoundTag)type.getMethod("save",net.minecraft.core.HolderLookup.Provider.class,CompoundTag.class).invoke(task,h.getLevel().registryAccess(),new CompoundTag());
+        Object loaded=type.getMethod("load",net.minecraft.core.HolderLookup.Provider.class,CompoundTag.class).invoke(null,h.getLevel().registryAccess(),tag);
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.maidForReturn(loaded,h.getLevel().getServer())==f.maid(),"First possible save lost maid ownership");
+        h.succeed();
     }
 
     private static void phantomPortFault(GameTestHelper h, boolean afterAdmission) throws ReflectiveOperationException {

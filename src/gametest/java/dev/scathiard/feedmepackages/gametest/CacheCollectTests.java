@@ -215,4 +215,35 @@ public final class CacheCollectTests {
                 "the creative gate must still refuse TAKE_CURSOR");
         helper.succeed();
     }
+    @GameTest(template = "empty")
+    public static void admissionDoesNotChangeUnitsOrBlockOtherCells(GameTestHelper h) {
+        var p=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());
+        seed(p,new ItemStack(Items.STONE),4);seed(p,new ItemStack(Items.IRON_INGOT),2);
+        carry(p,0,new ItemStack(Items.STONE,5));carry(p,1,new ItemStack(Items.IRON_INGOT,3));
+        var denied=dev.scathiard.feedmepackages.FmpConfig.DENIED.get();var allowed=dev.scathiard.feedmepackages.FmpConfig.ALLOWED.get();
+        try {
+            dev.scathiard.feedmepackages.FmpConfig.DENIED.set(java.util.List.of("minecraft:stone"));
+            dev.scathiard.feedmepackages.FmpConfig.ALLOWED.set(java.util.List.of());dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            h.assertTrue(collect(p)==Result.OK,"Denied cell prevented other legal collection");
+            h.assertTrue(carried(p,new ItemStack(Items.STONE))==5&&carried(p,new ItemStack(Items.IRON_INGOT))==0,"Admission was treated as a quantity unit");
+            h.assertTrue(cachedTotal(p)==9,"Mixed collect changed denied stock");
+        } finally {dev.scathiard.feedmepackages.FmpConfig.DENIED.set(denied);dev.scathiard.feedmepackages.FmpConfig.ALLOWED.set(allowed);dev.scathiard.feedmepackages.FmpConfig.refreshServer();}
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void readonlyCellCannotVetoASeparateWritableCell(GameTestHelper h) {
+        var p=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());
+        seed(p,new ItemStack(Items.STONE),4);seed(p,new ItemStack(Items.IRON_INGOT),2);
+        carry(p,0,new ItemStack(Items.STONE,5));carry(p,1,new ItemStack(Items.IRON_INGOT,3));
+        var config=dev.scathiard.feedmepackages.FmpConfig.SLOTS.getFirst();int prior=config.get();
+        try {
+            config.set(1);dev.scathiard.feedmepackages.FmpConfig.refreshServer();
+            h.assertTrue(collect(p)==Result.OK,"Read-only retained cell vetoed legal cell");
+            h.assertTrue(carried(p,new ItemStack(Items.STONE))==0&&carried(p,new ItemStack(Items.IRON_INGOT))==3,"Read-only cell took new goods");
+            h.assertTrue(cachedTotal(p)==11,"Shrunken collect lost existing stock");
+        } finally {config.set(prior);dev.scathiard.feedmepackages.FmpConfig.refreshServer();}
+        h.succeed();
+    }
+
 }

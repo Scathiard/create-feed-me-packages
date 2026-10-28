@@ -148,6 +148,8 @@ public final class ReturnService {
         if (amount <= 0) return RETURN_FAILED;
         ItemStack box = buildBox(bearer, cell.filter(), amount, address);
         if (box == null) return RETURN_FAILED;
+        if (carrierItem == PHANTOM && !dev.scathiard.feedmepackages.compat.PhantomDispatch.canDispatch(bearer, box))
+            return RETURN_FAILED;
 
         ItemStack carrierStack = carrier.inventorySlot() >= 0 ? inventory.get(carrier.inventorySlot())
                 : record.state().cells().get(carrier.cacheSlot()).filter().stack(bearer.registryAccess(), 1);

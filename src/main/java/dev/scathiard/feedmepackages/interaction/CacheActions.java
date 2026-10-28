@@ -199,7 +199,7 @@ public final class CacheActions {
         // The return address is a cache-level preference, not a cell action: it uses no slot, so it
         // must bypass the per-cell slot validation below. Setting it marks the ledger dirty (saved).
         if (intent.action() == Action.SET_RETURN_ADDRESS) {
-            if (intent.template().length() > 128) return Result.INVALID_REQUEST;
+            if (!dev.scathiard.feedmepackages.domain.ReturnAddress.valid(intent.template())) return Result.INVALID_REQUEST;
             if (intent.template().equals(ledger.returnAddress(access.handle().cacheId()))) return Result.OK;
             ledger.setReturnAddress(access.handle().cacheId(), intent.template());
             return Result.OK;
@@ -347,8 +347,9 @@ public final class CacheActions {
         List<CollectPlan.Target> targets = new ArrayList<>(state.cells().size());
         for (int cell = 0; cell < state.cells().size(); cell++) {
             var held = state.cells().get(cell);
-            if (held.filter() != null) targets.add(new CollectPlan.Target(cell, held.filter(), held.amount(), held.settings().upper(),
-                    state.writable(cell) && dev.scathiard.feedmepackages.service.CachePolicy.admits(held.filter(),registries)));
+            if (held.filter() != null && state.writable(cell)
+                    && dev.scathiard.feedmepackages.service.CachePolicy.admits(held.filter(), registries))
+                targets.add(new CollectPlan.Target(cell, held.filter(), held.amount(), held.settings().upper(), true));
         }
         CollectPlan.Plan plan = CollectPlan.simulate(targets, sources, state.capacity().groups());
         if (plan.isEmpty()) return Result.OK;   // nothing moved, nothing to say (silence rule)
@@ -357,7 +358,8 @@ public final class CacheActions {
         var edit = state.edit();
         for (CollectPlan.Move move : plan.moves()) {
             var filter = state.cells().get(move.cell()).filter();
-            if (edit.insert(move.cell(), filter, move.amount()) != move.amount()) return Result.STALE;
+            if (!state.writable(move.cell()) || !dev.scathiard.feedmepackages.service.CachePolicy.admits(filter, registries)
+                    || edit.insert(move.cell(), filter, move.amount()) != move.amount()) return Result.STALE;
         }
         // Both sides are proven now: one ledger replacement, then the original inventory setters.
         ledger.replace(access.handle(), state.revision(), before.withState(edit.finish()));

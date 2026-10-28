@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "buildRoot": "build",
+  "gameTestRoot": "run/gametest",
+  "profileSuffix": "converged1",
+  "primaryFlags": {
+    "withCouriers": "paper",
+    "withMobile": "mobile",
+    "withPhantom": "phantom102"
+  },
+  "extraFlags": [
+    "withStorage",
+    "withArs",
+    "withSbw",
+    "withTacz",
+    "withWand",
+    "withGadgets",
+    "withEffortless",
+    "withEmi",
+    "withFxnt",
+    "withSophisticated",
+    "withMaid",
+    "withFluid",
+    "withFactory",
+    "withDeployer",
+    "withRepackaged",
+    "withConnected",
+    "withCraftingTweaks",
+    "withGravestone",
+    "withCorpse",
+    "withTombstone",
+    "withTomsStorage",
+    "withPolymorph",
+    "withMouseTweaks",
+    "withModernFix",
+    "withLithium"
+  ],
+  "maxProfileLength": 88
+}

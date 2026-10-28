@@ -48,8 +48,10 @@ public final class TemplateClientReview {
         if(ended)return;
         ticks++;
         try {
-            if(work!=null){if(!work.isDone())return;work.join();work=null;}
+            ClientReviewLifecycle.start();
+            if(ClientReviewLifecycle.completing())return;
             if(ticks-changed>6000)throw new IllegalStateException("Compatibility review timed out: "+MODE+" phase="+phase);
+            if(work!=null){if(!work.isDone())return;work.join();work=null;}
             switch(phase) {
                 case 0 -> {
                     if (MC.getOverlay() != null || MC.screen == null) return;
@@ -77,6 +79,12 @@ public final class TemplateClientReview {
                 case 3 -> {
                     if(CuriosApi.getCuriosInventory(MC.player).map(inv->inv.findCurios("necklace").stream()
                             .noneMatch(found->found.stack().is(FmpRegistries.PENDANT.get()))).orElse(true))return;
+                    if(MODE.equals("verify-failure")) {
+                        server(player -> { throw new AssertionError("Injected first queued assertion"); });
+                        server(player -> { throw new IllegalStateException("Later setup must never run"); });
+                        next(); break;
+                    }
+                    if(MODE.equals("verify-timeout")) { work=new CompletableFuture<>(); changed=ticks-6001; break; }
                     if(MODE.equals("templates")){MC.setScreen(new InventoryScreen(MC.player));next();}
                     else {phase=100;changed=ticks;}
                 }
@@ -187,16 +195,19 @@ case "polymorph" -> "PolymorphClientReview";
                     }
                     if(complete)closeReview();
                 }
-                case 140 -> {if(ticks-changed>=20){ended=true;MC.stop();}}
+                case 140 -> ClientReviewLifecycle.finish();
                 default -> throw new IllegalStateException("Unknown phase "+phase);
             }
         } catch(Throwable failure) {
-            ended=true;FeedMePackages.LOGGER.error("FMP_COMPAT_CLIENT_FAILED mode="+MODE+" phase="+phase,failure);
-            capture("failed-"+MODE);MC.stop();
+            ended=true;
+            ClientReviewLifecycle.fail(failure, () -> {
+                if(MODE.equals("verify-failure"))throw new IllegalStateException("Injected screenshot failure");
+                capture("failed-"+MODE);
+            });
         }
     }
     private static void closeReview() {
-        FeedMePackages.LOGGER.info("FMP_COMPAT_CLIENT_PASSED mode={}",MODE);
+        FeedMePackages.LOGGER.info("FMP_COMPAT_CLIENT_ASSERTIONS_PASSED mode={}",MODE);
         MC.player.closeContainer();MC.setScreen(null);phase=140;changed=ticks;
     }
     private static boolean ready() { return ticks - changed >= 20 && MC.screen instanceof AbstractContainerScreen<?>
@@ -252,7 +263,7 @@ case "polymorph" -> "PolymorphClientReview";
     }
     private static void server(Consumer<ServerPlayer> action) {
         var id = MC.player.getUUID(); var server = MC.getSingleplayerServer();
-        work = server.submit(() -> action.accept(server.getPlayerList().getPlayer(id)));
+        work = ClientReviewResult.enqueue(work, () -> action.accept(server.getPlayerList().getPlayer(id)), server);
     }
     private static int target() throws ReflectiveOperationException {
         var field = LogisticsPanel.class.getDeclaredField("templateTarget"); field.setAccessible(true); return field.getInt(null);

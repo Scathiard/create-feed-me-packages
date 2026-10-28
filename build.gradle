@@ -17,11 +17,15 @@ def optionalInput = file('dependencies/optional')
 // Repackaged's required library already embeds Compat Manager.
 if (project.hasProperty('withRepackaged') && !project.hasProperty('withDeployer')) project.ext.set('withDeployer', true)
 
-def runProfile = "neo${project.neo_version}" + (project.hasProperty('withCouriers') ? '-paper' : '') +
-        (project.hasProperty('withMobile') ? '-mobile' : '') +
-        (project.hasProperty('withPhantom') ? '-phantom102' : '') +
-        (project.hasProperty('withJei') ? "-jei${project.findProperty('jei_runtime_version') ?: jei_version}" : '') + '-converged1'
-['withStorage','withArs','withSbw','withTacz','withWand','withGadgets','withEffortless','withEmi','withFxnt','withSophisticated','withMaid','withFluid','withFactory','withDeployer','withRepackaged','withConnected','withCraftingTweaks','withGravestone','withCorpse','withTombstone','withTomsStorage','withPolymorph','withMouseTweaks','withModernFix','withLithium'].each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
+// Shared read-only layout contract used by verify.ps1; special review modes append below.
+def runLayout = new groovy.json.JsonSlurper().parse(file('gradle/run-layout.json'))
+if (runLayout.version != 1) throw new GradleException('Unknown run layout version')
+layout.buildDirectory = file(runLayout.buildRoot)
+def runProfile = "neo${project.neo_version}"
+runLayout.primaryFlags.each { flag, suffix -> if (project.hasProperty(flag)) runProfile += '-' + suffix }
+if (project.hasProperty('withJei')) runProfile += "-jei${project.findProperty('jei_runtime_version') ?: jei_version}"
+runProfile += '-' + runLayout.profileSuffix
+runLayout.extraFlags.each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
 if (project.hasProperty('mobile_runtime_version')) {
     if (!project.hasProperty('withMobile') || project.property('mobile_runtime_version').toString() != '0.7.8')
         throw new GradleException('The explicit Mobile Packages runtime input is pinned to 0.7.8 and requires withMobile')
@@ -65,11 +69,41 @@ if (project.hasProperty('fmpProbeMissing')) {
 }
 
 // Windows cannot start a child process with a long working directory. Preserve the complete profile in the log.
-if (runProfile.length() > 88) {
+if (runProfile.length() > runLayout.maxProfileLength) {
     def descriptiveProfile = runProfile
     def digest = java.security.MessageDigest.getInstance('SHA-256').digest(runProfile.getBytes('UTF-8')).encodeHex().toString().substring(0,16)
     runProfile = 'neo' + project.neo_version + '-set-' + digest
     logger.lifecycle('FMP run profile {} = {}', runProfile, descriptiveProfile)
+}
+
+def lifecycleKeys = ['fmpFluidLifecycle','fmpConfigStartup','fmpCapacityLifecycle','fmpMaidFlight','fmpMobileReturnFlight'].findAll { project.hasProperty(it) }
+if (lifecycleKeys.size() > 1 || (lifecycleKeys && project.hasProperty('fmpRunLabel')))
+    throw new GradleException('Select one lifecycle scenario; its explicit batch replaces fmpRunLabel')
+
+def lifecycleDirectory = { String scenario, String batch, boolean first ->
+    if (!(batch ==~ /[a-z0-9][a-z0-9_-]{0,31}/)) throw new GradleException('Invalid lifecycle batch')
+    def directory = file("run/lifecycle/${scenario}/${batch}")
+    tasks.named('runGameTestServer').configure {
+        doFirst {
+            def world = new File(directory, 'world')
+            if (first ? world.exists() : !new File(world, 'level.dat').isFile())
+                throw new GradleException(first ? "Lifecycle batch already exists: ${world}" : "Missing prior lifecycle world: ${world}")
+        }
+    }
+    directory
+}
+
+// A new invocation cannot consume an earlier result, even in a reused isolated profile.
+def reviewKeys = ['fmpCompatReview','fmpClientReview','fmpConvergedReview','fmpT14Review','fmpFoldReview'].findAll { project.hasProperty(it) }
+if (reviewKeys.size() > 1) throw new GradleException('Select exactly one client review driver')
+def clientReviewRun = java.util.UUID.randomUUID().toString()
+def clientReviewMode = reviewKeys ? reviewKeys.first() + ':' + project.property(reviewKeys.first()) : ''
+def clientReviewResult = layout.buildDirectory.file("reports/client-review/${clientReviewRun}.properties").get().asFile
+def clientReviewArtifact = 'development'
+if (reviewKeys && project.hasProperty('fmpPackaged')) {
+    def artifact = layout.buildDirectory.file("libs/create-feed-me-packages-${project.version}.jar").get().asFile
+    if (!artifact.isFile()) throw new GradleException('Build the production JAR before a packaged client review')
+    clientReviewArtifact = java.security.MessageDigest.getInstance('SHA-256').digest(artifact.bytes).encodeHex().toString()
 }
 
 base {
@@ -271,11 +305,17 @@ neoForge {
         client {
             client()
             gameDirectory = file("run/client/${runProfile}")
+            if (reviewKeys) {
+                systemProperty 'fmp.reviewRun', clientReviewRun
+                systemProperty 'fmp.reviewMode', clientReviewMode
+                systemProperty 'fmp.reviewResult', clientReviewResult.absolutePath
+                systemProperty 'fmp.reviewArtifact', clientReviewArtifact
+            }
             if (project.hasProperty('fmpClientReview')) systemProperty 'fmp.clientReview', 'true'
             if (project.hasProperty('fmpCompatReview')) {
                 if (!project.hasProperty('fmpGameTests') && !project.hasProperty('fmpArtifactProbe')) throw new GradleException('Compatibility review requires isolated test sources or external artifact probe')
                 def review = project.property('fmpCompatReview').toString()
-                if (!(review in ['templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','materials','sbw','feedback','tacz','wand','gadgets','effortless','craftingtweaks','mousetweaks','toms','toms-network','toms-polymorph','polymorph','ui']))
+                if (!(review in ['verify-failure','verify-timeout','templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','materials','sbw','feedback','tacz','wand','gadgets','effortless','craftingtweaks','mousetweaks','toms','toms-network','toms-polymorph','polymorph','ui']))
                     throw new GradleException('Unknown compatibility review')
                 systemProperty 'fmp.compatReview', review
             }
@@ -292,22 +332,23 @@ neoForge {
 
         gameTestServer {
             type = 'gameTestServer'
-            gameDirectory = file("run/gametest/${runProfile}")
+            gameDirectory = file("${runLayout.gameTestRoot}/${runProfile}")
             systemProperty 'fmp.requirePriorPersistence', project.findProperty('fmpRequirePriorPersistence') ?: 'false'
             if (project.hasProperty('fmpFluidLifecycle')) {
                 def scenario = project.property('fmpFluidLifecycle').toString()
-                if (!project.hasProperty('fmpGameTests') || !(scenario ==~ /(plain|residual):(write|absent|absent-again|restore)/))
-                    throw new GradleException('Fluid lifecycle requires test sources and plain|residual:write|absent|absent-again|restore')
-                gameDirectory = new File(referenceOutput, "run/gametest/fluid-lifecycle-${scenario.split(':')[0]}-converged1")
+                if (!project.hasProperty('fmpGameTests') || !(scenario ==~ /(plain|residual):(write|absent|absent-again|restore):[a-z0-9_-]+/))
+                    throw new GradleException('Fluid lifecycle requires test sources and plain|residual:write|absent|absent-again|restore:<batch>')
+                def parts = scenario.split(':')
+                gameDirectory = lifecycleDirectory('fluid-' + parts[0], parts[2], parts[1] == 'write')
                 systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_lifecycle'
-                systemProperty 'fmp.fluidLifecycle', scenario
+                systemProperty 'fmp.fluidLifecycle', parts[0] + ':' + parts[1]
             }
             if (project.hasProperty('fmpConfigStartup')) {
                 def scenario = project.property('fmpConfigStartup').toString()
                 if (!project.hasProperty('fmpGameTests') || !(scenario ==~ /(missing|broken|illegal|custom):[a-z0-9_-]+/))
                     throw new GradleException('Config startup requires isolated tests and <missing|broken|illegal|custom>:<batch>')
                 def parts = scenario.split(':')
-                gameDirectory = new File(referenceOutput, "run/gametest/config-startup-${parts[0]}-${parts[1]}")
+                gameDirectory = lifecycleDirectory('config-' + parts[0], parts[1], true)
                 systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_config_startup'
                 systemProperty 'fmp.configStartup', parts[0]
             }
@@ -316,7 +357,7 @@ neoForge {
                 if (!project.hasProperty('fmpGameTests') || !(scenario ==~ /(write|shrink|restore|verify):[a-z0-9_-]+/))
                     throw new GradleException('Capacity lifecycle requires test sources and <write|shrink|restore|verify>:<batch>')
                 def parts = scenario.split(':')
-                gameDirectory = new File(referenceOutput, "run/gametest/capacity-lifecycle-${parts[1]}")
+                gameDirectory = lifecycleDirectory('capacity', parts[1], parts[0] == 'write')
                 systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_capacity'
                 systemProperty 'fmp.capacityLifecycle', parts[0]
             }
@@ -328,9 +369,19 @@ neoForge {
                 def parts = scenario.split(':')
                 if (!project.hasProperty(parts[0] == 'paper' ? 'withCouriers' : 'withMobile'))
                     throw new GradleException('Maid flight requires its actual native carrier')
-                gameDirectory = new File(referenceOutput, "run/gametest/maid-flight-${parts[0]}-${parts[2]}")
+                gameDirectory = lifecycleDirectory('maid-' + parts[0], parts[2], parts[1] == 'write')
                 systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_maid_lifecycle'
                 systemProperty 'fmp.maidFlight', scenario
+            }
+            if (project.hasProperty('fmpMobileReturnFlight')) {
+                def scenario = project.property('fmpMobileReturnFlight').toString()
+                if (!project.hasProperty('fmpGameTests') || !project.hasProperty('withMaid') || !project.hasProperty('withMobile') ||
+                        !(scenario ==~ /(player|maid):(write|read|verify):[a-z0-9_-]+/))
+                    throw new GradleException('Mobile return lifecycle requires real tests, Maid, Mobile and <player|maid>:<write|read|verify>:<batch>')
+                def parts = scenario.split(':')
+                gameDirectory = lifecycleDirectory('mobile-return-' + parts[0], parts[2], parts[1] == 'write')
+                systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_mobile_return'
+                systemProperty 'fmp.mobileReturnFlight', scenario
             }
             if (project.hasProperty('fmpLegacyWorldReview')) {
                 systemProperty 'fmp.legacyBackup', new File(referenceOutput, 'legacy023-before').absolutePath
@@ -462,6 +513,7 @@ tasks.named('test', Test).configure {
 }
 
 tasks.named('processGameTestResources', ProcessResources).configure {
+    from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_mobile_return/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_maid_lifecycle/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_config_startup/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') {
@@ -543,3 +595,18 @@ tasks.withType(Jar).configureEach {
     preserveFileTimestamps = false
     reproducibleFileOrder = true
 }
+
+// RunGameTask can exit zero after an in-game assertion; require this invocation's terminal record.
+if (reviewKeys) tasks.named('runClient').configure {
+    doLast {
+        if (!clientReviewResult.isFile()) throw new GradleException("Missing client review result: ${clientReviewResult}")
+        def result = new Properties()
+        clientReviewResult.withInputStream { result.load(it) }
+        if (result.getProperty('run') != clientReviewRun || result.getProperty('mode') != clientReviewMode ||
+                result.getProperty('artifact') != clientReviewArtifact || result.getProperty('status') != 'PASSED')
+            throw new GradleException("Client review failed or incomplete: ${result}; evidence=${clientReviewResult}")
+        logger.lifecycle('FMP_CLIENT_RESULT_VERIFIED run={} mode={} artifact={} result={}',
+                clientReviewRun, clientReviewMode, clientReviewArtifact, clientReviewResult)
+    }
+}
+tasks.named('test', Test).configure { systemProperty 'java.io.tmpdir', System.getProperty('java.io.tmpdir') }

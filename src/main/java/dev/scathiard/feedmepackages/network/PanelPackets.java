@@ -178,7 +178,7 @@ public final class PanelPackets {
         int start = b.writerIndex(); b.writeUUID(s.window); b.writeBoolean(s.session != null); if (s.session != null) b.writeUUID(s.session);
         b.writeLong(s.serial); b.writeVarInt(s.acknowledged); b.writeEnum(s.result); b.writeEnum(s.status); b.writeLong(s.revision);
         b.writeVarInt(s.level); b.writeVarInt(s.capacity); b.writeBoolean(s.personal); b.writeBoolean(s.cacheFirst); b.writeBoolean(s.bound);
-        text(b, s.address, 128); text(b, s.returnAddress, 128); text(b, s.residualItem, 256); b.writeVarInt(s.cells.size());
+        text(b, s.address, 128); returnAddress(b, s.returnAddress); text(b, s.residualItem, 256); b.writeVarInt(s.cells.size());
         for (var c : s.cells) {
             text(b, c.template, 1024); b.writeVarInt(c.amount); b.writeVarInt(c.minimum); b.writeVarInt(c.maximum); b.writeVarInt(c.pending); b.writeVarInt(c.reserved); b.writeVarInt(c.stackSize); b.writeBoolean(c.residual); b.writeVarInt(c.returnState);
             b.writeVarInt(c.batch); b.writeVarInt(c.pendingLimit); b.writeLong(c.filterRevision); b.writeVarLong(c.signal.sequence()); b.writeEnum(c.signal.kind()); b.writeBoolean(c.fluid); b.writeBoolean(c.writable); b.writeVarInt(c.returnBatch);
@@ -194,7 +194,7 @@ public final class PanelPackets {
         long serial = b.readLong(); int ack = b.readVarInt(); var result = b.readEnum(CacheActions.Result.class);
         var status = b.readEnum(AccessGate.Status.class); long revision = b.readLong();
         int level = b.readVarInt(), capacity = b.readVarInt(); boolean personal = b.readBoolean(), cacheFirst = b.readBoolean(), bound = b.readBoolean();
-        String address = text(b, 128), returnAddress = text(b, 128), residual = text(b, 256); int size = size(b, 36); List<CellView> cells = new ArrayList<>(size);
+        String address = text(b, 128), returnAddress = returnAddress(b), residual = text(b, 256); int size = size(b, 36); List<CellView> cells = new ArrayList<>(size);
         for (int i = 0; i < size; i++) cells.add(new CellView(text(b, 1024), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readBoolean(), b.readVarInt(), b.readVarInt(), b.readVarInt(), b.readLong(), new dev.scathiard.feedmepackages.domain.LogisticsSignal(b.readVarLong(), b.readEnum(dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.class)), b.readBoolean(), b.readBoolean(), b.readVarInt()));
         size = size(b, MAX_TERMINALS); List<TerminalView> terminals = new ArrayList<>(size);
         for (int i = 0; i < size; i++) terminals.add(new TerminalView(b.readVarInt(), b.readBoolean(), b.readBoolean(), text(b, 36)));
@@ -202,6 +202,15 @@ public final class PanelPackets {
         int firstSlot=b.readVarInt(),totalSlots=b.readVarInt(),columns=b.readVarInt();
         boolean maidPickup = b.readBoolean(), craftingEnabled = b.readBoolean();
         end(b); return new Snapshot(window, session, serial, ack, result, status, revision, level, capacity, personal, cacheFirst, bound, address, returnAddress, residual, cells, terminals, preview,firstSlot,totalSlots,columns,maidPickup,craftingEnabled);
+    }
+    private static void returnAddress(RegistryFriendlyByteBuf buffer, String value) {
+        if (!dev.scathiard.feedmepackages.domain.ReturnAddress.valid(value)) throw new EncoderException("Invalid return address");
+        text(buffer, value, dev.scathiard.feedmepackages.domain.ReturnAddress.MAX_BYTES);
+    }
+    private static String returnAddress(RegistryFriendlyByteBuf buffer) {
+        String value = text(buffer, dev.scathiard.feedmepackages.domain.ReturnAddress.MAX_BYTES);
+        if (!dev.scathiard.feedmepackages.domain.ReturnAddress.valid(value)) throw new DecoderException("Invalid return address");
+        return value;
     }
     static int size(RegistryFriendlyByteBuf b, int max) {
         int size = b.readVarInt(); if (size < 0 || size > max) throw new DecoderException("Panel list limit exceeded"); return size;

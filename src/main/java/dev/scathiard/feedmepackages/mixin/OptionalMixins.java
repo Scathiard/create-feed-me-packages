@@ -56,7 +56,8 @@ public final class OptionalMixins implements IMixinConfigPlugin {
     private static boolean factoryReady;
     private static Boolean sophisticatedReady;
     public static boolean sophisticatedCompatible() { return Boolean.TRUE.equals(sophisticatedReady); }
-    private static Boolean maidPaperReady, maidBeeReady;
+    private static Boolean maidPaperReady, maidBeeReady, mobileStorageReady;
+    public static boolean mobileStorageCompatible() { return Boolean.TRUE.equals(mobileStorageReady); }
     public static boolean maidPaperCompatible() { return Boolean.TRUE.equals(maidPaperReady); }
     public static boolean maidBeeCompatible() { return Boolean.TRUE.equals(maidBeeReady); }
     /**
@@ -252,6 +253,7 @@ public final class OptionalMixins implements IMixinConfigPlugin {
                     : storage ? hasStorageHook(target) : paper ? hasPaperStorageHooks(target)
                     : fxnt ? hasFxntTransfer(target) : fxntJei ? hasFxntPreview(target)
                     : fxntEmi ? hasOriginSend(target, "craft", "(Ldev/emi/emi/api/recipe/EmiRecipe;Ldev/emi/emi/api/recipe/handler/EmiCraftContext;)Z") : hasEmiPort(target, mixinClassName);
+            if (storage) mobileStorageReady = compatible;
             if (fxntEmi && compatible) FXNT_EMI_ORIGINS.add(targetClassName);
             if (!compatible) LogUtils.getLogger().warn("FMP optional adapter {} disabled: incompatible method shape", mixinClassName);
             recordFxnt(targetClassName, fxnt, fxntJei, compatible);
@@ -315,7 +317,7 @@ public final class OptionalMixins implements IMixinConfigPlugin {
                 var robo = provider.getClassNode(root + "robo.VirtualRobo");
                 var port = provider.getClassNode(root + "blocks.bee_port.BeePortBlockEntity");
                 var behavior = provider.getClassNode(root + "entities.robo_entity.RoboBeeBehaviorController");
-                ready &= hasMethod(robo, "updateTarget", "()V")
+                ready &= hasStorageHook(robo) && hasMethod(robo, "updateTarget", "()V")
                         && hasMethod(port, "sendItem", "(Lnet/minecraft/world/item/ItemStack;I)V")
                         && hasMethod(port, "sendDrone", "(Lnet/minecraft/world/item/ItemStack;I)V")
                         && hasMethod(behavior, "handleDeliverPackage", "(Lde/theidler/create_mobile_packages/robo/VirtualRobo;)V")
@@ -545,8 +547,22 @@ public final class OptionalMixins implements IMixinConfigPlugin {
                     && call.owner.equals(owner) && call.name.equals(callName) && call.desc.equals(callDescriptor)) count++;
         return count;
     }
-    private static boolean hasStorageHook(ClassNode target) {
-        return hasCall(target, "deserializeNBT", "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/nbt/CompoundTag;)Lde/theidler/create_mobile_packages/robo/VirtualRobo;", "parse");
+    static boolean hasStorageHook(ClassNode target) {
+        String read = "(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/nbt/CompoundTag;)Lde/theidler/create_mobile_packages/robo/VirtualRobo;";
+        if (!hasMethod(target, "serializeNBT", "()Lnet/minecraft/nbt/CompoundTag;")
+                || !hasMethod(target, "setRemoved", "(Lnet/minecraft/server/level/ServerLevel;)V")
+                || !hasCall(target, "deserializeNBT", read, "parse")) return false;
+        for (var method : target.methods) if (method.name.equals("deserializeNBT") && method.desc.equals(read)) {
+            if ((method.access & org.objectweb.asm.Opcodes.ACC_STATIC) == 0) return false;
+            int itemCodecs = 0, otherCodecs = 0;
+            for (var instruction : method.instructions) if (instruction instanceof org.objectweb.asm.tree.FieldInsnNode field
+                    && field.desc.equals("Lcom/mojang/serialization/Codec;")) {
+                if (field.getOpcode() == org.objectweb.asm.Opcodes.GETSTATIC && field.owner.equals("net/minecraft/world/item/ItemStack")
+                        && field.name.equals("CODEC")) itemCodecs++; else otherCodecs++;
+            }
+            return itemCodecs == 1 && otherCodecs == 0;
+        }
+        return false;
     }
     private static boolean hasPaperStorageHooks(ClassNode target) {
         String arguments = "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)";

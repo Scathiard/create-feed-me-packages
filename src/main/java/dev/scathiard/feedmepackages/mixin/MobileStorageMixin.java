@@ -3,12 +3,8 @@ package dev.scathiard.feedmepackages.mixin;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import com.mojang.serialization.DynamicOps;
-import dev.scathiard.feedmepackages.FeedMePackages;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.item.ItemStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Pseudo;
 import org.spongepowered.asm.mixin.injection.At;
@@ -17,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-/** Only supplies the context used by Mobile's own writer; ordinary carriers keep native decoding. */
+/** Matches Mobile's registry-aware writer for every cargo, including legitimate unsealed returns. */
 @Pseudo
 @Mixin(targets = "de.theidler.create_mobile_packages.robo.VirtualRobo", remap = false)
 public abstract class MobileStorageMixin {
@@ -44,10 +40,8 @@ public abstract class MobileStorageMixin {
             target = "Lcom/mojang/serialization/Codec;parse(Lcom/mojang/serialization/DynamicOps;Ljava/lang/Object;)Lcom/mojang/serialization/DataResult;"), remap = false)
     private static <T> DataResult<?> fmp$registryContext(Codec<?> codec, DynamicOps<T> ops, T input,
                                                         ServerLevel level, CompoundTag roboTag) {
-        if (input instanceof CompoundTag stackTag && stackTag.getCompound("components")
-                .contains(FeedMePackages.MOD_ID + ":parcel_seal", Tag.TAG_COMPOUND)) {
-            return ItemStack.CODEC.parse(level.registryAccess().createSerializationContext(NbtOps.INSTANCE), stackTag);
-        }
-        return codec.parse(ops, input);
+        // The shape gate proves this is the one native ItemStack.CODEC read, not an arbitrary codec call.
+        // Preserve the original codec/input and restore only the writer's registry context; no receipt is granted.
+        return codec.parse(level.registryAccess().createSerializationContext(ops), input);
     }
 }

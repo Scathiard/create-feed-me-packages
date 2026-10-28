@@ -32,10 +32,13 @@ public final class MaidPackageHandover {
      * interaction does not apply: not addressed to her, or her access is not active).
      */
     public static int deliver(ServerPlayer player, LivingEntity maid, ItemStack packageStack) {
-        if (player == null || !addressedTo(packageStack, maid)) return 0;
+        if (player == null || !addressedTo(packageStack, maid)
+                || !(maid instanceof net.minecraft.world.entity.TamableAnimal pet) || !player.getUUID().equals(pet.getOwnerUUID())
+                || maid.level() != player.level()) return 0;
         if (packageStack.has(dev.scathiard.feedmepackages.registry.FmpRegistries.PARCEL_SEAL.get())
                 || packageStack.has(dev.scathiard.feedmepackages.registry.FmpRegistries.FLUID_PARCEL_SEAL.get()))
             return dev.scathiard.feedmepackages.logistics.ReceiveService.receive(MaidAccess.endpoint(maid), packageStack) ? 1 : 0;
+        if (!dev.scathiard.feedmepackages.logistics.ParcelEnvelope.items(packageStack)) return 0;
         var access = MaidAccess.resolve(maid);
         if (!access.active()) return 0;
         var ledger = CacheLedger.get(player.getServer());
@@ -52,7 +55,9 @@ public final class MaidPackageHandover {
             catch (IllegalArgumentException unsupported) { leftovers.add(offered.copy()); continue; }
             // Only a filter she already keeps takes the stack: no filter is invented in her cache.
             int cell = before.state().find(key);
-            int inserted = cell < 0 ? 0 : edit.insert(cell, key, offered.getCount());
+            int inserted = cell < 0 || !before.state().writable(cell)
+                    || !dev.scathiard.feedmepackages.service.CachePolicy.admits(key, player.registryAccess())
+                    ? 0 : edit.insert(cell, key, offered.getCount());
             stored += inserted;
             if (inserted < offered.getCount())
                 leftovers.add(offered.copyWithCount(offered.getCount() - inserted));

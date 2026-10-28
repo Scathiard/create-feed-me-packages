@@ -228,4 +228,28 @@ public final class ReturnTests {
         }
         throw new AssertionError("Missing original handoff");
     }
+    @GameTest(template = "empty")
+    public static void unicodeReturnAddressesSurviveCommandSaveAndSnapshot(GameTestHelper h) {
+        for(String address:java.util.List.of("", "a".repeat(128), "仓".repeat(128), "\uD83D\uDE80".repeat(64), "  仓库@玩家 😀  ")) {
+            var player=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());
+            var ledger=CacheLedger.get(player.getServer());var handle=AccessGate.resolve(player).handle();
+            var view=CacheActions.open(player);
+            h.assertTrue(CacheActions.execute(player,new CacheActions.Intent(view.session(),view.record().state().revision(),
+                    CacheActions.Action.SET_RETURN_ADDRESS,-1,-1,-1,address))==CacheActions.Result.OK,"Valid address refused");
+            h.assertTrue(address.equals(ledger.returnAddress(handle.cacheId())) || address.isEmpty()&&ledger.returnAddress(handle.cacheId())==null,"Address changed on save");
+            var restored=CacheLedger.load(ledger.save(new CompoundTag(),player.registryAccess()),player.registryAccess());
+            h.assertTrue(restored.problem().isEmpty()&&(address.equals(restored.returnAddress(handle.cacheId()))
+                    ||address.isEmpty()&&restored.returnAddress(handle.cacheId())==null),"Unicode address changed during native ledger serialization");
+            var snapshot=dev.scathiard.feedmepackages.network.PanelNetwork.query(player,
+                    new dev.scathiard.feedmepackages.network.PanelPackets.Query(java.util.UUID.randomUUID(),0,true));
+            var buffer=new net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(),player.registryAccess());
+            try {
+                dev.scathiard.feedmepackages.network.PanelPackets.Snapshot.CODEC.encode(buffer,snapshot);
+                var decoded=dev.scathiard.feedmepackages.network.PanelPackets.Snapshot.CODEC.decode(buffer);
+                h.assertTrue(address.equals(decoded.returnAddress()),"Unicode address changed on wire");
+            } finally {buffer.release();}
+        }
+        h.succeed();
+    }
+
 }

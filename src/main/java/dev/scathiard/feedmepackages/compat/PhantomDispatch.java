@@ -65,6 +65,30 @@ public final class PhantomDispatch {
     public static boolean carrierUsable(ItemStack stack) {
         return !stack.isEmpty() && stack.getComponentsPatch().isEmpty() && ready();
     }
+    /** Read-only route check before any cache/carrier is reserved. Ordinary player routes stay native. */
+    public static boolean canDispatch(LivingEntity bearer, ItemStack box) {
+        if (!(bearer.level() instanceof ServerLevel level) || !level.getServer().isSameThread() || !ready()) return false;
+        try {
+            Object target=api.resolve.invoke(null,level,box,bearer.position().add(0,0.01,0),null,null);
+            LivingEntity recipient=maidRecipient(level.getServer(),box);
+            if(target==null && recipient!=null)target=maidTarget(recipient);
+            return target!=null && maidRouteReady(bearer,recipient,api.port.isInstance(target))
+                    && Boolean.TRUE.equals(api.accepts.invoke(null,level,target,box));
+        } catch(ReflectiveOperationException | RuntimeException | LinkageError unavailable) { return false; }
+    }
+    private static boolean maidRouteReady(LivingEntity bearer, LivingEntity recipient, boolean port) {
+        boolean source=dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(bearer);
+        if(!source && recipient==null)return true;
+        if(!dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.enabled()
+                || !dev.scathiard.feedmepackages.compat.maid.phantom.v102.Phantom102Gate.enabled()
+                || !dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.available()
+                || !dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102FlightCompatible())return false;
+        if(recipient!=null && !dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102Compatible())return false;
+        // Load/inspect the return queue only for a route which actually needs it.
+        return !source || !port || dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomPortReturn.available()
+                && dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102PortReturnCompatible();
+    }
+
     /** A player dispatching: the player is his own HUD/source identity. */
     public static TransportDispatch.Result send(ServerPlayer sender, ItemStack box) {
         return launch(sender, sender.getUUID(), box);
@@ -88,6 +112,7 @@ public final class PhantomDispatch {
         if (server == null || !server.isSameThread() || !ready()) return TransportDispatch.Result.known(false, "phantom");
         if (!(bearer.level() instanceof ServerLevel level)) return TransportDispatch.Result.known(false, "phantom");
         boolean entered = false;
+        Object task = null;
         try {
             var origin = bearer.position().add(0, 0.01, 0);
             Object target = api.resolve.invoke(null, level, box, origin, null, null);
@@ -98,14 +123,15 @@ public final class PhantomDispatch {
             // "the resolver returned null" is no longer a reliable signal that this package is addressed to her.
             LivingEntity maid = maidRecipient(server, box);
             if (target == null && maid != null) target = maidTarget(maid);
-            if (target == null || !Boolean.TRUE.equals(api.accepts.invoke(null, level, target, box)))
+            if (target == null || !maidRouteReady(bearer, maid, api.port.isInstance(target))
+                    || !Boolean.TRUE.equals(api.accepts.invoke(null, level, target, box)))
                 return TransportDispatch.Result.known(false, "phantom");
             var look = bearer.getLookAngle();
             var direction = (Vec3) api.direction.invoke(null, new Vec3(look.x, 0, look.z));
             // Actual 1.0.2 bytecode uses direction * native speed + 0.15F vertical lift.
             // Newer source snapshots expose a different helper; do not assume that method exists here.
             var motion = direction.scale(api.takeoffSpeed).add(0, (double) 0.15F, 0);
-            Object dimension = api.dimension.invoke(target), task;
+            Object dimension = api.dimension.invoke(target);
             UUID id = UUID.randomUUID(), owner = playerIdentity;
             // Native UUID order: HUD player, HUD entry, source. A port passes source into a new
             // return task; a player destination keeps its native source slot, with FMP's saved
@@ -124,23 +150,24 @@ public final class PhantomDispatch {
                         null, null, owner, id, sourceIdentity);
             } else return TransportDispatch.Result.known(false, "phantom");
             if (task == null) return TransportDispatch.Result.known(false, "phantom");
+            // Identity must exist before addTask can publish, save or trigger an external callback.
+            // A source maid owns the carrier's return leg; the native target UUID still identifies the recipient.
+            boolean marked = dispatcher != null
+                    ? dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.rememberReturn(task, dispatcher)
+                    : maid == null || dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.remember(task, maid);
+            if (!marked) {
+                dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.forget(task);
+                return TransportDispatch.Result.known(false, "phantom");
+            }
             // Source stock is held by ReturnEscrow before this first externally visible handoff.
             entered = true;
             api.addTask.invoke(null, server, task);
             // A HUD notification is cosmetic: it must never be able to turn a live task into a failed dispatch.
             try {
                 api.notifyHud.invoke(null, server, task);
-            } catch (ReflectiveOperationException | RuntimeException hudFailure) {
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError hudFailure) {
                 FeedMePackages.LOGGER.warn("FMP phantom: HUD notification failed; the flight is unaffected", hudFailure);
             }
-            // Remember that this task is ours. A maid dispatch leaves the native player slot holding her owner - a real
-            // player UUID - which is byte-identical to a player's own carrier return, so this marker is the only thing
-            // that can tell the two apart when the carrier comes back.
-            if (maid != null) dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.remember(task, maid);
-            // Register her as the dispatcher as well: for a player destination the return slot still holds her owner, and
-            // then this entry is the only thing that can tell her task from a player's own carrier return.
-            if (dispatcher != null)
-                dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.rememberReturn(task, dispatcher);
             // Diagnostic only, isolated in its own catch: a logging problem must never turn a dispatch into a failure.
             // It exists because a silently failed registration is invisible otherwise, which cost several rounds.
             try {
@@ -158,7 +185,13 @@ public final class PhantomDispatch {
             Throwable cause = failure instanceof InvocationTargetException wrapped ? wrapped.getCause() : failure;
             if (cause instanceof VirtualMachineError fatal) throw fatal;
             if (cause instanceof ThreadDeath fatal) throw fatal;
-            return new TransportDispatch.Result(entered ? TransportDispatch.Outcome.UNCERTAIN : TransportDispatch.Outcome.NOT_SENT, "phantom", cause);
+            // InvocationTargetException means native code was entered; it may already have published the task.
+            boolean refusedEntry = failure instanceof IllegalAccessException || failure instanceof IllegalArgumentException;
+            if (!entered || refusedEntry) {
+                if (task != null) dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.forget(task);
+                return new TransportDispatch.Result(TransportDispatch.Outcome.NOT_SENT, "phantom", cause);
+            }
+            return new TransportDispatch.Result(TransportDispatch.Outcome.UNCERTAIN, "phantom", cause);
         }
     }
 

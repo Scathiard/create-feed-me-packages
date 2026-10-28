@@ -47,6 +47,8 @@ public final class TransportTests {
         if (ModList.get().isLoaded("create_mobile_packages")) {
             tests.add(test("mobile_handoff", TransportTests::mobileHandoff));
             tests.add(test("mobile_registry_roundtrip", TransportTests::mobileRegistryRoundtrip));
+            tests.add(test("mobile_storage_shape_rejection", TransportTests::mobileStorageShape));
+            tests.add(test("mobile_unsealed_registry_roundtrip", h -> mobileRegistryRoundtrip(h, false)));
             tests.add(test("mobile_native_flight", TransportTests::mobileNativeFlight));
             tests.add(test("mobile_native_boundaries", TransportTests::mobileNativeBoundaries));
             tests.add(test("return_mobile_dispatch", TransportTests::returnMobileDispatch));
@@ -220,12 +222,42 @@ public final class TransportTests {
         } catch (ReflectiveOperationException failure) { throw new IllegalStateException("Mobile handoff API experiment failed", failure); }
     }
 
-    private static void mobileRegistryRoundtrip(GameTestHelper helper) {
+    private static void mobileStorageShape(GameTestHelper h) {
+        try {
+            var gate=dev.scathiard.feedmepackages.mixin.OptionalMixins.class.getDeclaredMethod("hasStorageHook",org.objectweb.asm.tree.ClassNode.class);
+            gate.setAccessible(true);
+            byte[] bytes;
+            var path=net.neoforged.fml.ModList.get().getModFileById("create_mobile_packages").getFile().getFilePath();
+            try(var jar=new java.util.zip.ZipFile(path.toFile())) {
+                bytes=jar.getInputStream(jar.getEntry("de/theidler/create_mobile_packages/robo/VirtualRobo.class")).readAllBytes();
+            }
+            for(int mutation=0;mutation<5;mutation++) {
+                var node=new org.objectweb.asm.tree.ClassNode();new org.objectweb.asm.ClassReader(bytes).accept(node,0);
+                var read=node.methods.stream().filter(m->m.name.equals("deserializeNBT")).findFirst().orElseThrow();
+                if(mutation==1)node.methods.removeIf(m->m.name.equals("serializeNBT"));
+                if(mutation==2)node.methods.removeIf(m->m.name.equals("setRemoved"));
+                if(mutation==3)for(var instruction:read.instructions) {
+                    if(instruction instanceof org.objectweb.asm.tree.FieldInsnNode f&&f.name.equals("CODEC"))f.owner="foreign/OtherCodec";
+                }
+                if(mutation==4)for(var instruction:read.instructions) {
+                    if(instruction instanceof org.objectweb.asm.tree.MethodInsnNode call&&call.name.equals("parse")) {
+                        read.instructions.insert(call,call.clone(new java.util.HashMap<>()));break;
+                    }
+                }
+                h.assertTrue((boolean)gate.invoke(null,node)==(mutation==0),"Storage shape gate accepted mutation "+mutation);
+            }
+            h.succeed();
+        } catch(Exception failure){throw new IllegalStateException("Mobile shape regression failed",failure);}
+    }
+
+    private static void mobileRegistryRoundtrip(GameTestHelper helper) { mobileRegistryRoundtrip(helper, true); }
+    private static void mobileRegistryRoundtrip(GameTestHelper helper, boolean sealed) {
         var f = ReceiveTests.setup(helper, 0); var box = f.box(5);
         var enchanted = new ItemStack(Items.ENCHANTED_BOOK);
         enchanted.enchant(helper.getLevel().registryAccess().lookupOrThrow(Registries.ENCHANTMENT).getOrThrow(Enchantments.EFFICIENCY), 3);
         box.set(AllDataComponents.PACKAGE_CONTENTS, ItemContainerContents.fromItems(List.of(new ItemStack(Items.STONE, 5), enchanted)));
-        ParcelAuthentication.apply(f.ledger(), f.player().registryAccess(), box, box.get(FmpRegistries.PARCEL_SEAL.get()));
+        if (sealed) ParcelAuthentication.apply(f.ledger(), f.player().registryAccess(), box, box.get(FmpRegistries.PARCEL_SEAL.get()));
+        else { box.remove(FmpRegistries.PARCEL_SEAL.get()); box.remove(FmpRegistries.FLUID_PARCEL_SEAL.get()); }
         try {
             var type = Class.forName("de.theidler.create_mobile_packages.robo.VirtualRobo");
             var robo = type.getConstructor(ServerLevel.class, UUID.class, ItemStack.class, BlockPos.class, UUID.class)

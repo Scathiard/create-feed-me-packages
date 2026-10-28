@@ -325,7 +325,8 @@ public final class LogisticsPanel {
                 return;
             }
             if (returnEditing) {
-                if (returnBuffer.length() < 128 && event.getCodePoint() >= ' ' && event.getCodePoint() <= '\uffff') {
+                if (event.getCodePoint() >= ' ' && Character.isValidCodePoint(event.getCodePoint())
+                        && dev.scathiard.feedmepackages.domain.ReturnAddress.valid(returnBuffer + new String(Character.toChars(event.getCodePoint())))) {
                     returnBuffer = returnBuffer + new String(Character.toChars(event.getCodePoint()));
                 }
                 event.setCanceled(true);
@@ -1805,7 +1806,7 @@ public final class LogisticsPanel {
         }
         if (keyCode == 259) {
             if (!returnBuffer.isEmpty()) {
-                returnBuffer = returnBuffer.substring(0, returnBuffer.length() - 1);
+                returnBuffer = returnBuffer.substring(0, returnBuffer.offsetByCodePoints(returnBuffer.length(), -1));
             }
             return true;
         }

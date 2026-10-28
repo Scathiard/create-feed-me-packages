@@ -58,6 +58,9 @@ public final class TransportDispatch {
             // Ask an unregistered native probe to resolve its target before handing over any real stock.
             // This keeps native fallback/reselection semantics and creates no entity or transport record.
             Class<?> robo = Class.forName("de.theidler.create_mobile_packages.robo.VirtualRobo");
+            if (!dev.scathiard.feedmepackages.mixin.OptionalMixins.mobileStorageCompatible()
+                    || maidReturn != null && !dev.scathiard.feedmepackages.mixin.OptionalMixins.maidBeeCompatible())
+                return Result.known(false, "bee");
             Object probe = robo.getConstructor(ServerLevel.class, java.util.UUID.class, ItemStack.class, BlockPos.class, java.util.UUID.class)
                     .newInstance(level, java.util.UUID.randomUUID(), box.copy(), spawnPos, network);
             if (robo.getMethod("getTargetPosition").invoke(probe) == null) return Result.known(false, "bee");

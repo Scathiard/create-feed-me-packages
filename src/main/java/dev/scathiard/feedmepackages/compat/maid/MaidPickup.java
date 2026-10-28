@@ -43,7 +43,8 @@ public final class MaidPickup {
         try { key = ItemVariantKey.of(capture.ground(), maid.registryAccess()); }
         catch (IllegalArgumentException unsupported) { return; }
         int cell = record.state().find(key);
-        if (cell < 0 || !record.state().writable(cell)) return;
+        if (cell < 0 || !record.state().writable(cell)
+                || !dev.scathiard.feedmepackages.service.CachePolicy.admits(key, maid.registryAccess())) return;
         var edit = record.state().edit(); var changed = new LinkedHashMap<Integer, ItemStack>();
         int remaining = capture.ground().getCount();
         for (int slot = 0; slot < inventory.getSlots() && remaining > 0; slot++) {
@@ -56,7 +57,7 @@ public final class MaidPickup {
             int moved = edit.insert(cell, key, added);
             if (moved > 0) changed.put(slot, actual.copyWithCount(actual.getCount() - moved));
         }
-        if (changed.isEmpty()) return;
+        if (changed.isEmpty() || !dev.scathiard.feedmepackages.service.CachePolicy.admits(key, maid.registryAccess())) return;
         // No foreign callback between proof and commit. Native backpack setters preserve the handler and slots.
         ledger.replace(access.handle(), record.state().revision(), record.withState(edit.finish()));
         changed.forEach(inventory::setStackInSlot);
