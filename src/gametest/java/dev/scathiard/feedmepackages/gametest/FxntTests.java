@@ -29,7 +29,9 @@ import java.util.List;
 @GameTestHolder(FeedMePackages.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class FxntTests {
-    @GameTest(template = "empty")
+    @net.minecraft.gametest.framework.GameTestGenerator public static java.util.Collection<net.minecraft.gametest.framework.TestFunction> selectedTests(){
+        return OptionalTests.select(FxntTests.class,"fxntstorage","nativeMaximumRespectsEachBrowserSwitchAndCapturedOrigin","disabledAdapterPreservesNativeInventoryAndCannotSpendCache","realPacketDoesNotMaterializeOldRecipeBookAliases","realCountIsPureAndTransferDebitsOnlyShortage","fullInventoryDoesNotPreventSourceAccess","insufficientCacheIsNotPartiallyDebited","cursorReserveIsExcludedExactlyOnce","componentIdentityAndNativeLimitsRemainIntact","threeSourcesUseTheOriginalHandlerAndPreserveUnrelatedIdentity","failedDraftDoesNotRefundUnpublishedForeignCopies","nativeBackpackFailureDoesNotInventPublicationOrSpendOwnSources","staleAccessAfterNativeDebitDoesNotPublishCacheAliases","copiedReadWithRejectedNativeWriteCannotMintItems","mixedComponentNativeItemsAreNotTransformedByCacheSupply","repeatedRecipeInputsSeeAllAvailableLegalStacks","pendantToggleLeavesNativeFxntPhysicalFill");
+    }
     public static void nativeMaximumRespectsEachBrowserSwitchAndCapturedOrigin(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         boolean jei = FmpConfig.jeiCraftingEnabled(), emi = FmpConfig.emiCraftingEnabled();
@@ -136,13 +138,13 @@ public final class FxntTests {
         try {
             for (var state : CompatibilityStatus.State.values()) for (var emi : CompatibilityStatus.State.values())
                     for (var tacz : CompatibilityStatus.State.values()) for (var wand : CompatibilityStatus.State.values()) for (var gadgets : CompatibilityStatus.State.values()) for (var effortless : CompatibilityStatus.State.values()) for (var sophisticated : CompatibilityStatus.State.values()) {
-                wire.clear(); var message = new CompatibilityStatus.Message(tacz, wand, gadgets, effortless, state, emi, sophisticated, state, sophisticated); CompatibilityStatus.Message.CODEC.encode(wire, message);
+                wire.clear(); var message = new CompatibilityStatus.Message(tacz, wand, gadgets, effortless, state, emi, sophisticated, state, sophisticated, state,emi,state,emi,tacz,wand); CompatibilityStatus.Message.CODEC.encode(wire, message);
                 helper.assertTrue(CompatibilityStatus.Message.CODEC.decode(wire).equals(message), "Availability payload changed state");
             }
-            for (int malformed = 0; malformed < 19; malformed++) {
+            for (int malformed = 0; malformed < 31; malformed++) {
                 wire.clear();
-                if (malformed < 9) { wire.writeZero(malformed); wire.writeByte(255); wire.writeZero(8 - malformed); }
-                else wire.writeZero(malformed == 18 ? 10 : malformed - 9);
+                if (malformed < 15) { wire.writeZero(malformed); wire.writeByte(255); wire.writeZero(14 - malformed); }
+                else wire.writeZero(malformed == 30 ? 16 : malformed - 15);
                 boolean rejected = false;
                 try { CompatibilityStatus.Message.CODEC.decode(wire); }
                 catch (IllegalArgumentException | IndexOutOfBoundsException | io.netty.handler.codec.DecoderException expected) { rejected = true; }
@@ -151,7 +153,6 @@ public final class FxntTests {
         } finally { wire.release(); }
         helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void disabledAdapterPreservesNativeInventoryAndCannotSpendCache(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 8); var ingredient = Ingredient.of(Items.STONE);
@@ -169,7 +170,7 @@ public final class FxntTests {
     }
     private static boolean installed(GameTestHelper helper) {
         if (ModList.get().isLoaded("fxntstorage")) return true;
-        FeedMePackages.LOGGER.info("FMP_FXNT_TEST skipped: optional 1.3.4 artifact absent"); helper.succeed(); return false;
+        throw new IllegalStateException("Required native test mod is absent");
     }
     private static ServerPlayer setup(GameTestHelper helper, ItemStack prototype, int count) {
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
@@ -194,7 +195,6 @@ public final class FxntTests {
                 Inventory.class, IItemHandlerModifiable.class, List.class); method.setAccessible(true);
         return (Boolean) method.invoke(packet, ingredient, 0, amount, player.getInventory(), backpack, List.of(player.containerMenu.getSlot(1)));
     }
-    @GameTest(template = "empty")
     @SuppressWarnings("unchecked")
     public static void realPacketDoesNotMaterializeOldRecipeBookAliases(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
@@ -216,7 +216,6 @@ public final class FxntTests {
                 "Foreign packet cleared an unbacked alias into real inventory");
         helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void realCountIsPureAndTransferDebitsOnlyShortage(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 8);
@@ -231,7 +230,6 @@ public final class FxntTests {
         helper.assertTrue(player.getInventory().getItem(1) == untouched && FxntTransferContext.current() == null, "Unrelated stack identity/context changed");
         FeedMePackages.LOGGER.info("FMP_FXNT_TEST actual methods: count=11, real inventory=3, cache debit=3"); helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void fullInventoryDoesNotPreventSourceAccess(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 8);
@@ -241,7 +239,6 @@ public final class FxntTests {
         for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) helper.assertTrue(player.getInventory().getItem(slot).getCount() == 64, "Full real inventory changed");
         helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void insufficientCacheIsNotPartiallyDebited(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 2);
@@ -249,7 +246,6 @@ public final class FxntTests {
                 && player.containerMenu.getSlot(1).getItem().isEmpty() && FxntTransferContext.current() == null, "Failed native transfer spent cached items");
         helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void cursorReserveIsExcludedExactlyOnce(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 8);
@@ -261,7 +257,6 @@ public final class FxntTests {
                 && player.containerMenu.getCarried().getCount() == 5, "Shared reservation gate was applied twice");
         CursorReservations.cancel(player); helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void componentIdentityAndNativeLimitsRemainIntact(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var named = new ItemStack(Items.EGG); named.set(DataComponents.CUSTOM_NAME, Component.literal("Exact egg"));
@@ -301,7 +296,6 @@ public final class FxntTests {
         catch (IllegalStateException expected) { helper.assertTrue(expected.getMessage().equals("expected post-placement failure"), "Unexpected failure"); }
         helper.assertTrue(transfer.placed() && stock(player) == 6 && slot.getItem().getCount() == 2, "Published inputs were refunded twice"); helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void threeSourcesUseTheOriginalHandlerAndPreserveUnrelatedIdentity(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 2);
@@ -323,7 +317,6 @@ public final class FxntTests {
                 && unrelated.has(DataComponents.CUSTOM_NAME) && FxntTransferContext.current() == null, "Foreign instance or native callback was replaced");
         FeedMePackages.LOGGER.info("FMP_FXNT_TEST three-way: inventory=1, cache=2, native backpack=3, grid=6"); helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void failedDraftDoesNotRefundUnpublishedForeignCopies(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 2);
@@ -338,7 +331,6 @@ public final class FxntTests {
                 && backing.getStackInSlot(0).getCount() == 2 && backpack.getStackInSlot(0).isEmpty()
                 && player.containerMenu.getSlot(1).getItem().isEmpty(), "Unpublished foreign copy was refunded on top of unchanged backing items"); helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void nativeBackpackFailureDoesNotInventPublicationOrSpendOwnSources(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 2); player.getInventory().setItem(0, new ItemStack(Items.STONE));
@@ -356,7 +348,6 @@ public final class FxntTests {
                 && backpack.getStackInSlot(0).isEmpty() && player.containerMenu.getSlot(1).getItem().isEmpty()
                 && FxntTransferContext.current() == null, "Exception spent staged sources or guessed that a foreign draft had been persisted"); helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void staleAccessAfterNativeDebitDoesNotPublishCacheAliases(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 2); player.getInventory().setItem(0, new ItemStack(Items.STONE));
@@ -375,7 +366,6 @@ public final class FxntTests {
                 && player.getInventory().getItem(0).getCount() == 4 && backpack.getStackInSlot(0).isEmpty()
                 && player.containerMenu.getSlot(1).getItem().isEmpty(), "Stale access either minted cache items or lost native goods"); helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void copiedReadWithRejectedNativeWriteCannotMintItems(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 2); player.getInventory().setItem(0, new ItemStack(Items.STONE));
@@ -389,7 +379,6 @@ public final class FxntTests {
         helper.assertTrue(stock(player) == 2 && player.getInventory().getItem(0).getCount() == 1
                 && backpack.getStackInSlot(0).getCount() == 3 && player.containerMenu.getSlot(1).getItem().isEmpty(), "A rejected native debit was treated as physical supply"); helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void mixedComponentNativeItemsAreNotTransformedByCacheSupply(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 2);
@@ -403,7 +392,6 @@ public final class FxntTests {
                 && ItemStack.isSameItemSameComponents(player.getInventory().getItem(0), named)
                 && player.containerMenu.getSlot(1).getItem().isEmpty(), "Foreign components were flattened into a cached variant"); helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void repeatedRecipeInputsSeeAllAvailableLegalStacks(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.STONE), 128);
@@ -423,7 +411,6 @@ public final class FxntTests {
                 "Native repeated-input maximum was still capped at one source stack"); helper.succeed();
     }
 
-    @GameTest(template = "empty")
     public static void pendantToggleLeavesNativeFxntPhysicalFill(GameTestHelper h) throws ReflectiveOperationException {
         if (!installed(h)) return;
         var p=setup(h,new ItemStack(Items.STONE),8);CraftingRetrievalContractTests.toggleCrafting(p,false);

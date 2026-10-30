@@ -24,9 +24,12 @@ import java.util.List;
 @GameTestHolder(FeedMePackages.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class EmiSourcesTests {
+    @net.minecraft.gametest.framework.GameTestGenerator public static java.util.Collection<net.minecraft.gametest.framework.TestFunction> selectedTests(){
+        return OptionalTests.select(EmiSourcesTests.class,"emi","nativePacketUsesOnlyTheCacheShortfallAndDoesNotRefill","insufficientNativeFillReturnsOnlyPaidPhysicalItems","originalRecipeBookAliasesAreNotRealInput","fullInventoryAndExactComponentsRemainSupported","cursorReservationIsNotAnExtraSource","disablingEmiRetainsNativeInventoryAndUnrelatedInstances","staleSourceAndOverstackRequestsCannotSpendCache","pendantToggleLeavesTheNativeEmiPacketAndPhysicalSources");
+    }
     private static boolean installed(GameTestHelper helper) {
         if (ModList.get().isLoaded("emi")) return true;
-        FeedMePackages.LOGGER.info("FMP_EMI_SOURCE_TEST skipped: optional EMI absent"); helper.succeed(); return false;
+        throw new IllegalStateException("Required native test mod is absent");
     }
     private static ServerPlayer setup(GameTestHelper helper, ItemStack prototype, int count) {
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); ConsumptionTests.seed(player, 0, prototype, count); return player;
@@ -43,7 +46,6 @@ public final class EmiSourcesTests {
                 .newInstance(menu, 0, inputs, crafting, menu.getSlot(0), stacks);
         type.getMethod("apply", Player.class).invoke(packet, player);
     }
-    @GameTest(template = "empty")
     public static void nativePacketUsesOnlyTheCacheShortfallAndDoesNotRefill(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.OAK_LOG), 12); player.getInventory().setItem(8, new ItemStack(Items.OAK_LOG, 2));
@@ -55,7 +57,6 @@ public final class EmiSourcesTests {
                 && player.containerMenu.getCarried().is(Items.OAK_PLANKS) && player.containerMenu.getCarried().getCount() == 4, "Native craft charged twice or refilled");
         helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void insufficientNativeFillReturnsOnlyPaidPhysicalItems(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.OAK_LOG), 2); player.getInventory().setItem(8, new ItemStack(Items.OAK_LOG));
@@ -63,7 +64,6 @@ public final class EmiSourcesTests {
         helper.assertTrue(stock(player) == 0 && inventory(player, Items.OAK_LOG) == 3 && CraftingService.grid(player.containerMenu).isEmpty(), "Partial native refund duplicated or lost materials");
         helper.succeed();
     }
-    @GameTest(template = "empty")
     @SuppressWarnings("unchecked")
     public static void originalRecipeBookAliasesAreNotRealInput(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
@@ -75,7 +75,6 @@ public final class EmiSourcesTests {
         helper.assertTrue(stock(player) == 7 && inventory(player, Items.OAK_LOG) == 0 && player.containerMenu.getSlot(1).getItem().getCount() == 1, "Alias became a duplicate physical item");
         helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void fullInventoryAndExactComponentsRemainSupported(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var named = new ItemStack(Items.OAK_LOG); named.set(DataComponents.CUSTOM_NAME, Component.literal("Exact cache source"));
@@ -88,7 +87,6 @@ public final class EmiSourcesTests {
                 && player.containerMenu.getSlot(1).getItem().getCount() == 2 && inventory(player, Items.DIRT) == 2304, "Full inventory prevented exact cached input");
         helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void cursorReservationIsNotAnExtraSource(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.OAK_LOG), 8); var opened = CacheActions.open(player);
@@ -98,7 +96,6 @@ public final class EmiSourcesTests {
         helper.assertTrue(stock(player) == 5 && inventory(player, Items.OAK_LOG) == 3 && CraftingService.grid(player.containerMenu).isEmpty(), "EMI spent cursor-reserved stock");
         CursorReservations.cancel(player); helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void disablingEmiRetainsNativeInventoryAndUnrelatedInstances(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.OAK_LOG), 8); player.getInventory().setItem(8, new ItemStack(Items.OAK_LOG));
@@ -113,7 +110,6 @@ public final class EmiSourcesTests {
         helper.assertTrue(stock(player) == 7 && player.getInventory().getItem(0) == unrelated, "Cache-only debit replaced unrelated item instances");
         helper.succeed();
     }
-    @GameTest(template = "empty")
     public static void staleSourceAndOverstackRequestsCannotSpendCache(GameTestHelper helper) throws ReflectiveOperationException {
         if (!installed(helper)) return;
         var player = setup(helper, new ItemStack(Items.OAK_LOG), 8);
@@ -127,7 +123,6 @@ public final class EmiSourcesTests {
         helper.assertTrue(count == 0 && sources.getFirst().getItem().getCount() == 1, "Stale source was consumed"); helper.succeed();
     }
 
-    @GameTest(template = "empty")
     public static void pendantToggleLeavesTheNativeEmiPacketAndPhysicalSources(GameTestHelper h) throws ReflectiveOperationException {
         if (!installed(h)) return;
         var p = setup(h,new ItemStack(Items.OAK_LOG),12); CraftingRetrievalContractTests.toggleCrafting(p,false);

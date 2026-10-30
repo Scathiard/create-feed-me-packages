@@ -16,7 +16,7 @@ public final class CraftingService {
     public enum Result { OK, INACTIVE, UNSUPPORTED, MISSING, NO_SPACE, STALE, TOO_COMPLEX }
     public static boolean enabled(ServerPlayer player) {
         var access = AccessGate.resolve(player);
-        return access.active() && dev.scathiard.feedmepackages.storage.CacheLedger.get(player.getServer())
+        return dev.scathiard.feedmepackages.mixin.OptionalMixins.craftingTweaksSafe() && access.active() && dev.scathiard.feedmepackages.storage.CacheLedger.get(player.getServer())
                 .find(access.handle().cacheId()).craftingEnabled();
     }
     public static boolean supported(AbstractContainerMenu menu) {

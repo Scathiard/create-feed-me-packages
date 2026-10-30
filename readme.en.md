@@ -2,7 +2,7 @@ English | [简体中文](README.md)
 
 # Create: Feed Me Packages!
 
-> This is an unreleased 0.3 reference increment with cell controls and legacy personal-cache handover. Additional compatibility work has not been ported; this is not the complete 0.3 release.
+> main contains the unreleased 0.3 work on compatibility and usability, now undergoing fixes and validation. The product description below covers the published version; this source branch is not a release build.
 
 [![CurseForge](https://img.shields.io/badge/CurseForge-Download-F16436?logo=curseforge&logoColor=white)](https://www.curseforge.com/minecraft/mc-mods/create-feed-me-packages) [![Modrinth](https://img.shields.io/badge/Modrinth-Download-00AF5C?logo=modrinth&logoColor=white)](https://modrinth.com/mod/create-feed-me-packages)
 

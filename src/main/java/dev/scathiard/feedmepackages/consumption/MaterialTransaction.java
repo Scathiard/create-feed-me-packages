@@ -38,7 +38,7 @@ public final class MaterialTransaction {
     static Optional<MaterialTransaction> prepare(ServerPlayer player) { return open(player, true, true); }
     private static Optional<MaterialTransaction> open(ServerPlayer player, boolean preparation, boolean crafting) {
         var access = AccessGate.resolve(player);
-        return access.active() && (!crafting || CacheLedger.get(player.getServer()).find(access.handle().cacheId()).craftingEnabled()) && !dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId()) && !player.isSpectator() && player.getInventory().items.size() == 36
+        return access.active() && (!crafting || CraftingService.enabled(player)) && !dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId()) && !player.isSpectator() && player.getInventory().items.size() == 36
                 ? Optional.of(new MaterialTransaction(player, access.handle(), preparation, crafting)) : Optional.empty();
     }
     public CacheHandle handle() { return handle; }
@@ -125,7 +125,7 @@ public final class MaterialTransaction {
                 || dev.scathiard.feedmepackages.interaction.FluidActions.operating(handle.cacheId())) return false;
         var access = AccessGate.resolve(player); var current = ledger.find(handle.cacheId());
         if (!access.active() || !handle.equals(access.handle()) || current == null
-                || crafting && !current.craftingEnabled() || current.state().revision() != revision() || CraftingReservations.epoch() != reservationEpoch) return false;
+                || crafting && !CraftingService.enabled(player) || current.state().revision() != revision() || CraftingReservations.epoch() != reservationEpoch) return false;
         return matches(before, copyInventory(player));
     }
     /** Call only after destination simulation + validation, with no intervening external callbacks. */

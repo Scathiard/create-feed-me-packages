@@ -53,6 +53,7 @@ public final class AccessGate {
         if (!ledger.problem().isEmpty()) return new Result(Status.STORAGE_LOCKED, null, terminals);
         UUID cacheId = stack.get(FmpRegistries.IDENTITY.get());
         if (cacheId == null) { cacheId = ledger.createOrdinary(); stack.set(FmpRegistries.IDENTITY.get(), cacheId); }
+        if (!ledger.problem(cacheId).isEmpty()) return new Result(Status.STORAGE_LOCKED, null, terminals);
         var record = ledger.find(cacheId);
         if (!ledger.ordinaryEntry(cacheId, stack.get(FmpRegistries.RETIREMENT_RECEIPT.get())))
             return new Result(Status.INVALID_IDENTITY, null, terminals);

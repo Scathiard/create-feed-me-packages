@@ -52,7 +52,7 @@ public final class LegacyRetirement {
     private static Outcome perform(ServerPlayer player, Persistence persistence) {
         if (!player.getServer().isSameThread() || !player.isAlive() || player.isSpectator()
                 || player.containerMenu != player.inventoryMenu || !player.containerMenu.getCarried().isEmpty()) return Outcome.NONE;
-        var ledger = CacheLedger.get(player.getServer()); if (!ledger.problem().isEmpty()) return Outcome.NONE;
+        var ledger = CacheLedger.get(player.getServer()); if (!ledger.problem().isEmpty() || ledger.ownerIsolated(player.getUUID())) return Outcome.NONE;
         var slots = slots(player); var transfer = ledger.retirement(player.getUUID());
         boolean pending = transfer != null && !transfer.completed();
         if (ledger.personal(player.getUUID()) != null || pending) {

@@ -18,7 +18,7 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.util.*;
 
-/** One world authority. Corrupt data produces a locked ledger, never an empty replacement. */
+/** One world authority. Unreadable ownership groups remain raw and unavailable, never empty replacements. */
 public final class CacheLedger extends SavedData {
     public static final String NAME = "create_feed_me_packages_ledger";
     public static final int SCHEMA = 31004; // Adds per-cache crafting_enabled; absent means enabled. Older field meanings are unchanged.
@@ -31,6 +31,15 @@ public final class CacheLedger extends SavedData {
     private Map<UUID, String> returnAddresses = Map.of();
     private Map<UUID, ReturnEscrow> returnEscrows = Map.of();
     private Map<UUID, Retirement> retirements = Map.of();
+    // Derived from validated receipts; neither a second authority nor a persisted field.
+    private Map<UUID, Retirement> retirementsByCache = Map.of();
+    private void setRetirements(Map<UUID, Retirement> values) {
+        var owners = Map.copyOf(values); var byCache = new HashMap<UUID, Retirement>();
+        for (var receipt : owners.values())
+            if (byCache.put(receipt.cache(), receipt) != null) throw new IllegalArgumentException("Duplicate retirement cache");
+        var index = Map.copyOf(byCache);
+        retirements = owners; retirementsByCache = index;
+    }
     private final Set<UUID> interruptedRetirements = new HashSet<>();
     /** The owner is historical provenance only after completion; the cache itself is never copied. */
     public record Retirement(UUID owner, UUID cache, UUID receipt, boolean completed) {
@@ -38,19 +47,20 @@ public final class CacheLedger extends SavedData {
     }
     public Retirement retirement(UUID owner) { return retirements.get(owner); }
     public boolean ordinaryEntry(UUID cache, UUID receipt) {
-        if (interruptedRetirements.contains(cache)) return false;
+        if (!problem(cache).isEmpty() || interruptedRetirements.contains(cache)) return false;
         var record = caches.get(cache); if (record == null || record.owner() != null) return false;
-        var transfer = retirements.values().stream().filter(r -> r.cache().equals(cache)).findFirst();
-        return transfer.isPresent() ? transfer.get().completed() && transfer.get().receipt().equals(receipt) : receipt == null;
+        var transfer = retirementsByCache.get(cache);
+        return transfer != null ? transfer.completed() && transfer.receipt().equals(receipt) : receipt == null;
     }
     public Retirement beginRetirement(UUID owner) {
         writable();
+        if (ownerIsolated(owner)) throw new IllegalStateException("Legacy owner has preserved unreadable stock");
         var existing = retirements.get(owner); if (existing != null) return existing;
         UUID cache = personal.get(owner); if (cache == null) return null;
         var record = caches.get(cache);
         if (record == null || !owner.equals(record.owner())) throw new IllegalStateException("Invalid legacy owner");
         var result = new Retirement(owner, cache, UUID.randomUUID(), false);
-        var next = new HashMap<>(retirements); next.put(owner, result); retirements = Map.copyOf(next); setDirty();
+        var next = new HashMap<>(retirements); next.put(owner, result); setRetirements(next); setDirty();
         return result;
     }
     /** A missing item is not proof of non-delivery. Reissue authority only after revoking the old credential. */
@@ -58,7 +68,7 @@ public final class CacheLedger extends SavedData {
         writable(); var old = retirements.get(owner);
         if (old == null || old.completed()) throw new IllegalStateException("No pending retirement");
         var next = new HashMap<>(retirements); var renewed = new Retirement(owner, old.cache(), UUID.randomUUID(), false);
-        next.put(owner, renewed); retirements = Map.copyOf(next); setDirty(); return renewed;
+        next.put(owner, renewed); setRetirements(next); setDirty(); return renewed;
     }
     public void interruptRetirement(UUID owner) {
         var r = retirements.get(owner); if (r != null) interruptedRetirements.add(r.cache());
@@ -79,10 +89,14 @@ public final class CacheLedger extends SavedData {
         var owners = new HashMap<>(personal); owners.remove(owner);
         var completed = new HashMap<>(retirements);
         completed.put(owner, new Retirement(owner, transfer.cache(), receipt, true));
-        caches = Map.copyOf(records); personal = Map.copyOf(owners); retirements = Map.copyOf(completed); setDirty();
+        caches = Map.copyOf(records); personal = Map.copyOf(owners); setRetirements(completed); setDirty();
     }
     private String problem = "";
     private CompoundTag preserved;
+    private Map<UUID, String> isolated = Map.of();
+    private Set<UUID> isolatedOwners = Set.of();
+    private List<CompoundTag> isolatedRows = List.of();
+    private Tag retainedGrants;
     private byte[] integrityKey = createIntegrityKey();
 
     private static byte[] createIntegrityKey() {
@@ -119,6 +133,9 @@ public final class CacheLedger extends SavedData {
     }
 
     public String problem() { return problem; }
+    /** Empty only when both the global header and this cache are usable. */
+    public String problem(UUID id) { return problem.isEmpty() ? id == null ? "" : isolated.getOrDefault(id, "") : problem; }
+    public boolean ownerIsolated(UUID owner) { return isolatedOwners.contains(owner); }
     public CacheRecord find(UUID id) { return caches.get(id); }
     public UUID personal(UUID player) { return personal.get(player); }
     // The existing schema field is inert; it cannot override the fixed backpack-first policy.
@@ -131,6 +148,7 @@ public final class CacheLedger extends SavedData {
     public ReturnEscrow returnEscrow(UUID cacheId) { return returnEscrows.get(cacheId); }
     public Collection<ReturnEscrow> unresolvedReturns() { return returnEscrows.values(); }
     private void available(UUID cacheId) {
+        if (!problem(cacheId).isEmpty()) throw new IllegalStateException(problem(cacheId));
         if (returnEscrows.containsKey(cacheId)) throw new IllegalStateException("Cache has an unresolved return handoff");
     }
     public void beginReturn(ReturnEscrow escrow, CacheRecord expected, HolderLookup.Provider registries) {
@@ -190,7 +208,7 @@ public final class CacheLedger extends SavedData {
     /** Fresh unregistered source for manufacturing preview; no ledger entry is created here. */
     public CacheRecord ordinaryForManufacturing(UUID id) {
         writable();
-        if (id == null) return new CacheRecord(CacheState.empty(UUID.randomUUID()), null, Map.of());
+        if (id == null) return new CacheRecord(CacheState.empty(freshIdentity()), null, Map.of());
         available(id);
         var record = caches.get(id);
         if (record == null || record.owner() != null) throw new IllegalStateException("Invalid ordinary manufacturing source");
@@ -255,8 +273,14 @@ public final class CacheLedger extends SavedData {
                 ? new ParcelTarget(original, revision) : null;
     }
 
+    private UUID freshIdentity() {
+        UUID id;
+        do { id = UUID.randomUUID(); } while (caches.containsKey(id) || redirects.containsKey(id) || isolated.containsKey(id));
+        return id;
+    }
+
     public UUID createOrdinary() {
-        writable(); UUID id = UUID.randomUUID();
+        writable(); UUID id = freshIdentity();
         var next = new HashMap<>(caches); next.put(id, new CacheRecord(CacheState.empty(id), null, Map.of()));
         caches = Map.copyOf(next); setDirty(); return id;
     }
@@ -289,8 +313,10 @@ public final class CacheLedger extends SavedData {
             row.putUUID("id", state.id()); row.putInt("level", state.level()); row.putLong("revision", state.revision());
             row.putBoolean("crafting_enabled", record.craftingEnabled());
             if (record.owner() != null) row.putUUID("owner", record.owner());
-            else retirements.values().stream().filter(r -> r.completed() && r.cache().equals(state.id())).findFirst()
-                    .ifPresent(r -> row.putUUID("owner", r.owner())); // Keep the old column's original provenance.
+            else {
+                var transfer = retirementsByCache.get(state.id());
+                if (transfer != null && transfer.completed()) row.putUUID("owner", transfer.owner()); // Original provenance.
+            }
             ListTag cells = new ListTag();
             for (Cell<ItemVariantKey> cell : state.cells()) {
                 CompoundTag data = new CompoundTag();
@@ -344,10 +370,55 @@ public final class CacheLedger extends SavedData {
         tag.put("private_retirements", transfers);
         var holds = new ListTag(); returnEscrows.values().forEach(hold -> holds.add(hold.save(registries)));
         tag.put("return_handoffs", holds);
+        if (retainedGrants != null) tag.put("grants", retainedGrants.copy());
+        // Every unreadable row and associated metadata survives; no failed row is decoded or reconstructed here.
+        for (var group : isolatedRows) for (String table : LedgerPartitions.TABLES)
+            for (Tag row : group.getList(table, Tag.TAG_COMPOUND)) tag.getList(table, Tag.TAG_COMPOUND).add(row.copy());
         return tag;
     }
 
     public static CacheLedger load(CompoundTag tag, HolderLookup.Provider registries) {
+        // Mixed old/new rows cannot be safely overlaid under an old root schema. Legacy decoding remains all-or-nothing.
+        if (!tag.contains("schema", Tag.TAG_INT) || tag.getInt("schema") != SCHEMA) return loadWhole(tag, registries);
+        try {
+            var header = LedgerPartitions.header(tag);
+            var ledger = loadWhole(header, registries);
+            if (!ledger.problem.isEmpty()) throw new IllegalArgumentException("Invalid global ledger header");
+            var groups = LedgerPartitions.index(tag); // Finish the complete relation index before accepting any stock.
+            var caches = new HashMap<UUID, CacheRecord>(); var personal = new HashMap<UUID, UUID>();
+            var routes = new HashMap<UUID, ParcelRedirect>(); var addresses = new HashMap<UUID, String>();
+            var retirements = new HashMap<UUID, Retirement>(); var holds = new HashMap<UUID, ReturnEscrow>();
+            var isolated = new HashMap<UUID, String>(); var owners = new HashSet<UUID>(); var raw = new ArrayList<CompoundTag>();
+            // Preferences are global and were validated once. They are not reinterpreted as cache ownership.
+            header.put("preferences", new ListTag());
+            for (var group : groups) {
+                var part = header.copy();
+                for (String table : LedgerPartitions.TABLES) part.put(table, group.rows().get(table).copy());
+                CacheLedger decoded = group.conflict().isEmpty() ? loadWhole(part, registries) : null;
+                String reason = decoded == null ? group.conflict() : decoded.problem;
+                if (!reason.isEmpty()) {
+                    for (UUID id : group.identities()) isolated.put(id, reason);
+                    owners.addAll(group.owners()); raw.add(group.rows().copy());
+                    FeedMePackages.LOGGER.error("FMP cache group unavailable; identities={}, reason={}; raw records retained. Restore dependencies/data and restart to revalidate", group.identities(), reason);
+                    continue;
+                }
+                caches.putAll(decoded.caches); personal.putAll(decoded.personal); routes.putAll(decoded.redirects);
+                addresses.putAll(decoded.returnAddresses); retirements.putAll(decoded.retirements); holds.putAll(decoded.returnEscrows);
+            }
+            ledger.caches = Map.copyOf(caches); ledger.personal = Map.copyOf(personal); ledger.redirects = Map.copyOf(routes);
+            ledger.returnAddresses = Map.copyOf(addresses); ledger.setRetirements(retirements); ledger.returnEscrows = Map.copyOf(holds);
+            ledger.isolated = Map.copyOf(isolated); ledger.isolatedOwners = Set.copyOf(owners); ledger.isolatedRows = List.copyOf(raw);
+            if (tag.contains("grants")) ledger.retainedGrants = tag.get("grants").copy();
+            return ledger;
+        } catch (RuntimeException failure) {
+            var locked = new CacheLedger(); locked.problem = "Cache ownership index rejected: " + failure.getMessage();
+            locked.preserved = tag.copy();
+            FeedMePackages.LOGGER.error("FMP global cache ownership could not be established; entire original ledger retained", failure);
+            return locked;
+        }
+    }
+
+    private static CacheLedger loadWhole(CompoundTag tag, HolderLookup.Provider registries) {
         var ledger = new CacheLedger();
         String context = "ledger header";
         try {
@@ -493,7 +564,7 @@ public final class CacheLedger extends SavedData {
                     }
                 }
             } else if (tag.contains("private_retirements")) throw new IllegalArgumentException("Retirement in legacy schema");
-            ledger.retirements = Map.copyOf(retirements);
+            ledger.setRetirements(retirements);
             ledger.caches = Map.copyOf(caches); ledger.personal = Map.copyOf(personal); ledger.cacheFirst = Map.copyOf(preferences);
             ledger.redirects = Map.copyOf(redirects);
             var returnAddresses = new HashMap<UUID, String>();
@@ -501,6 +572,7 @@ public final class CacheLedger extends SavedData {
                 for (Tag element : compounds(tag, "returnAddresses")) {
                     var row = (CompoundTag)element;
                     fields(row, Set.of("cache", "address")); require(row, "cache", Tag.TAG_INT_ARRAY); require(row, "address", Tag.TAG_STRING);
+                    if (sourceSchema == SCHEMA && !caches.containsKey(row.getUUID("cache"))) throw new IllegalArgumentException("Orphan return address");
                     if (returnAddresses.put(row.getUUID("cache"), row.getString("address")) != null) throw new IllegalArgumentException("Duplicate return address");
                 }
             }
@@ -520,7 +592,7 @@ public final class CacheLedger extends SavedData {
         } catch (RuntimeException failure) {
             ledger.problem = "Cache data rejected at " + context + ": " + failure.getClass().getSimpleName();
             ledger.preserved = tag.copy();
-            FeedMePackages.LOGGER.error("FMP cache ledger locked at {}; original data retained", context, failure);
+            FeedMePackages.LOGGER.error("FMP stored records rejected at {}; original data retained", context, failure);
         }
         return ledger;
     }

@@ -2,7 +2,7 @@
 
 # 机械动力：喂我发包！
 
-> 本分支是尚未发布的 0.3 独立参考增量：格控面板与旧私人库存转交已接入，新增兼容扩展仍待迁入；不代表完整 0.3 已完成。
+> main 正在开发尚未发布的 0.3：集中兼容与体验优化已接入，正在完成发布前修复与验证。下文介绍已发布版本；当前源码不等于正式发行包。
 
 [![CurseForge](https://img.shields.io/badge/CurseForge-%E4%B8%8B%E8%BD%BD-F16436?logo=curseforge&logoColor=white)](https://www.curseforge.com/minecraft/mc-mods/create-feed-me-packages) [![Modrinth](https://img.shields.io/badge/Modrinth-%E4%B8%8B%E8%BD%BD-00AF5C?logo=modrinth&logoColor=white)](https://modrinth.com/mod/create-feed-me-packages)
 

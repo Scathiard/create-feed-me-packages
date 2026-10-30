@@ -138,11 +138,11 @@ public final class ReturnTests {
         h.assertTrue(f.ledger.returnEscrow(f.handle.cacheId())==null && f.player.getInventory().getItem(7).is(Items.PAPER)
                 && f.player.getInventory().getItem(7).getCount()==1 && f.ledger.find(f.handle.cacheId())==f.before,"Carrier refund was lost or duplicated");h.succeed();
     }
-    @GameTest(template = "empty") public static void corruptReturnRecordLocksLedgerWithoutReplacingStock(GameTestHelper h) {
+    @GameTest(template = "empty") public static void corruptReturnRecordLocksItsCacheWithoutReplacingStock(GameTestHelper h) {
         var f=held(h,true);var tag=f.ledger.save(new CompoundTag(),f.player.registryAccess());
         tag.getList("return_handoffs",net.minecraft.nbt.Tag.TAG_COMPOUND).getCompound(0).putInt("amount",9999);
-        var bad=CacheLedger.load(tag,f.player.registryAccess());h.assertTrue(!bad.problem().isEmpty()
-                && bad.save(new CompoundTag(),f.player.registryAccess()).equals(tag),"Corrupt return was silently dropped");
+        var bad=CacheLedger.load(tag,f.player.registryAccess());h.assertTrue(!bad.problem(tag.getList("return_handoffs",net.minecraft.nbt.Tag.TAG_COMPOUND).getCompound(0).getUUID("cache")).isEmpty()
+                && LedgerIsolationTests.sameRows(bad.save(new CompoundTag(),f.player.registryAccess()),tag),"Corrupt return was silently dropped");
         f.ledger.cancelRejectedReturn(f.ledger.rejectReturn(f.hold));h.succeed();
     }
 
@@ -187,7 +187,7 @@ public final class ReturnTests {
                 case 3 -> row.putString("fluid_variant", "{id:\"missing:fluid\",amount:1}");
             }
             var loaded = CacheLedger.load(bad, f.player().registryAccess());
-            h.assertTrue(!loaded.problem().isEmpty() && loaded.save(new CompoundTag(), f.player().registryAccess()).equals(bad),
+            h.assertTrue(!loaded.problem(f.hold().handle().cacheId()).isEmpty() && LedgerIsolationTests.sameRows(loaded.save(new CompoundTag(), f.player().registryAccess()),bad),
                     "Malformed fluid handoff was cleared, reinterpreted as an item or lost its original data");
         }
         var source = f.player().getServer().createCommandSourceStack().withSuppressedOutput();

@@ -213,5 +213,12 @@
   "gui.create_feed_me_packages.compat.sbw_server_mismatch": "Superb Warfare API mismatch: cached ammunition disabled",
   "gui.create_feed_me_packages.compat.sbw_client_mismatch": "Client Superb Warfare API mismatch: cache ammo hints disabled",
   "gui.create_feed_me_packages.compat.ars_config_disabled": "Cached Ars Nouveau placement is disabled by the server",
-  "gui.create_feed_me_packages.compat.ars_server_mismatch": "Ars Nouveau API mismatch: cached placement disabled"
+  "gui.create_feed_me_packages.compat.ars_server_mismatch": "Ars Nouveau API mismatch: cached placement disabled",
+  "gui.create_feed_me_packages.return_invalid_label": "Reset return address",
+  "gui.create_feed_me_packages.return_invalid_hint": "Original address preserved; set a valid address to resume returns",
+  "gui.create_feed_me_packages.status.storage_locked.preserved": "Cache data could not be read. Affected operations are paused and original records are preserved. Check required mods and the server log.",
+  "gui.create_feed_me_packages.compat.craftingtweaks_mismatch": "Crafting Tweaks API mismatch: cache crafting and cursor previews are paused. Taking items into inventory still works.",
+  "gui.create_feed_me_packages.compat.paper_mismatch": "Paper courier API mismatch: FMP returns or maid transport are unavailable. See the log.",
+  "gui.create_feed_me_packages.compat.bee_mismatch": "Mobile Packages API mismatch: FMP returns or maid transport are unavailable. See the log.",
+  "gui.create_feed_me_packages.compat.phantom_mismatch": "Create Phantom API mismatch: FMP returns or maid transport are unavailable. See the log."
 }

@@ -41,6 +41,7 @@ public final class MaidAccess {
         if (!ledger.problem().isEmpty()) return unavailable(AccessGate.Status.STORAGE_LOCKED);
         UUID id = stack.get(FmpRegistries.IDENTITY.get());
         if (id == null) { id = ledger.createOrdinary(); stack.set(FmpRegistries.IDENTITY.get(), id); }
+        if (!ledger.problem(id).isEmpty()) return unavailable(AccessGate.Status.STORAGE_LOCKED);
         var record = ledger.find(id);
         if (!ledger.ordinaryEntry(id, stack.get(FmpRegistries.RETIREMENT_RECEIPT.get()))) return unavailable(AccessGate.Status.INVALID_IDENTITY);
         var handle = new CacheHandle(id, maid.getUUID(), stack.get(FmpRegistries.NETWORK.get()));

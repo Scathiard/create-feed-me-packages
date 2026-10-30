@@ -164,8 +164,12 @@ public final class JeiClientReview {
     public static void openGrowthSmithing() {
         var runtime = FmpJeiPlugin.runtime().orElseThrow(); var manager = runtime.getRecipeManager();
         var recipes = manager.createRecipeLookup(RecipeTypes.SMITHING).get().filter(r -> r.id().getNamespace().equals("create_feed_me_packages")).toList();
-        if (recipes.size() != 9) throw new IllegalStateException("JEI did not register all nine FMP smithing recipes: " + recipes.size());
-        var recipe = recipes.stream().filter(r -> r.id().getPath().equals("smithing/personal_supply_chain_pendant_to_3")).findFirst().orElseThrow();
+        var expected=Minecraft.getInstance().level.getRecipeManager().getAllRecipesFor(net.minecraft.world.item.crafting.RecipeType.SMITHING).stream()
+                .filter(r->r.id().getNamespace().equals("create_feed_me_packages")).map(r->r.id()).collect(java.util.stream.Collectors.toSet());
+        var actual=recipes.stream().map(r->r.id()).collect(java.util.stream.Collectors.toSet());
+        if(expected.isEmpty() || !actual.equals(expected) || actual.stream().anyMatch(id->id.getPath().contains("personal")))
+            throw new IllegalStateException("JEI smithing recipes differ from current server recipes: "+actual+" expected="+expected);
+        var recipe = recipes.stream().filter(r -> r.id().getPath().equals("smithing/supply_chain_pendant_to_3")).findFirst().orElseThrow();
         growthRecipe = recipe; runtime.getRecipesGui().showRecipes(manager.getRecipeCategory(RecipeTypes.SMITHING), List.of(recipe), List.of());
     }
     @SuppressWarnings("unchecked") // Create's category uses RecipeHolder<T>; JEI's UID-only lookup erases T.

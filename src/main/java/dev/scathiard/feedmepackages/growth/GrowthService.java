@@ -60,7 +60,7 @@ public final class GrowthService {
 
     private static Prepared prepare(ServerPlayer player, PendantSmithingRecipe recipe, SmithingRecipeInput input) {
         var ledger = CacheLedger.get(player.getServer()); ItemStack base = input.base();
-        if (!ledger.problem().isEmpty()) throw new Rejected("storage_locked");
+        if (!ledger.problem(base.get(FmpRegistries.IDENTITY.get())).isEmpty()) throw new Rejected("storage_locked");
         if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(base.get(FmpRegistries.IDENTITY.get()))) throw new Rejected("stale");
         if (!(base.getItem() instanceof PendantItem pendant) || base.getCount() != 1 || base.getOrDefault(FmpRegistries.PREVIEW.get(), false)
                 || !(input.addition().getItem() instanceof SupplyLinkItem link) || link.targetLevel() != recipe.targetLevel()

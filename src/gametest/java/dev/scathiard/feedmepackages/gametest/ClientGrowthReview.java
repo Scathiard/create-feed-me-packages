@@ -31,7 +31,7 @@ final class ClientGrowthReview {
     private static CompletableFuture<Void> work;
     private static UUID cacheId, network;
     private static dev.scathiard.feedmepackages.storage.CacheRecord travelRecord;
-    private static final int[] TARGETS = {2, 0, 3};
+    private static final int[] TARGETS = {2, 3};
     static boolean tick() {
         ticks++;
         if (work != null) { if (!work.isDone()) return false; work.join(); work = null; }
@@ -41,6 +41,9 @@ final class ClientGrowthReview {
             case 1 -> {
                 if (!waited(20)) break;
                 server(player -> {
+                    // Standalone growth mode must not depend on the composite driver's platform.
+                    for(int x=0;x<=10;x++)for(int z=0;z<=10;z++)player.serverLevel().setBlockAndUpdate(new BlockPos(x,120,z),Blocks.SMOOTH_STONE.defaultBlockState());
+                    player.teleportTo(5,121,5);player.fallDistance=0;
                     player.setGameMode(GameType.SURVIVAL); player.getInventory().clearContent(); player.containerMenu.setCarried(ItemStack.EMPTY);
                     var pendant = FmpRegistries.PENDANT.toStack(); network = UUID.randomUUID(); pendant.set(FmpRegistries.NETWORK.get(), network);
                     pendant.set(DataComponents.CUSTOM_NAME, Component.literal("Assembly review"));
@@ -71,15 +74,14 @@ final class ClientGrowthReview {
             case 4 -> {
                 if (!waited(20)) break;
                 var result = mc.player.containerMenu.getCarried();
-                require(result.is(cycle == 0 ? FmpRegistries.PENDANT.get() : FmpRegistries.PERSONAL_PENDANT.get())
+                require(result.is(FmpRegistries.PENDANT.get())
                         && !result.has(FmpRegistries.PREVIEW.get()) && network.equals(result.get(FmpRegistries.NETWORK.get()))
                         && result.getHoverName().getString().equals("Assembly review"), "Real result click failed to sync its usable result and original components");
                 server(player -> {
                     var ledger = CacheLedger.get(player.getServer()); var record = ledger.find(cacheId); var menu = player.containerMenu;
-                    require(record.state().level() == (cycle == 2 ? 3 : 2) && record.state().cells().getFirst().amount() == 37, "Client manufacturing lost stock or applied the wrong level");
+                    require(record.state().level() == (cycle == 1 ? 3 : 2) && record.state().cells().getFirst().amount() == 37, "Client manufacturing lost stock or applied the wrong level");
                     require(menu.getSlot(0).getItem().is(FmpRegistries.ASSEMBLY_TEMPLATE.get()) && menu.getSlot(1).getItem().isEmpty() && menu.getSlot(2).getItem().isEmpty(), "Client manufacturing did not consume exactly its two inputs");
-                    if (cycle > 0) require(player.getUUID().equals(record.owner()) && cacheId.equals(ledger.personal(player.getUUID())), "Client personalization did not commit ownership");
-                    if (cycle == 2) require(player.getUUID().equals(record.owner()) && record.state().level() == 3, "Client private upgrade did not commit to its owner");
+                    require(record.owner()==null && ledger.personal(player.getUUID())==null,"Ordinary upgrade created personal ownership");
                 }); clickSlot(31); next();
             }
             case 5 -> { if (!waited(15)) break; mc.player.closeContainer(); next(); }
@@ -87,7 +89,7 @@ final class ClientGrowthReview {
                 if (!waited(20)) break;
                 server(player -> {
                     require(player.getInventory().countItem(FmpRegistries.ASSEMBLY_TEMPLATE.get()) == 1, "Closing client smithing duplicated or lost its reusable template");
-                    require(player.getInventory().getItem(0).is(cycle == 0 ? FmpRegistries.PENDANT.get() : FmpRegistries.PERSONAL_PENDANT.get()), "Client return click lost the manufactured pendant");
+                    require(player.getInventory().getItem(0).is(FmpRegistries.PENDANT.get()), "Client return click lost the manufactured pendant");
                 }); next();
             }
             case 7 -> {
@@ -105,13 +107,13 @@ final class ClientGrowthReview {
                 if (!waited(20)) break;
                 server(player -> {
                     var record = CacheLedger.get(player.getServer()).find(cacheId); var pendant = CuriosApi.getCuriosInventory(player).orElseThrow().getStacksHandler("necklace").orElseThrow().getStacks().getStackInSlot(0);
-                    require(record.state().level() == 3 && record.state().cells().getFirst().amount() == 37 && player.getUUID().equals(pendant.get(FmpRegistries.OWNER.get())), "Owned personal upgrade was not reflected after wear");
+                    require(record.state().level() == 3 && record.state().cells().getFirst().amount() == 37 && !pendant.has(FmpRegistries.OWNER.get()), "Ordinary upgrade was not reflected after wear");
                 }); mc.setScreen(new InventoryScreen(mc.player)); next();
             }
             case 9 -> {
                 if (!waited(20)) break;
-                require(!LogisticsPanel.exclusions(mc.screen).isEmpty(), "Upgraded personal cache did not return to the real inventory panel");
-                ClientReview.capture("growth-personal-level3"); FeedMePackages.LOGGER.info("FMP_CLIENT_GROWTH_PASSED native-input-clicks/preview/result/close/private-claim stock=37 level=3"); next();
+                require(!LogisticsPanel.exclusions(mc.screen).isEmpty(), "Upgraded ordinary cache did not return to the real inventory panel");
+                ClientReview.capture("growth-ordinary-level3"); FeedMePackages.LOGGER.info("FMP_CLIENT_GROWTH_PASSED native-input-clicks/preview/result/close/ordinary-upgrade stock=37 level=3"); next();
             }
             case 10 -> { if (!ModList.get().isLoaded("jei")) { stage = 14; changed = ticks; break; } jei("openGrowthSmithing"); next(); }
             case 11 -> {
@@ -121,7 +123,7 @@ final class ClientGrowthReview {
             case 13 -> {
                 if (!waited(20)) break; jei("verifyGrowthPage"); ClientReview.capture("growth-jei-sequence5"); mc.screen.onClose();
                 server(player -> require(CacheLedger.get(player.getServer()).find(cacheId).state().cells().getFirst().amount() == 37, "JEI growth preview changed the real stock"));
-                FeedMePackages.LOGGER.info("FMP_CLIENT_GROWTH_JEI_PASSED registered-smithing=9 actual-smithing+sequence-pages"); next();
+                FeedMePackages.LOGGER.info("FMP_CLIENT_GROWTH_JEI_PASSED registered-smithing=current actual-smithing+sequence-pages"); next();
             }
             case 14 -> {
                 mc.player.closeContainer();
@@ -155,7 +157,7 @@ final class ClientGrowthReview {
         return false;
     }
     private static void open(ServerPlayer player) {
-        int target = TARGETS[cycle]; player.getInventory().setItem(2, target == 0 ? FmpRegistries.PRIVATE_LINK.toStack() : FmpRegistries.upgradeLink(target).toStack());
+        int target = TARGETS[cycle]; player.getInventory().setItem(2, FmpRegistries.upgradeLink(target).toStack());
         var table = new BlockPos(6, 121, 5); player.serverLevel().setBlockAndUpdate(table, Blocks.SMITHING_TABLE.defaultBlockState());
         player.teleportTo(5, 121, 5); player.openMenu(Blocks.SMITHING_TABLE.defaultBlockState().getMenuProvider(player.serverLevel(), table));
     }

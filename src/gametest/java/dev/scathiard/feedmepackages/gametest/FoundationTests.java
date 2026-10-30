@@ -213,7 +213,7 @@ public final class FoundationTests {
             if(malformed==2) box.putString("components","not a valid component map");
             if(malformed==3) rows.add(rows.getCompound(0).copy());
             var decoded=CacheLedger.load(copy,player.registryAccess());
-            h.assertTrue(!decoded.problem().isEmpty() && decoded.save(new CompoundTag(),player.registryAccess()).equals(copy),
+            h.assertTrue(!decoded.problem(before.state().id()).isEmpty() && LedgerIsolationTests.sameRows(decoded.save(new CompoundTag(),player.registryAccess()),copy),
                     "Unknown or malformed data was silently accepted or erased: "+malformed);
         }
         var detached=CacheLedger.load(original.copy(),player.registryAccess());
@@ -286,7 +286,7 @@ public final class FoundationTests {
         bad.getList("caches", Tag.TAG_COMPOUND).getCompound(0).getList("cells", Tag.TAG_COMPOUND).getCompound(0)
                 .getCompound("item_controls").putInt("batch", 577);
         var locked = CacheLedger.load(bad, registry);
-        h.assertTrue(!locked.problem().isEmpty() && locked.save(new CompoundTag(), registry).equals(bad), "Invalid control record was rewritten instead of retained");
+        h.assertTrue(!locked.problem(id).isEmpty() && LedgerIsolationTests.sameRows(locked.save(new CompoundTag(), registry),bad), "Invalid control record was rewritten instead of retained");
         h.succeed();
     }
 
@@ -485,7 +485,7 @@ public final class FoundationTests {
             if(fault==1)row.getCompound("capacity_rules").getList("retained",Tag.TAG_COMPOUND).getCompound(0).putInt("ceiling",128);
             if(fault==2)row.getCompound("capacity_rules").putInt("slots",129);
             var rejected=CacheLedger.load(invalid,registries);
-            h.assertTrue(rejected.problem().contains(id.toString()) && rejected.save(new CompoundTag(),registries).equals(invalid),"Unexplained capacity accepted, unlocatable, or raw invalid data discarded: "+fault);
+            h.assertTrue(rejected.problem(id).contains(id.toString()) && LedgerIsolationTests.sameRows(rejected.save(new CompoundTag(),registries),invalid),"Unexplained capacity accepted, unlocatable, or raw invalid data discarded: "+fault);
         }
         h.succeed();
     }
@@ -530,7 +530,7 @@ public final class FoundationTests {
             var bad=saved.copy();var data=bad.getList("caches",Tag.TAG_COMPOUND).getCompound(0).getList("cells",Tag.TAG_COMPOUND).getCompound(0).getCompound("item_controls");
             if(fault==0)data.putInt("return_batch",0);else data.putString("return_batch","32");
             var rejected=CacheLedger.load(bad,registry);
-            h.assertTrue(!rejected.problem().isEmpty() && rejected.save(new CompoundTag(),registry).equals(bad),"Invalid return minimum silently cleared or reinterpreted data");
+            h.assertTrue(!rejected.problem(id).isEmpty() && LedgerIsolationTests.sameRows(rejected.save(new CompoundTag(),registry),bad),"Invalid return minimum silently cleared or reinterpreted data");
         }
         h.succeed();
     }
@@ -550,7 +550,7 @@ public final class FoundationTests {
         var wrongPreferences = valid.copy(); wrongPreferences.put("preferences", strings.copy());
         for (var invalid : java.util.List.of(wrongOrders, wrongPreferences)) {
             var loaded = CacheLedger.load(invalid, registries);
-            helper.assertTrue(!loaded.problem().isEmpty() && loaded.save(new CompoundTag(), registries).equals(invalid), "Malformed list silently erased its data");
+            helper.assertTrue(!loaded.problem(valid.getList("caches",Tag.TAG_COMPOUND).getCompound(0).getUUID("id")).isEmpty() && LedgerIsolationTests.sameRows(loaded.save(new CompoundTag(), registries),invalid), "Malformed list silently erased its data");
         }
         helper.succeed();
     }

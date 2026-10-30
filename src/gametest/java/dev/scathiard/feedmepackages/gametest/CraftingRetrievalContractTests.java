@@ -276,9 +276,9 @@ public final class CraftingRetrievalContractTests {
         var legacy = CacheLedger.load(old, p.registryAccess());
         h.assertTrue(legacy.problem().isEmpty() && legacy.find(handle.cacheId()).craftingEnabled()
                 && legacy.find(handle.cacheId()).state().cells().get(0).amount() == 17, "Legacy absence must default ON");
-        var corrupt = saved.copy(); corrupt.getList("caches", net.minecraft.nbt.Tag.TAG_COMPOUND).getCompound(0).putByte("crafting_enabled", (byte)2);
+        var corrupt = saved.copy(); LedgerIsolationTests.row(corrupt,handle.cacheId()).putByte("crafting_enabled", (byte)2);
         var locked = CacheLedger.load(corrupt, p.registryAccess());
-        h.assertTrue(!locked.problem().isEmpty() && locked.save(new net.minecraft.nbt.CompoundTag(), p.registryAccess()).equals(corrupt),
+        h.assertTrue(!locked.problem(handle.cacheId()).isEmpty() && LedgerIsolationTests.sameRows(locked.save(new net.minecraft.nbt.CompoundTag(), p.registryAccess()),corrupt),
                 "Invalid new field was silently reset"); h.succeed();
     }
     @GameTest(template = "empty")

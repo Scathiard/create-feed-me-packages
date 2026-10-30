@@ -76,7 +76,7 @@ if (runProfile.length() > runLayout.maxProfileLength) {
     logger.lifecycle('FMP run profile {} = {}', runProfile, descriptiveProfile)
 }
 
-def lifecycleKeys = ['fmpFluidLifecycle','fmpConfigStartup','fmpCapacityLifecycle','fmpMaidFlight','fmpMobileReturnFlight'].findAll { project.hasProperty(it) }
+def lifecycleKeys = ['fmpFluidLifecycle','fmpConfigStartup','fmpCapacityLifecycle','fmpMaidFlight','fmpMobileReturnFlight','fmpLedgerLifecycle'].findAll { project.hasProperty(it) }
 if (lifecycleKeys.size() > 1 || (lifecycleKeys && project.hasProperty('fmpRunLabel')))
     throw new GradleException('Select one lifecycle scenario; its explicit batch replaces fmpRunLabel')
 
@@ -214,7 +214,11 @@ dependencies {
     }
     compileOnly 'dev.emi:emi-neoforge:1.1.24+1.21.1:api'
     if (project.hasProperty('withEmi')) localRuntime 'dev.emi:emi-neoforge:1.1.24+1.21.1'
-    if (project.hasProperty('withFxnt')) localRuntime files(new File(dependencyInput, 'dependencies/artifacts/fxntstorage/1.3.4/fxntstorage-1.3.4+mc-1.21.1-neoforge.jar'))
+    if (project.hasProperty('withFxnt')) {
+        def fxnt = new File(dependencyInput, 'dependencies/artifacts/fxntstorage/1.3.4/fxntstorage-1.3.4+mc-1.21.1-neoforge.jar')
+        if (!fxnt.isFile()) throw new GradleException('Missing locked FXNT test input: ' + fxnt)
+        localRuntime files(fxnt)
+    }
     if (project.hasProperty('withFluid')) {
         def fluid = new File(dependencyInput, 'dependencies/artifacts/fluidlogistics/1.2.9/fluidlogistics-1.2.9.jar')
         if (!fluid.isFile()) throw new GradleException('Missing pinned, isolated FluidLogistics 1.2.9 test artifact')
@@ -281,6 +285,7 @@ dependencies {
 
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.ow2.asm:asm-tree:9.8'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -296,6 +301,7 @@ neoForge {
     runs {
         configureEach {
             systemProperty 'forge.logging.markers', 'REGISTRIES'
+            systemProperty 'fmp.requiredOptionalTests', [withEmi:'emi',withFxnt:'fxntstorage',withCraftingTweaks:'craftingtweaks'].findAll { key,value -> project.hasProperty(key) }.values().join(',')
             systemProperty 'neoforge.enabledGameTestNamespaces', project.hasProperty('fmpPhantomReview') ? 'fmp_phantom_compat' : (project.hasProperty('fmpLegacyWorldReview') ? 'fmp_legacy_migration' : project.mod_id + (project.hasProperty('withPhantom') ? ',fmp_phantom_compat' : ''))
             logLevel = org.slf4j.event.Level.INFO
             jvmArgument '-Xmx2G'
@@ -315,7 +321,7 @@ neoForge {
             if (project.hasProperty('fmpCompatReview')) {
                 if (!project.hasProperty('fmpGameTests') && !project.hasProperty('fmpArtifactProbe')) throw new GradleException('Compatibility review requires isolated test sources or external artifact probe')
                 def review = project.property('fmpCompatReview').toString()
-                if (!(review in ['verify-failure','verify-timeout','templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','materials','sbw','feedback','tacz','wand','gadgets','effortless','craftingtweaks','mousetweaks','toms','toms-network','toms-polymorph','polymorph','ui']))
+                if (!(review in ['verify-failure','verify-timeout','settings-close','growth','templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','materials','sbw','feedback','tacz','wand','gadgets','effortless','craftingtweaks','mousetweaks','toms','toms-network','toms-polymorph','polymorph','ui']))
                     throw new GradleException('Unknown compatibility review')
                 systemProperty 'fmp.compatReview', review
             }
@@ -342,6 +348,20 @@ neoForge {
                 gameDirectory = lifecycleDirectory('fluid-' + parts[0], parts[2], parts[1] == 'write')
                 systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_lifecycle'
                 systemProperty 'fmp.fluidLifecycle', parts[0] + ':' + parts[1]
+            }
+            if (project.hasProperty('fmpLedgerBenchmark')) {
+                if (!project.hasProperty('fmpGameTests')) throw new GradleException('Ledger benchmark requires test sources')
+                systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_ledger_performance'
+                systemProperty 'fmp.ledgerBenchmark', project.property('fmpLedgerBenchmark').toString()
+            }
+            if (project.hasProperty('fmpLedgerLifecycle')) {
+                def scenario = project.property('fmpLedgerLifecycle').toString()
+                if (!project.hasProperty('fmpGameTests') || !(scenario ==~ /(write|absent|absent-again|restore|verify):[a-z0-9_-]+/))
+                    throw new GradleException('Ledger isolation requires test sources and <write|absent|absent-again|restore|verify>:<batch>')
+                def parts = scenario.split(':')
+                gameDirectory = lifecycleDirectory('ledger-isolation', parts[1], parts[0] == 'write')
+                systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_ledger_isolation'
+                systemProperty 'fmp.ledgerLifecycle', parts[0]
             }
             if (project.hasProperty('fmpConfigStartup')) {
                 def scenario = project.property('fmpConfigStartup').toString()
@@ -477,6 +497,8 @@ tasks.register('artifactProbeJar', Jar) {
         // Only native client drivers and their item/container fixtures belong here. Including all
         // GameTest holders makes NeoForge eagerly load historical migration-only dependencies.
         include 'dev/scathiard/feedmepackages/gametest/*ClientReview*.class'
+        include 'dev/scathiard/feedmepackages/gametest/ClientGrowthReview*.class'
+        include 'dev/scathiard/feedmepackages/gametest/ClientConsumptionReview*.class'
         // The converged controls review constructs an old ownership fixture in its isolated world.
         include 'dev/scathiard/feedmepackages/gametest/LegacyOwnership*.class'
         include 'dev/scathiard/feedmepackages/gametest/ArtifactProbeBootstrap*.class'
@@ -513,6 +535,7 @@ tasks.named('test', Test).configure {
 }
 
 tasks.named('processGameTestResources', ProcessResources).configure {
+    from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_ledger_isolation/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_mobile_return/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_maid_lifecycle/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_config_startup/structure' }

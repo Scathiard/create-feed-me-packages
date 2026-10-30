@@ -691,7 +691,7 @@ public final class InteractionTests {
                     .getList("entries",net.minecraft.nbt.Tag.TAG_COMPOUND).getCompound(0).getCompound("volume_controls").putInt("upper",999999);
         }
         var refused=CacheLedger.load(corrupt,p.registryAccess());
-        h.assertTrue(!refused.problem().isEmpty() && refused.save(new net.minecraft.nbt.CompoundTag(),p.registryAccess()).equals(corrupt),"Corrupt fine controls were silently overwritten");
+        h.assertTrue(!refused.problem(handle.cacheId()).isEmpty() && LedgerIsolationTests.sameRows(refused.save(new net.minecraft.nbt.CompoundTag(),p.registryAccess()),corrupt),"Corrupt fine controls were silently overwritten");
         h.succeed();
     }
 

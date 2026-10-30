@@ -28,12 +28,12 @@ import java.util.List;
 @GameTestHolder(FeedMePackages.MOD_ID)
 @PrefixGameTestTemplate(false)
 public final class FxntInjectionProbeTests {
-    @GameTest(template = "empty")
+    @net.minecraft.gametest.framework.GameTestGenerator public static java.util.Collection<net.minecraft.gametest.framework.TestFunction> selectedTests(){
+        return OptionalTests.select(FxntInjectionProbeTests.class,"fxntstorage","nativeTransferMethodsExposeOnlyPaidSources");
+    }
     public static void nativeTransferMethodsExposeOnlyPaidSources(GameTestHelper helper) throws Exception {
         if (!ModList.get().isLoaded("fxntstorage")) {
-            FeedMePackages.LOGGER.info("FMP compat probe: skipped (fxntstorage is not installed)");
-            helper.succeed();
-            return;
+            throw new IllegalStateException("Required native FXNT test mod is absent");
         }
         var player = TestPlayers.create(helper, dev.scathiard.feedmepackages.registry.FmpRegistries.PENDANT.toStack());
         // Real crafting menu (their placement writes into these slots) and a matching cache cell to debit.

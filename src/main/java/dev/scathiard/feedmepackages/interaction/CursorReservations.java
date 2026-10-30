@@ -78,6 +78,7 @@ public final class CursorReservations {
             return putBack(player, hold, carried, intent.first() == 1);
         }
         if (intent.action() != CacheActions.Action.TAKE_CURSOR || !carried.isEmpty()) return null;
+        if(!dev.scathiard.feedmepackages.mixin.OptionalMixins.craftingTweaksSafe())return CacheActions.Result.UNSUPPORTED_RECIPE;
         if (hold != null) return CacheActions.Result.STALE;
         if (intent.first() < 1) return CacheActions.Result.INVALID_REQUEST;
         CacheRecord record = CacheLedger.get(player.getServer()).find(handle.cacheId());

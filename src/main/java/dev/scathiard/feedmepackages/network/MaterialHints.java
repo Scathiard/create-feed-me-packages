@@ -103,19 +103,10 @@ public final class MaterialHints {
             FeedMePackages.LOGGER.warn("FMP cache ledger locked; telling {} why, in their own language ({})", player.getGameProfile().getName(), reason);
         player.displayClientMessage(lockMessage(player), true);
     }
-    /**
-     * Name both numbers when we can: a locked ledger is refused but never forgotten - its save() returns
-     * the original tag verbatim (CacheLedger:233), so the schema the newer version wrote is readable here
-     * without any new field. If it cannot be read, say what we do know.
-     */
+    /** Explain preservation without guessing the fault or serializing all caches for a notice. */
     private static Component lockMessage(ServerPlayer player) {
-        try {
-            var preserved = CacheLedger.get(player.getServer()).save(new CompoundTag(), player.registryAccess());
-            if (preserved.contains("schema"))
-                return Component.translatable("gui.create_feed_me_packages.status.storage_locked.detail",
-                        preserved.getInt("schema"), CacheLedger.SCHEMA);
-        } catch (RuntimeException unreadable) { /* fall through: still say the part we know */ }
-        return Component.translatable("gui.create_feed_me_packages.status.storage_locked.detail.unknown", CacheLedger.SCHEMA);
+        // A bad component and an unsupported schema are different causes. Do not guess by serializing the ledger.
+        return Component.translatable("gui.create_feed_me_packages.status.storage_locked.preserved");
     }
     public static Message next(ServerPlayer player) {
         var access = AccessGate.resolve(player); boolean active = access.active() && !player.isSpectator();
@@ -146,7 +137,7 @@ public final class MaterialHints {
             own = adjusted;
             once("namelessCells", "FMP material hints: {} cache cell(s) cannot be named by an item template; kept out of the material view", nameless);
         }
-        boolean crafting = active && ledger.find(handle.cacheId()).craftingEnabled();
+        boolean crafting = active && dev.scathiard.feedmepackages.consumption.CraftingService.enabled(player);
         boolean first = active && ledger.cacheFirst(player.getUUID()); var last = LAST.get(player);
         if (last != null && Objects.equals(last.handle, handle) && last.message.templates.equals(templates)
                 && last.message.amounts.equals(amounts) && last.message.cacheFirst == first && last.message.craftingEnabled == crafting && last.message.menu == menu

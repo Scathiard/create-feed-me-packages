@@ -125,6 +125,8 @@ public final class LogisticsPanel {
     private static int requestedColumnLimit = CacheViewport.COLUMNS;
     private static int queuedScrollRow = -1;
     private static int selected;
+    private static final ClosingSettings closingSettings=new ClosingSettings();
+    private static UUID finalizedWindow;
     private static final Map<Integer, CellControlDraft> controlDrafts = new HashMap<>();
     private static int dragStartValue;
     private static CellControlDraft.Context dragContext;
@@ -223,6 +225,7 @@ public final class LogisticsPanel {
             FeedMePackages.LOGGER.warn("Could not read panel visibility; starting expanded", failure);
         }
         PanelNetwork.receiveOnClient(LogisticsPanel::receive);
+        PanelNetwork.receiveFinalSettingsOnClient(closingSettings::accept);
         PanelNetwork.receiveCursorOnClient(LogisticsPanel::receiveCursor);
         PanelNetwork.receiveLevelOnClient(LogisticsPanel::receiveLevel);
         IEventBus bus = NeoForge.EVENT_BUS;
@@ -518,6 +521,8 @@ public final class LogisticsPanel {
     private static void tick() {
         boolean overlay;
         ++tick;
+        closingSettings.tick(tick);
+        if(MC.getConnection()==null){closingSettings.clear();finalizedWindow=null;}
         if (MC.player == null || MC.getConnection() == null) pendingCursorChange = null;
 
         boolean bl = overlay = isRecipeOverlay(LogisticsPanel.MC.screen) && window != null;
@@ -564,6 +569,7 @@ public final class LogisticsPanel {
         LogisticsPanel.close();
         screen = value;
         window = UUID.randomUUID();
+        finalizedWindow=null;
         lastQuery = tick - 10;
     }
 
@@ -575,7 +581,7 @@ public final class LogisticsPanel {
 
     private static void close() {
         templateTarget = -1; templateSequence = 0; earlyTemplateButton = -1; browserDrag = null;
-        if(MC.getConnection()!=null && MC.player!=null && active() && window!=null) submitControls(true);
+        if(MC.getConnection()!=null && MC.player!=null && active() && window!=null) submitFinalControls();
         controlDrafts.clear();
         dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP_CLOSE_PREVIEW confirmed={} variant={} remaining={} carry={}",
                 previewConfirmed, previewVariant, previewRemaining, LogisticsPanel.MC.player == null ? null : LogisticsPanel.MC.player.containerMenu.getCarried());
@@ -633,7 +639,7 @@ public final class LogisticsPanel {
         feedback = null;
     }
     public static void beforeContainerClose(AbstractContainerScreen<?> closing) {
-        if(screen==closing && MC.getConnection()!=null && active() && window!=null) submitControls(true);
+        if(screen==closing && MC.getConnection()!=null && active() && window!=null) submitFinalControls();
     }
 
     private static void receive(PanelPackets.Snapshot incoming) {
@@ -1241,7 +1247,7 @@ public final class LogisticsPanel {
         String value = returnEditing ? returnBuffer : (snapshot.returnAddress() == null ? "" : snapshot.returnAddress());
         int textWidth = Math.max(0, w - 12);
         boolean bl = placeholder = value.isEmpty() && !returnEditing;
-        String shown = placeholder ? LogisticsPanel.tr("return_label", new Object[0]).getString() : (LogisticsPanel.MC.font.width(value) <= textWidth ? value : LogisticsPanel.MC.font.plainSubstrByWidth(value, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026");
+        String shown = placeholder ? LogisticsPanel.tr(snapshot.returnAddressPreserved() ? "return_invalid_label" : "return_label", new Object[0]).getString() : (LogisticsPanel.MC.font.width(value) <= textWidth ? value : LogisticsPanel.MC.font.plainSubstrByWidth(value, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026");
         int n = y + h / 2;
         Objects.requireNonNull(LogisticsPanel.MC.font);
         LogisticsPanel.text(g, shown, x + 9, n - 9 / 2, placeholder ? -7700888 : (returnEditing ? -11912408 : 0xFF000000));
@@ -1250,7 +1256,7 @@ public final class LogisticsPanel {
             g.fill(caretX, y + 4, caretX + 1, y + h - 4, -11912408);
         }
         if (r.contains(mouseX, mouseY)) {
-            tooltip = List.of(LogisticsPanel.tr(returnEditing ? "return_editing" : "return_hint", new Object[0]));
+            tooltip = List.of(LogisticsPanel.tr(returnEditing ? "return_editing" : snapshot.returnAddressPreserved() ? "return_invalid_hint" : "return_hint", new Object[0]));
         }
     }
 
@@ -1855,6 +1861,16 @@ public final class LogisticsPanel {
     private static void flushPendingThresholds() {
         if(snapshot==null || !active() || waiting!=0 || cursorPending || pendingCursorChange!=null || draggingSlider || draggingMaximum) return;
         submitControls(false);
+    }
+    private static void submitFinalControls() {
+        if(window.equals(finalizedWindow))return;
+        finalizedWindow=window;
+        controlDrafts.entrySet().removeIf(e->!currentDraft(e.getValue()));
+        var changes=controlDrafts.values().stream().filter(CellControlDraft::dirty).map(d->new CacheActions.SettingsChange(
+                d.context().slot(),d.context().filterRevision(),d.value(),draftCell(d).fluid())).toList();
+        if(changes.isEmpty())return;
+        var packet=new PanelPackets.FinalSettings(screen.getMenu().containerId,new PanelPackets.SettingsBatch(window,snapshot.session(),++sequence,changes));
+        if(closingSettings.begin(packet,tick))PacketDistributor.sendToServer(packet);
     }
     private static void submitControls(boolean closing) {
         controlDrafts.entrySet().removeIf(e -> !currentDraft(e.getValue()));

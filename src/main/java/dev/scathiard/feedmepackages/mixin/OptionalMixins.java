@@ -12,6 +12,33 @@ import java.util.Set;
 
 /** Inspects bytecode without loading optional game classes during bootstrap. */
 public final class OptionalMixins implements IMixinConfigPlugin {
+    private static Boolean craftingTweaksReady;
+    public static final List<String> CRAFTING_TWEAK_MESSAGES=List.of("RotateMessage","BalanceMessage","ClearMessage","TransferStackMessage","RefillLastCraftedMessage","CompressMessage","CraftStackMessage");
+    public static boolean craftingTweaksCompatible(){return Boolean.TRUE.equals(craftingTweaksReady);}
+    /** A missing optional editor is harmless; a present editor without accounting must see only real items. */
+    public static boolean craftingTweaksSafe(){return !net.neoforged.fml.ModList.get().isLoaded("craftingtweaks") || craftingTweaksCompatible();}
+    private static synchronized boolean inspectCraftingTweaks() {
+        if(craftingTweaksReady!=null)return craftingTweaksReady;
+        try {
+            var nodes=new java.util.HashMap<String,ClassNode>();
+            for(var name:CRAFTING_TWEAK_MESSAGES)nodes.put(name,MixinService.getService().getBytecodeProvider().getClassNode("net.blay09.mods.craftingtweaks.network."+name));
+            return craftingTweaksReady=craftingTweaksShape(nodes);
+        } catch(ClassNotFoundException | IOException absent){return craftingTweaksReady=false;}
+    }
+    public static boolean craftingTweaksShape(java.util.Map<String,ClassNode> nodes) {
+        for(var name:CRAFTING_TWEAK_MESSAGES) {
+            String owner="net/blay09/mods/craftingtweaks/network/"+name;
+            var node=nodes.get(name);if(node==null || !owner.equals(node.name))return false;
+            var handlers=node.methods.stream().filter(m->m.name.equals("handle")).toList();
+            // WrapMethod selects by name: a new overload is also an unsupported shape.
+            if(handlers.size()!=1)return false;
+            var method=handlers.getFirst();
+            if(!method.desc.equals("(Lnet/minecraft/server/level/ServerPlayer;L"+owner+";)V")
+                    || (method.access & org.objectweb.asm.Opcodes.ACC_STATIC)==0
+                    || (method.access & (org.objectweb.asm.Opcodes.ACC_ABSTRACT|org.objectweb.asm.Opcodes.ACC_NATIVE))!=0)return false;
+        }
+        return true;
+    }
     private static Boolean sbwReady;
     public static boolean sbwCompatible() { return Boolean.TRUE.equals(sbwReady); }
     private static synchronized boolean inspectSbw() {
@@ -97,6 +124,7 @@ public final class OptionalMixins implements IMixinConfigPlugin {
     @Override public void onLoad(String mixinPackage) {}
     @Override public String getRefMapperConfig() { return null; }
     @Override public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (mixinClassName.endsWith("CraftingTweaksEditMixin")) return inspectCraftingTweaks();
         if (mixinClassName.endsWith("ArsPlaceSourcesMixin")) return inspectArs(targetClassName);
         if (mixinClassName.endsWith("SbwAmmoSourcesMixin") || mixinClassName.endsWith("SbwAmmoCountMixin")) return inspectSbw();
         if (mixinClassName.endsWith("Phantom102SettlementMixin")) {

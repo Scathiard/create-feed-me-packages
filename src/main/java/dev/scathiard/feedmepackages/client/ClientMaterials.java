@@ -33,7 +33,7 @@ public final class ClientMaterials {
     }
     public static void clear() { generation = null; cache = null; serial = 0; active = false; first = false; craftingEnabled = false; prototypes = List.of(); counts = List.of(); ownReservations = List.of(); reservedGrid = List.of(); }
     public static boolean active() { return active && Minecraft.getInstance().player != null && !Minecraft.getInstance().player.isSpectator(); }
-    public static boolean craftingEnabled() { return active() && craftingEnabled; }
+    public static boolean craftingEnabled() { return active() && craftingEnabled && dev.scathiard.feedmepackages.mixin.OptionalMixins.craftingTweaksSafe(); }
     public static boolean cacheFirst() { return false; }
     public static UUID cacheId() { return cache; }
     public static long version() { return serial; }

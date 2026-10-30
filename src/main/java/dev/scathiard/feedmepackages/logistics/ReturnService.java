@@ -110,7 +110,7 @@ public final class ReturnService {
                 ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), cell.settings().returnBatch(), RETURN_UNKNOWN);
                 continue;
             }
-            if (address == null || address.isEmpty()) {
+            if (!dev.scathiard.feedmepackages.domain.ReturnAddress.valid(address) || address.isEmpty()) {
                 ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), cell.settings().returnBatch(), RETURN_FAILED);
                 continue;
             }

@@ -19,16 +19,37 @@ public final class TransportDispatch {
         static Result known(boolean sent, String transport) { return new Result(sent ? Outcome.SENT : Outcome.NOT_SENT, transport, null); }
     }
 
-    private static boolean present(String className) {
-        try { Class.forName(className, false, TransportDispatch.class.getClassLoader()); return true; }
-        catch (ClassNotFoundException absent) { return false; }
+    private static Boolean paperReady,beeReady;
+    public static synchronized boolean paperReady() {
+        if(paperReady!=null)return paperReady;
+        try {
+            var m=Class.forName("com.kreidev.cmpackagecouriers.plane.CardboardPlaneManager").getMethod("addPlane",net.minecraft.world.level.Level.class,Vec3.class,float.class,float.class,ItemStack.class,boolean.class);
+            return paperReady=m.getReturnType()==boolean.class && java.lang.reflect.Modifier.isStatic(m.getModifiers());
+        } catch(ReflectiveOperationException | LinkageError unavailable){return paperReady=false;}
     }
-
+    public static synchronized boolean beeReady() {
+        if(beeReady!=null)return beeReady;
+        try {
+            if(!dev.scathiard.feedmepackages.mixin.OptionalMixins.mobileStorageCompatible())return beeReady=false;
+            var robo=Class.forName("de.theidler.create_mobile_packages.robo.VirtualRobo");
+            robo.getConstructor(ServerLevel.class,java.util.UUID.class,ItemStack.class,BlockPos.class,java.util.UUID.class);
+            if(robo.getMethod("getTargetPosition").getReturnType()!=Vec3.class)return beeReady=false;
+            var target=Class.forName("de.theidler.create_mobile_packages.robo.RoboTarget");
+            if(robo.getMethod("getTarget").getReturnType()!=target)return beeReady=false;
+            var valid=target.getMethod("isValid",robo);
+            if(valid.getReturnType()!=boolean.class || java.lang.reflect.Modifier.isStatic(valid.getModifiers()))return beeReady=false;
+            var type=Class.forName("de.theidler.create_mobile_packages.robo.RoboManager");
+            var get=type.getMethod("get",ServerLevel.class);
+            var send=type.getMethod("newRobo",ServerLevel.class,ItemStack.class,BlockPos.class,java.util.UUID.class,float.class,BlockPos.class,boolean.class);
+            return beeReady=get.getReturnType()==type && java.lang.reflect.Modifier.isStatic(get.getModifiers())
+                    && send.getReturnType()==java.util.UUID.class && !java.lang.reflect.Modifier.isStatic(send.getModifiers());
+        } catch(ReflectiveOperationException | LinkageError unavailable){return beeReady=false;}
+    }
     /** Try to send a package with a paper plane. Returns dispatched only when addPlane accepted it. */
     public static Result paperPlane(ServerLevel level, ItemStack box, Vec3 pos) {
         boolean entered = false;
         try {
-            if (!present("com.kreidev.cmpackagecouriers.plane.CardboardPlaneManager")) return Result.known(false, "paper");
+            if (!paperReady()) return Result.known(false, "paper");
             Class<?> manager = Class.forName("com.kreidev.cmpackagecouriers.plane.CardboardPlaneManager");
             Method addPlane = manager.getMethod("addPlane", net.minecraft.world.level.Level.class, Vec3.class, float.class, float.class, ItemStack.class, boolean.class);
             entered = true;
@@ -53,7 +74,7 @@ public final class TransportDispatch {
             java.util.UUID maidReturn) {
         boolean entered = false;
         try {
-            if (!present("de.theidler.create_mobile_packages.robo.RoboManager")) return Result.known(false, "bee");
+            if (!beeReady()) return Result.known(false, "bee");
             // newRobo always returns a UUID, even when no destination can receive the cargo.
             // Ask an unregistered native probe to resolve its target before handing over any real stock.
             // This keeps native fallback/reselection semantics and creates no entity or transport record.

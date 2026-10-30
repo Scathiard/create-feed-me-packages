@@ -23,6 +23,11 @@ public final class PanelNetwork {
     public static void receiveCursorOnClient(Consumer<PanelPackets.CursorUpdate> receiver) { cursorReceiver = Objects.requireNonNull(receiver); }
     private static Consumer<PanelPackets.SelfLevel> levelReceiver = packet -> {};
     public static void receiveLevelOnClient(Consumer<PanelPackets.SelfLevel> receiver) { levelReceiver = Objects.requireNonNull(receiver); }
+    private static Consumer<PanelPackets.FinalSettingsReceipt> finalSettingsReceiver=packet->{};
+    public static void receiveFinalSettingsOnClient(Consumer<PanelPackets.FinalSettingsReceipt> receiver){finalSettingsReceiver=Objects.requireNonNull(receiver);}
+    private record CompletedFinal(PanelPackets.FinalSettings request,PanelPackets.FinalSettingsReceipt receipt,int tick) {}
+    // One bounded (<=8192-byte) replay receipt per connected player, including after native close.
+    private static final Map<ServerPlayer,CompletedFinal> FINALS=new WeakHashMap<>();
     private record SentLevel(UUID cache, int level) {}
     private static final Map<ServerPlayer, SentLevel> LEVELS = new WeakHashMap<>();
     /**
@@ -45,10 +50,12 @@ public final class PanelNetwork {
     private static final Map<ServerPlayer, Budget> BUDGETS = new WeakHashMap<>();
     private static final class Window {
         final UUID id; final int menu; long serial, cursorSerial; int lastSequence, firstSlot, columnLimit=6;
+        boolean finalized;
+        final net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension;
         dev.scathiard.feedmepackages.logistics.LogisticsSignals.Viewer feedback;
         void closeFeedback() { if (feedback != null) { feedback.close(); feedback = null; } }
         CacheActions.Result lastResult = CacheActions.Result.OK;
-        Window(UUID id, int menu) { this.id = id; this.menu = menu; }
+        Window(UUID id, int menu, ServerPlayer player) { this.id = id; this.menu = menu; dimension=player.level().dimension(); }
     }
     private static final class Budget {
         int queryTick = Integer.MIN_VALUE, actionTick, actions;
@@ -59,7 +66,7 @@ public final class PanelNetwork {
         }
     }
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("15-unicode-address");
+        var registrar = event.registrar("17-final-settings");
         registrar.playToServer(PanelPackets.Query.TYPE, PanelPackets.Query.CODEC, (packet, context) -> {
             var reply = query((ServerPlayer) context.player(), packet); if (reply != null) context.reply(reply);
         });
@@ -70,15 +77,33 @@ public final class PanelNetwork {
         registrar.playToServer(PanelPackets.SettingsBatch.TYPE,PanelPackets.SettingsBatch.CODEC,(packet,context)->{
             var reply=settings((ServerPlayer)context.player(),packet);if(reply!=null)context.reply(reply);
         });
+        registrar.playToServer(PanelPackets.FinalSettings.TYPE,PanelPackets.FinalSettings.CODEC,(packet,context)->context.reply(finalSettings((ServerPlayer)context.player(),packet)));
+        registrar.playToClient(PanelPackets.FinalSettingsReceipt.TYPE,PanelPackets.FinalSettingsReceipt.CODEC,(packet,context)->finalSettingsReceiver.accept(packet));
         registrar.playToClient(PanelPackets.CursorUpdate.TYPE, PanelPackets.CursorUpdate.CODEC, (packet, context) -> cursorReceiver.accept(packet));
         registrar.playToClient(PanelPackets.SelfLevel.TYPE, PanelPackets.SelfLevel.CODEC, (packet, context) -> levelReceiver.accept(packet));
     }
-    public static void forget(ServerPlayer player) { LEVELS.remove(player); var window = WINDOWS.remove(player); if (window != null) window.closeFeedback(); BUDGETS.remove(player); CacheActions.close(player); }
+    public static void forget(ServerPlayer player) { FINALS.remove(player); LEVELS.remove(player); var window = WINDOWS.remove(player); if (window != null) window.closeFeedback(); BUDGETS.remove(player); CacheActions.close(player); }
+    public static PanelPackets.FinalSettingsReceipt finalSettings(ServerPlayer player,PanelPackets.FinalSettings packet) {
+        var batch=packet.settings(); var cached=FINALS.get(player);
+        if(cached!=null && (long)player.tickCount-cached.tick()>400){FINALS.remove(player);cached=null;}
+        if(cached!=null && cached.request().equals(packet))return cached.receipt();
+        var result=CacheActions.Result.STALE;var window=WINDOWS.get(player);
+        if(window!=null && window.id.equals(batch.window()) && window.menu==packet.menu()
+                && window.menu==player.containerMenu.containerId && window.dimension.equals(player.level().dimension())
+                && !window.finalized && batch.sequence()>window.lastSequence) {
+            // Exactly once per established window, independently of the ordinary action budget.
+            window.finalized=true;window.lastSequence=batch.sequence();
+            result=CacheActions.settings(player,batch.session(),batch.changes());
+            var receipt=new PanelPackets.FinalSettingsReceipt(batch.window(),batch.session(),batch.sequence(),result);
+            FINALS.put(player,new CompletedFinal(packet,receipt,player.tickCount));return receipt;
+        }
+        return new PanelPackets.FinalSettingsReceipt(batch.window(),batch.session(),batch.sequence(),result);
+    }
     public static PanelPackets.Snapshot settings(ServerPlayer player,PanelPackets.SettingsBatch packet) {
         var window=WINDOWS.get(player);
         if(window==null || !window.id.equals(packet.window()) || window.menu!=player.containerMenu.containerId)return null;
         boolean allowed=BUDGETS.computeIfAbsent(player,p->new Budget()).action(player.tickCount);
-        if(packet.sequence()<=window.lastSequence)return allowed?snapshot(player,window,packet.sequence(),CacheActions.Result.STALE):null;
+        if(window.finalized || packet.sequence()<=window.lastSequence)return allowed?snapshot(player,window,packet.sequence(),CacheActions.Result.STALE):null;
         window.lastSequence=packet.sequence();
         var result=allowed?CacheActions.settings(player,packet.session(),packet.changes()):CacheActions.Result.TOO_COMPLEX;
         window.lastResult=result;return allowed?snapshot(player,window,packet.sequence(),result):null;
@@ -93,7 +118,7 @@ public final class PanelNetwork {
         if (packet.menu() != player.containerMenu.containerId || packet.firstSlot()<0 || packet.firstSlot()>dev.scathiard.feedmepackages.domain.CacheCapacity.MAX_SLOTS || packet.columnLimit()<2 || packet.columnLimit()>6) return null;
         if (window == null || !window.id.equals(packet.window()) || window.menu != packet.menu()) {
             if (window != null) window.closeFeedback();
-            CacheActions.close(player); window = new Window(packet.window(), packet.menu()); WINDOWS.put(player, window);
+            CacheActions.close(player); window = new Window(packet.window(), packet.menu(), player); WINDOWS.put(player, window);
         }
         window.firstSlot=packet.firstSlot();window.columnLimit=packet.columnLimit();
         return snapshot(player, window, window.lastSequence, window.lastResult);
@@ -107,7 +132,7 @@ public final class PanelNetwork {
         var action = packet.intent().action();
         boolean cleanup = action == CacheActions.Action.RELEASE_PREVIEW || action == CacheActions.Action.RELEASE_FLUID || action == CacheActions.Action.CREATIVE_BEGIN
                 || action == CacheActions.Action.CREATIVE_END;
-        if (packet.sequence() <= window.lastSequence)
+        if (packet.sequence() <= window.lastSequence || window.finalized && !cleanup)
             return replyAllowed ? snapshot(player, window, packet.sequence(), CacheActions.Result.STALE) : null;
         window.lastSequence = packet.sequence();
         var result = !replyAllowed && !cleanup ? CacheActions.Result.TOO_COMPLEX
@@ -167,6 +192,7 @@ public final class PanelNetwork {
         String residualItem = "";
         String returnAddress = access.active() && access.handle() != null
                 ? dev.scathiard.feedmepackages.storage.CacheLedger.get(player.getServer()).returnAddress(access.handle().cacheId()) : null;
+        boolean preservedAddress = returnAddress != null && !dev.scathiard.feedmepackages.domain.ReturnAddress.valid(returnAddress);
         if (record == null) window.closeFeedback();
         if (record != null) {
             if (window.feedback == null || !window.feedback.matches(record.state().id())) {
@@ -201,10 +227,10 @@ public final class PanelNetwork {
                 record == null ? -1 : record.state().revision(), record == null ? 0 : record.state().level(),
                 record == null ? 0 : Math.multiplyExact(record.state().capacity().groups(),64), record != null && record.owner() != null,
                 view.cacheFirst(), access.active() && access.handle().networkId() != null, dev.scathiard.feedmepackages.interaction.PanelAccess.address(player),
-                returnAddress == null ? "" : returnAddress, residualItem, cells, terminals,
+                returnAddress == null || preservedAddress ? "" : returnAddress, residualItem, cells, terminals,
                 new PanelPackets.FluidPreviewView(fluid.slot(), fluid.template(), fluid.amount(), fluid.sequence()),
                 record==null?0:window.firstSlot,record==null?0:record.state().cells().size(),window.columnLimit,
                 access.active() && dev.scathiard.feedmepackages.compat.maid.MaidPickup.enabled(
-                        dev.scathiard.feedmepackages.compat.maid.MaidMenus.target(player.containerMenu)), record == null || record.craftingEnabled());
+                        dev.scathiard.feedmepackages.compat.maid.MaidMenus.target(player.containerMenu)), record == null || record.craftingEnabled(), preservedAddress);
     }
 }
