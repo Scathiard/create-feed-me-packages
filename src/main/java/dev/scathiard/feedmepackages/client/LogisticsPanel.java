@@ -583,8 +583,9 @@ public final class LogisticsPanel {
         templateTarget = -1; templateSequence = 0; earlyTemplateButton = -1; browserDrag = null;
         if(MC.getConnection()!=null && MC.player!=null && active() && window!=null) submitFinalControls();
         controlDrafts.clear();
-        dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP_CLOSE_PREVIEW confirmed={} variant={} remaining={} carry={}",
-                previewConfirmed, previewVariant, previewRemaining, LogisticsPanel.MC.player == null ? null : LogisticsPanel.MC.player.containerMenu.getCarried());
+        if (Boolean.getBoolean("fmp.cursorDiagnostics") && window != null)
+            dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP_CLOSE_PREVIEW window={} confirmed={} remaining={} carriedCount={}",
+                    window, previewConfirmed, previewRemaining, MC.player == null ? 0 : MC.player.containerMenu.getCarried().getCount());
         // 只撤销本次 本地 FMP 预览（客户端维护的 previewRemaining），绝不按 snapshot.reserved(全局合计)撤。
         // 创造光标由客户端持有：TAKE_CURSOR 只发全量包、服务端 carried 为空；本地预览量由预览关联追踪，
         // 并在光标被创造列表替换（变体变化/清空）时失效（updatePreviewOwnership），保留真实/独立/新光标。
@@ -1998,9 +1999,17 @@ public final class LogisticsPanel {
             int cap = cell.stackSize();
             delta = Math.min(Math.max(0, base), Math.min(Math.max(0, first), cap));
         } else {
-            // Source-cell put-back returns the carried stack to this cell; delta <= carried count.
-            int carried = LogisticsPanel.MC.player.containerMenu.getCarried().getCount();
-            delta = Math.min(carried, Math.max(0, cell.stackSize() - base));
+            var carried = MC.player.containerMenu.getCarried();
+            // Reserved amounts combine all viewers' aliases. Without knowing this cursor's share,
+            // wait for the authoritative reply instead of mistaking released aliases for new stock.
+            if (!cell.writable() || cell.reserved() != 0 || cell.fluid() || (first != 0 && first != 1)
+                    || carried.isEmpty() || carried.getCount() > carried.getMaxStackSize()
+                    || !ItemStack.isSameItemSameComponents(carried, ICONS.getOrDefault(cell.template(), ItemStack.EMPTY))) {
+                predict = null; return;
+            }
+            int requested = first == 1 ? 1 : carried.getCount();
+            int capacity = Math.multiplyExact(snapshot.groupCapacity(), cell.stackSize());
+            delta = Math.min(requested, Math.max(0, capacity - cell.amount()));
         }
         int result = action == CacheActions.Action.TAKE_CURSOR ? Math.max(0, base - delta) : base + delta;
         predict = new Predict(window, snapshot.session(), slot, cell.template(), sequence, serial, result);

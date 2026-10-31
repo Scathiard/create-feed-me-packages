@@ -168,6 +168,7 @@ public final class TemplateClientReview {
                         String name=switch(MODE) {
                             case "emi" -> "EmiClientReview";
                             case "settings-close" -> "SettingsCloseClientReview";
+                            case "prediction" -> "PredictionClientReview";
                             case "growth" -> "ClientGrowthReview";
                             case "fluid","fluid-input" -> "FluidClientReview";
                             case "capacity" -> "CapacityClientReview";

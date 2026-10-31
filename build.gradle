@@ -76,7 +76,7 @@ if (runProfile.length() > runLayout.maxProfileLength) {
     logger.lifecycle('FMP run profile {} = {}', runProfile, descriptiveProfile)
 }
 
-def lifecycleKeys = ['fmpFluidLifecycle','fmpConfigStartup','fmpCapacityLifecycle','fmpMaidFlight','fmpMobileReturnFlight','fmpLedgerLifecycle'].findAll { project.hasProperty(it) }
+def lifecycleKeys = ['fmpFluidLifecycle','fmpConfigStartup','fmpCapacityLifecycle','fmpMaidFlight','fmpMobileReturnFlight','fmpLedgerLifecycle','fmpSaveBoundary'].findAll { project.hasProperty(it) }
 if (lifecycleKeys.size() > 1 || (lifecycleKeys && project.hasProperty('fmpRunLabel')))
     throw new GradleException('Select one lifecycle scenario; its explicit batch replaces fmpRunLabel')
 
@@ -321,7 +321,7 @@ neoForge {
             if (project.hasProperty('fmpCompatReview')) {
                 if (!project.hasProperty('fmpGameTests') && !project.hasProperty('fmpArtifactProbe')) throw new GradleException('Compatibility review requires isolated test sources or external artifact probe')
                 def review = project.property('fmpCompatReview').toString()
-                if (!(review in ['verify-failure','verify-timeout','settings-close','growth','templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','materials','sbw','feedback','tacz','wand','gadgets','effortless','craftingtweaks','mousetweaks','toms','toms-network','toms-polymorph','polymorph','ui']))
+                if (!(review in ['verify-failure','verify-timeout','settings-close','prediction','growth','templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','materials','sbw','feedback','tacz','wand','gadgets','effortless','craftingtweaks','mousetweaks','toms','toms-network','toms-polymorph','polymorph','ui']))
                     throw new GradleException('Unknown compatibility review')
                 systemProperty 'fmp.compatReview', review
             }
@@ -353,6 +353,15 @@ neoForge {
                 if (!project.hasProperty('fmpGameTests')) throw new GradleException('Ledger benchmark requires test sources')
                 systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_ledger_performance'
                 systemProperty 'fmp.ledgerBenchmark', project.property('fmpLedgerBenchmark').toString()
+            }
+            if (project.hasProperty('fmpSaveBoundary')) {
+                def scenario = project.property('fmpSaveBoundary').toString()
+                if (!project.hasProperty('fmpGameTests') || !(scenario ==~ /(write|read):(normal|unsaved|ledger-only|player-only):[a-z0-9_-]+/))
+                    throw new GradleException('Save boundary requires tests and <write|read>:<normal|unsaved|ledger-only|player-only>:<batch>')
+                def parts = scenario.split(':')
+                gameDirectory = lifecycleDirectory('save-' + parts[1], parts[2], parts[0] == 'write')
+                systemProperty 'neoforge.enabledGameTestNamespaces', 'fmp_save_boundary'
+                systemProperty 'fmp.saveBoundary', scenario
             }
             if (project.hasProperty('fmpLedgerLifecycle')) {
                 def scenario = project.property('fmpLedgerLifecycle').toString()
@@ -535,6 +544,7 @@ tasks.named('test', Test).configure {
 }
 
 tasks.named('processGameTestResources', ProcessResources).configure {
+    from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_save_boundary/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_ledger_isolation/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_mobile_return/structure' }
     from('src/gametest/resources/data/create_feed_me_packages/structure/empty.nbt') { into 'data/fmp_maid_lifecycle/structure' }
