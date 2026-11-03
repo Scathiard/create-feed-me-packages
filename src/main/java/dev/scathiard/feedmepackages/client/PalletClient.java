@@ -21,14 +21,19 @@ public final class PalletClient {
     private static boolean cargo, queuedFeed;
     private static final dev.scathiard.feedmepackages.domain.PalletMorph morph = new dev.scathiard.feedmepackages.domain.PalletMorph();
     private static PalletMaterial confirmed = PalletMaterial.EMPTY;
+    private static final dev.scathiard.feedmepackages.domain.PalletFluidFeedback fluidFeedback = new dev.scathiard.feedmepackages.domain.PalletFluidFeedback();
+    private static net.neoforged.neoforge.fluids.FluidStack feedbackFluid = net.neoforged.neoforge.fluids.FluidStack.EMPTY;
     private static dev.scathiard.feedmepackages.domain.PalletFeedPose interrupted;
     private static double time(float partial) {
         var level=Minecraft.getInstance().level;
         return level==null ? 0 : (level.getGameTime()+partial)/20.0;
     }
-    public static void resetMotion() { feedStarted=-1; cargo=false; stockVersion=-1; interrupted=null; queuedFeed=false; morph.snap(!confirmed.fluid().isEmpty()); }
+    public static void resetMotion() { fluidFeedback.reset(); feedbackFluid=net.neoforged.neoforge.fluids.FluidStack.EMPTY; feedStarted=-1; cargo=false; stockVersion=-1; interrupted=null; queuedFeed=false; morph.snap(!confirmed.fluid().isEmpty()); }
     public static dev.scathiard.feedmepackages.domain.PalletMorph.Pose modePose(float partial) { return morph.pose(time(partial)); }
     public static boolean hasCargo() { return cargo; }
+    public static dev.scathiard.feedmepackages.domain.PalletFluidFeedback.Pose fluidPose(float partial) { return fluidFeedback.pose(time(partial)); }
+    public static net.neoforged.neoforge.fluids.FluidStack feedbackFluid() { return feedbackFluid; }
+    private static void cancelFluidFeedback() { fluidFeedback.cancel(time(0)); feedbackFluid=net.neoforged.neoforge.fluids.FluidStack.EMPTY; }
     public static long feedReceipts() { return feedReceipts; }
     public static PalletMaterial displayed() { return confirmed; }
     public static dev.scathiard.feedmepackages.domain.PalletFeedPose feedPose(float partial) {
@@ -62,7 +67,7 @@ public final class PalletClient {
                 boolean changed=!confirmed.equals(selected);
                 confirmed=selected;
                 morph.target(!confirmed.fluid().isEmpty(),time(0));
-                if(changed) animate(!confirmed.isEmpty() && amount(confirmed)>0);
+                if(changed) { cancelFluidFeedback(); animate(!confirmed.isEmpty() && amount(confirmed)>0); }
             }
         });
         PalletNetwork.receiveFeedOnClient(message -> {
@@ -70,6 +75,10 @@ public final class PalletClient {
             if(mc.player==null || !PalletService.holding(mc.player) || !Objects.equals(cache,choice.cache()) || sequence!=choice.sequence()
                     || selected.isEmpty() || !selected.encoded().equals(choice.encoded())) return;
             feedReceipts++; animate(message.hasNext());
+            if(!confirmed.fluid().isEmpty() && confirmed.equals(selected)) {
+                feedbackFluid=confirmed.fluid().copy();
+                fluidFeedback.success(time(0));
+            }
         });
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post event) -> { sync(); if(Minecraft.getInstance().player!=null) dev.scathiard.feedmepackages.consumption.PalletUse.tick(Minecraft.getInstance().player); });
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> { if(event.getPlayer()!=null) dev.scathiard.feedmepackages.consumption.PalletUse.forget(event.getPlayer()); cache = null; selected = confirmed = PalletMaterial.EMPTY; sequence = 0; fluids=null;fluidVersion++; resetMotion(); });
@@ -152,6 +161,7 @@ public final class PalletClient {
     public static void choose(PalletMaterial stack) {
         sync(); var mc = Minecraft.getInstance();
         if (cache == null || mc.player == null || !ClientMaterials.active() || stack.isEmpty()) return;
+        if(!selected.equals(stack)) cancelFluidFeedback();
         selected = stack;
         PacketDistributor.sendToServer(new PalletNetwork.Selection(++sequence, cache, selected.encoded()));
     }

@@ -1,14 +1,12 @@
-Pocket Pallet test.71 asset provenance
+Pocket Pallet r014 asset provenance (test.75)
 
-Original item-mode art: art/pocket_pallet/r005, supplied and approved by the project owner for local integration.
-Dual-mode source: art/pocket_pallet/r011; animated BBModel SHA-256 71fe8876a4ed4b732d027a8e95af03c7650c37cc32c3c46651155bf4955e4e17.
+Original item-mode art: art/pocket_pallet/r005, supplied and approved by the project owner.
+Dual-mode source: art/pocket_pallet/r014; animated BBModel SHA-256 79fd3a10353adc479bf3037001d49b241b68b74fdf808109733542f2ad1b8f18.
 The art source directories are preserved unchanged. Runtime model copies live in assets/create_feed_me_packages/models/item/pocket_pallet/.
 
-The original body, continuous rails, tray and claws retain their authored geometry and display transforms. The item-mode fixed mesh is split into body, socket, rails and head for the reversible motion. Fluid pipe/head/window geometry comes from r011. Runtime motion uses translated, outlet-clipped faces with interpolated UVs, not the preview helper-bone scaling. The fluid preview uses the selected fluid's native still texture and tint; it is not a second tank.
+The original body, continuous rails, tray and claws retain their authored geometry and display transforms. Fluid pipe, chamber and three nozzle sections come from r014. Runtime motion uses translated, outlet-clipped faces with interpolated UVs, not preview helper-bone scaling. Both mode changes take 0.30 seconds; successful fluid use triggers 0.24-second valve/jet feedback. These local display timelines never delay use or own fluid stock.
 
-The authored rear body retains geometry from Create Extendo Grip. Its texture is referenced as create:item/extendo_grip. The existing front texture is the supplied 128 x 128 pocket_pallet_front.png. No preview cargo cube is baked into the runtime exports.
-The new fluid parts reference Create's native textures: create:block/glass_fluid_pipe, create:block/fluid_tank, create:block/fluid_tank_window_single and create:block/spout_nozzle. No Create PNG is bundled by this integration. Source export credits do not override the original asset license.
+The rear body retains geometry from Create Extendo Grip. Its texture is referenced as create:item/extendo_grip. The front texture is the supplied 128 x 128 pocket_pallet_front.png. No preview cargo, fluid, jet or drops are baked into the model. Liquid display uses the selected fluid's native still texture, tint and emitted light.
+The r014 fluid parts reference Create's native textures: create:block/glass_fluid_pipe, create:block/fluid_tank_window_single, create:block/spout_nozzle and create:block/spout. No new Create PNG is bundled by this integration.
 
-Create assets are All Rights Reserved, separate from Create code's MIT license. See CREATE-ASSET-LICENSE.md beside this notice.
-This local test candidate does not establish public redistribution permission. Resolve the retained Create geometry's reuse conditions, or replace it, before public release.
-The project's MIT license does not relicense third-party asset rights.
+Create assets are All Rights Reserved, separate from Create code's MIT license. Copyright (c) The Create Team / The Creators of Create. See CREATE-ASSET-LICENSE.md beside this notice. Art export metadata does not override the original license; the project's MIT license does not relicense third-party asset rights.

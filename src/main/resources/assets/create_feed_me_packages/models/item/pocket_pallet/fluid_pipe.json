@@ -1,8 +1,7 @@
 {
-  "credit": "FMP r011 geometry. Create textures referenced at runtime; see META-INF/fmp-pallet-art.txt.",
+  "credit": "Pocket Pallet r014 by the project art team. Create textures remain All Rights Reserved; see META-INF/fmp-pallet-art.txt.",
   "textures": {
-    "1": "create:block/glass_fluid_pipe",
-    "particle": "create:block/fluid_tank"
+    "1": "create:block/glass_fluid_pipe"
   },
   "elements": [
     {

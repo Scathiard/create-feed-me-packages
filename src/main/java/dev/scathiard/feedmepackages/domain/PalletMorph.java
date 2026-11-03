@@ -1,8 +1,8 @@
 package dev.scathiard.feedmepackages.domain;
 
-/** r011's reversible display timeline. It never delays use, owns stock or queues selections. */
+/** r014's reversible display timeline. It never delays use, owns stock or queues selections. */
 public final class PalletMorph {
-    public static final double DURATION = 1.2;
+    public static final double DURATION = .3;
     private double from, target, since;
     public void snap(boolean fluid) { from=target=fluid?1:0; since=0; }
     public void target(boolean fluid,double now) {

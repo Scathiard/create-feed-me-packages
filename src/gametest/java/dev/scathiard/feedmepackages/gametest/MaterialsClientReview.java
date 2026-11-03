@@ -45,8 +45,8 @@ final class MaterialsClientReview {
                 bread=PalletClient.candidates().stream().filter(m->m.is(Items.BREAD)).findFirst().orElseThrow();
                 water=PalletClient.candidates().stream().filter(m->m.fluid().getFluid()==Fluids.WATER).findFirst().orElseThrow();
                 lava=PalletClient.candidates().stream().filter(m->m.fluid().getFluid()==Fluids.LAVA).findFirst().orElseThrow();
-                for(String name:List.of("create_body_fixed","feed_socket_fixed","rails_fixed","head_fixed","fluid_pipe","fluid_head","fluid_glass"))
-                    require(MC.getModelManager().getModel(PalletRenderer.modelId(name))!=MC.getModelManager().getMissingModel(),"r011 missing model "+name);
+                for(String name:List.of("create_body_fixed","feed_socket_fixed","rails_fixed","head_fixed","fluid_pipe","fluid_head","nozzle_collar","nozzle_middle","nozzle_tip"))
+                    require(MC.getModelManager().getModel(PalletRenderer.modelId(name))!=MC.getModelManager().getMissingModel(),"r014 missing model "+name);
                 PalletClient.mode(false);button(2,true);next();
             }
             case 2 -> { if(elapsed<8)break;select(m->m.is(Items.BREAD));next(); }
@@ -88,14 +88,14 @@ final class MaterialsClientReview {
                         && p.hasEffect(net.minecraft.world.effect.MobEffects.FIRE_RESISTANCE),"Native potion lost effect/remainder or charged twice"));
                 button(2,true);next();
             }
-            case 12 -> { if(elapsed<8)break;TemplateClientReview.capture("materials-fluid-selector");select(m->!m.fluid().isEmpty());next(); }
+            case 12 -> { if(elapsed<8)break;TemplateClientReview.capture("materials-fluid-selector");select(m->m.equals(water));MC.player.setXRot(65);next(); }
             case 13 -> {
-                if(elapsed<8)break;require(!PalletClient.selected().fluid().isEmpty(),"Fluid selection packet failed");
+                if(!PalletClient.displayed().equals(water) || PalletClient.modePose(0).progress()==0)break;require(!PalletClient.selected().fluid().isEmpty(),"Fluid selection packet failed");
                 require(PalletClient.modePose(0).progress()>0 && PalletClient.modePose(0).progress()<1,"Mode switch must animate");
-                TemplateClientReview.capture("pallet-mode-item-retract");MC.player.setXRot(65);next();
+                TemplateClientReview.capture("pallet-mode-item-retract");next();
             }
             case 14 -> {
-                if(elapsed<5)break;require(PalletClient.modePose(0).progress()<1,"Fluid-use fixture must exercise use during morph");
+                require(PalletClient.modePose(0).progress()<1,"Fluid-use fixture must exercise use during morph");
                 require(MC.hitResult instanceof BlockHitResult,"No native ground ray for fluid");
                 var hit=(BlockHitResult)MC.hitResult;waterTarget=hit.getBlockPos().relative(hit.getDirection());
                 button(1,true);next();
@@ -142,13 +142,13 @@ final class MaterialsClientReview {
                 PalletClient.choose(bread);next();
             }
             case 26 -> {
-                if(elapsed<10)break;reversedFrom=PalletClient.modePose(0).progress();
+                if(!PalletClient.displayed().equals(bread) || PalletClient.modePose(0).progress()==1)break;reversedFrom=PalletClient.modePose(0).progress();
                 require(reversedFrom>0 && reversedFrom<1,"No reverse morph in progress");TemplateClientReview.capture("pallet-mode-fluid-retract");
                 PalletClient.choose(water);next();
             }
             case 27 -> {
-                if(elapsed<3)break;double progress=PalletClient.modePose(0).progress();
-                require(progress>0 && progress<1 && Math.abs(progress-reversedFrom)<.3,"Mid-morph reversal snapped to an endpoint");next();
+                if(!PalletClient.displayed().equals(water))break;double progress=PalletClient.modePose(0).progress();
+                require(progress>0 && Math.abs(progress-reversedFrom)<=elapsed*.05/dev.scathiard.feedmepackages.domain.PalletMorph.DURATION+1e-8,"Mid-morph reversal snapped to an endpoint");next();
             }
             case 28 -> {
                 if(elapsed<25)break;require(PalletClient.modePose(0).progress()==1 && PalletClient.displayed().equals(water),"Reverse did not restore fluid form");
@@ -193,9 +193,9 @@ final class MaterialsClientReview {
             }
             case 38 -> {
                 if(elapsed<5)break;require(PalletClient.modePose(0).itemReady(),"Reload retained a stale morph");
-                FeedMePackages.LOGGER.info("FMP_PALLET_R011_PASSED modeSwitch=true useDuringMorph=true reverseMidway=true actualFluids=true leftHand=true cancelNoFeed=true lastFoodCancelNoFeed=true foodFeedOnce=true drinkFeedOnce=true lastFood=true restock=true continuousMeals=true resourceReload=true");next();
+                FeedMePackages.LOGGER.info("FMP_PALLET_R014_MATERIALS_PASSED modeSwitch=true useDuringMorph=true reverseMidway=true actualFluids=true leftHand=true cancelNoFeed=true lastFoodCancelNoFeed=true foodFeedOnce=true drinkFeedOnce=true lastFood=true restock=true continuousMeals=true resourceReload=true");next();
             }
-            case 39 -> {return !net.neoforged.fml.ModList.get().isLoaded("ars_nouveau") || ArsClientReview.tick();}
+            case 39 -> { if(!PalletNozzleClientReview.tick())break;return !net.neoforged.fml.ModList.get().isLoaded("ars_nouveau") || ArsClientReview.tick(); }
             case 40 -> {
                 if(elapsed<15 || PalletClient.amount(bread)!=1)break;receiptsBefore=PalletClient.feedReceipts();button(1,true);next();
             }

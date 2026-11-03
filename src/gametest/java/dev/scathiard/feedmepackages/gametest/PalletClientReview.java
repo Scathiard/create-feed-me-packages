@@ -215,7 +215,7 @@ public final class PalletClientReview {
                 work=MC.reloadResourcePacks();next();
             }
             case 32 -> {
-                for(String name:List.of("whole","fixed","tray_slide","jaw_left","jaw_right","outlet_gate","create_body_fixed","feed_socket_fixed","rails_fixed","head_fixed","fluid_head","fluid_pipe","fluid_glass"))
+                for(String name:List.of("whole","fixed","tray_slide","jaw_left","jaw_right","outlet_gate","create_body_fixed","feed_socket_fixed","rails_fixed","head_fixed","fluid_head","fluid_pipe","nozzle_collar","nozzle_middle","nozzle_tip"))
                     require(MC.getModelManager().getModel(PalletRenderer.modelId(name))!=MC.getModelManager().getMissingModel(),"Resource reload lost model "+name);
                 require(!PalletClient.feedPose(0).cargo(),"Resource reload replayed stale cargo");
                 TemplateClientReview.capture("pallet-after-resource-reload");next();
@@ -269,7 +269,7 @@ public final class PalletClientReview {
                 FeedMePackages.LOGGER.info("FMP_PALLET_QUIET_FAILURE_PASSED nativeCancel=true stockUnchanged=true noPlacementSilent=true selectionGuidanceRetained=true");
                 if(Boolean.getBoolean("fmp.palletQuietReview")) return true;
                 FeedMePackages.LOGGER.info("FMP_PALLET_CLIENT_PASSED defaultMiddle=true defaultArc=true forwardSteps=69 reverseSteps=70 nativeWrap=true nativeReverse=true nativeBlur=true keyboardAndMouseRebind=true horizontalDrag=true hysteresis=true escapeCancel=true brassArcHighlight=true authoritativeFeed=true gridSearch=true nativePlace=true nativeMiningWithTool=true");
-                FeedMePackages.LOGGER.info("FMP_PALLET_MODELS_CLIENT_PASSED bakedParts=14 inventory=true leftHand=true thirdPerson=true resourceReload=true fixedBody=true lowerHalf=true guiScales=1,2,3");
+                FeedMePackages.LOGGER.info("FMP_PALLET_MODELS_CLIENT_PASSED bakedParts=16 inventory=true leftHand=true thirdPerson=true resourceReload=true fixedBody=true lowerHalf=true guiScales=1,2,3");
                 return true;
             }
         }

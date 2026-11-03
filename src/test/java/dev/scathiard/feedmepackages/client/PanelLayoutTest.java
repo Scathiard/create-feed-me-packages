@@ -90,11 +90,11 @@ class PanelLayoutTest {
     }
     @Test void palletMorphReversesFromCurrentPoseAndDoesNotRestartForAnotherFluid() {
         var morph=new dev.scathiard.feedmepackages.domain.PalletMorph();
-        morph.target(true,10);assertEquals(0,morph.progress(10));assertEquals(.25,morph.progress(10.3),1e-8);
-        morph.target(true,10.3);assertEquals(.5,morph.progress(10.6),1e-8);
-        morph.target(false,10.6);assertEquals(.5,morph.progress(10.6),1e-8);assertEquals(.25,morph.progress(10.9),1e-8);
-        assertEquals(0,morph.progress(11.3));morph.snap(true);assertEquals(1,morph.progress(0));
-        morph.target(false,20);morph.target(true,20.3);assertEquals(.75,morph.progress(20.3),1e-8);assertEquals(1,morph.progress(21));
+        morph.target(true,10);assertEquals(0,morph.progress(10));assertEquals(.25,morph.progress(10.075),1e-8);
+        morph.target(true,10.075);assertEquals(.5,morph.progress(10.15),1e-8);
+        morph.target(false,10.15);assertEquals(.5,morph.progress(10.15),1e-8);assertEquals(.25,morph.progress(10.225),1e-8);
+        assertEquals(0,morph.progress(10.4));morph.snap(true);assertEquals(1,morph.progress(0));
+        morph.target(false,20);morph.target(true,20.075);assertEquals(.75,morph.progress(20.075),1e-8);assertEquals(1,morph.progress(21));
     }
     @Test void palletMorphUsesTheAuthoredHandoffWithoutOverlappingWorkingEnds() {
         var item=dev.scathiard.feedmepackages.domain.PalletMorph.at(0);

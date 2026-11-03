@@ -19,11 +19,11 @@ import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.extensions.common.*;
 import java.util.*;
 
-/** r011 working ends; dynamic cargo and reversible motion are local first-person display only. */
+/** r014 working ends; dynamic cargo and reversible motion are local first-person display only. */
 @EventBusSubscriber(modid=FeedMePackages.MOD_ID,bus=EventBusSubscriber.Bus.MOD,value=Dist.CLIENT)
 public final class PalletRenderer extends BlockEntityWithoutLevelRenderer {
     private static final List<String> PARTS=List.of("create_body_fixed","feed_socket_fixed","rails_fixed","head_fixed",
-            "tray_slide","jaw_left","jaw_right","outlet_gate","fluid_pipe","fluid_head","fluid_glass");
+            "tray_slide","jaw_left","jaw_right","outlet_gate","fluid_pipe","fluid_head","nozzle_collar","nozzle_middle","nozzle_tip");
     private static PalletRenderer instance;
     private PalletRenderer() { super(Minecraft.getInstance().getBlockEntityRenderDispatcher(),Minecraft.getInstance().getEntityModels()); }
     public static ModelResourceLocation modelId(String name) {
@@ -61,7 +61,7 @@ public final class PalletRenderer extends BlockEntityWithoutLevelRenderer {
             draw(whole,stack,pose,buffers,light,overlay);return;
         }
         float partial=mc.getTimer().getGameTimeDeltaPartialTick(false);
-        var mode=PalletClient.modePose(partial);var motion=PalletClient.feedPose(partial);
+        var mode=PalletClient.modePose(partial);var motion=PalletClient.feedPose(partial);var fluidMotion=PalletClient.fluidPose(partial);
         draw(manager.getModel(modelId("create_body_fixed")),stack,pose,buffers,light,overlay);
         draw(manager.getModel(modelId("feed_socket_fixed")),stack,pose,buffers,light,overlay);
         if(mode.itemVisible()) {
@@ -76,14 +76,21 @@ public final class PalletRenderer extends BlockEntityWithoutLevelRenderer {
         draw(manager.getModel(modelId("outlet_gate")),stack,pose,buffers,light,overlay);pose.popPose();
         var cargo=PalletClient.displayed();
         if(mode.fluidVisible()) {
-            clippedPart("fluid_head",0,mode.fluidOffset(),1,stack,pose,buffers,light,overlay,false);
+            clippedPart("fluid_head",0,mode.fluidOffset(),1,stack,pose,buffers,light,overlay,true);
             clippedPart("fluid_pipe",0,mode.fluidOffset(),1,stack,pose,buffers,light,overlay,true);
-            clippedPart("fluid_glass",0,mode.fluidOffset(),1,stack,pose,buffers,light,overlay,true);
+            clippedPart("nozzle_collar",0,mode.fluidOffset(),1,stack,pose,buffers,light,overlay,false);
+            clippedPart("nozzle_middle",0,mode.fluidOffset()+fluidMotion.middle(),1,stack,pose,buffers,light,overlay,false);
+            clippedPart("nozzle_tip",0,mode.fluidOffset()+fluidMotion.tip(),1,stack,pose,buffers,light,overlay,false);
             if(PalletClient.hasCargo() && !cargo.fluid().isEmpty()) {
                 pose.pushPose();pose.translate(0,0,mode.fluidOffset()/16);
-                fluidCargo(cargo.fluid(),(float)((1-mode.fluidOffset())/16),pose,buffers,light,overlay);
+                fluidBoxes(cargo.fluid(),FLUID_REGIONS,(float)((1-mode.fluidOffset())/16),pose,buffers,light,overlay);
                 pose.popPose();
             }
+        }
+        if(mode.fluidVisible() && fluidMotion.emitting() && !PalletClient.feedbackFluid().isEmpty()) {
+            pose.pushPose();pose.translate(0,0,mode.fluidOffset()/16);
+            fluidEmission(PalletClient.feedbackFluid(),fluidMotion,(float)((1-mode.fluidOffset())/16),pose,buffers,light,overlay);
+            pose.popPose();
         }
         if(mode.itemReady() && (motion.cargo() || PalletClient.usingCargo(mc.player,cargo.item())) && !cargo.isEmpty() && cargo.fluid().isEmpty()) {
             var use=usePose(mc.player,cargo.item(),partial);
@@ -99,22 +106,22 @@ public final class PalletRenderer extends BlockEntityWithoutLevelRenderer {
         if(!PalletClient.usingCargo(player,cargo)) return rest;
         return dev.scathiard.feedmepackages.domain.PalletUsePose.at(player.getTicksUsingItem()+partial);
     }
-    // r011's four display cavities. These contain no extra inventory or simulated liquid quantity.
+    // r014's four display cavities. These contain no extra inventory or simulated liquid quantity.
     private static final double[][] FLUID_REGIONS={
         {7.26,8.06,-10.46,8.74,9.47,-7.04},{7.26,8.06,-6.96,8.74,9.47,-3.04},
-        {7.26,8.06,-2.96,8.74,9.47,.96},{6.58,7.38,-13.9,9.42,10.15,-11.1}
+        {7.26,8.06,-2.96,8.74,9.47,.96},{6.65,7.50,-13.50,9.35,10.10,-10.95}
     };
     private static final int[][] FACES={{0,3,2,1},{4,5,6,7},{0,4,7,3},{1,2,6,5},{0,1,5,4},{3,7,6,2}};
     private static final net.minecraft.core.Direction[] NORMALS={net.minecraft.core.Direction.NORTH,net.minecraft.core.Direction.SOUTH,
         net.minecraft.core.Direction.WEST,net.minecraft.core.Direction.EAST,net.minecraft.core.Direction.DOWN,net.minecraft.core.Direction.UP};
-    private static void fluidCargo(net.neoforged.neoforge.fluids.FluidStack fluid,float plane,PoseStack pose,MultiBufferSource buffers,int light,int overlay) {
+    private static void fluidBoxes(net.neoforged.neoforge.fluids.FluidStack fluid,double[][] boxes,float plane,PoseStack pose,MultiBufferSource buffers,int light,int overlay) {
         var ext=IClientFluidTypeExtensions.of(fluid.getFluid());var texture=ext.getStillTexture(fluid);
         if(texture==null) return;
         var atlas=net.minecraft.world.inventory.InventoryMenu.BLOCK_ATLAS;
         var sprite=Minecraft.getInstance().getTextureAtlas(atlas).apply(texture);
         var consumer=buffers.getBuffer(RenderType.entityTranslucent(atlas));int tint=ext.getTintColor(fluid);
         int lit=LightTexture.pack(Math.max(LightTexture.block(light),fluid.getFluidType().getLightLevel(fluid)),LightTexture.sky(light));
-        for(double[] box:FLUID_REGIONS) {
+        for(double[] box:boxes) {
             double[][] points={{box[0],box[1],box[2]},{box[3],box[1],box[2]},{box[3],box[4],box[2]},{box[0],box[4],box[2]},
                 {box[0],box[1],box[5]},{box[3],box[1],box[5]},{box[3],box[4],box[5]},{box[0],box[4],box[5]}};
             for(int face=0;face<6;face++) {
@@ -129,6 +136,20 @@ public final class PalletRenderer extends BlockEntityWithoutLevelRenderer {
                 var quad=new net.minecraft.client.renderer.block.model.BakedQuad(data,-1,NORMALS[face],sprite,true);
                 clippedQuad(quad,plane,pose,consumer,lit,overlay,tint);
             }
+        }
+    }
+    private static final double[][] DROPS={{7.77,8.98,-17.05,.075},{8.25,8.72,-17.43,.065},{7.97,8.47,-17.13,.055}};
+    private static void fluidEmission(net.neoforged.neoforge.fluids.FluidStack fluid,
+            dev.scathiard.feedmepackages.domain.PalletFluidFeedback.Pose motion,float plane,
+            PoseStack pose,MultiBufferSource buffers,int light,int overlay) {
+        if(motion.jet()>0) {
+            double tip=-15.72+motion.tip();
+            fluidBoxes(fluid,new double[][]{{7.9,8.7,tip-1.33*motion.jet(),8.1,8.9,tip}},plane,pose,buffers,light,overlay);
+        }
+        for(int i=0;i<DROPS.length;i++) {
+            double size=motion.dropScale(i)*DROPS[i][3];if(size<=0) continue;
+            double age=motion.dropAge(i),x=DROPS[i][0]+(i-1)*age*.4,y=DROPS[i][1]-age*age*14,z=DROPS[i][2]-age*5;
+            fluidBoxes(fluid,new double[][]{{x-size,y-size,z-size,x+size,y+size,z+size}},plane,pose,buffers,light,overlay);
         }
     }
     private static void clippedPart(String name,double x,double z,double plane,ItemStack stack,PoseStack pose,MultiBufferSource buffers,int light,int overlay,boolean window) {

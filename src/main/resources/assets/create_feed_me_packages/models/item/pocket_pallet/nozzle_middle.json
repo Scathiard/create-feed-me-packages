@@ -1,0 +1,76 @@
+{
+  "credit": "Pocket Pallet r014 by the project art team. Create textures remain All Rights Reserved; see META-INF/fmp-pallet-art.txt.",
+  "textures": {
+    "4": "create:block/spout_nozzle"
+  },
+  "elements": [
+    {
+      "from": [
+        7.25,
+        8.05,
+        -14.95
+      ],
+      "to": [
+        8.75,
+        9.55,
+        -14.45
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            5.0,
+            5.0,
+            11.0,
+            11.0
+          ],
+          "texture": "#4"
+        },
+        "east": {
+          "uv": [
+            5.0,
+            14.0,
+            11.0,
+            16.0
+          ],
+          "texture": "#4"
+        },
+        "south": {
+          "uv": [
+            5.0,
+            14.0,
+            11.0,
+            16.0
+          ],
+          "texture": "#4"
+        },
+        "west": {
+          "uv": [
+            5.0,
+            14.0,
+            11.0,
+            16.0
+          ],
+          "texture": "#4"
+        },
+        "up": {
+          "uv": [
+            5.0,
+            14.0,
+            11.0,
+            16.0
+          ],
+          "texture": "#4"
+        },
+        "down": {
+          "uv": [
+            5.0,
+            14.0,
+            11.0,
+            16.0
+          ],
+          "texture": "#4"
+        }
+      }
+    }
+  ]
+}
