@@ -31,6 +31,13 @@ if (project.hasProperty('mobile_runtime_version')) {
         throw new GradleException('The explicit Mobile Packages runtime input is pinned to 0.7.8 and requires withMobile')
     runProfile += '-mobile078'
 }
+['fluid_runtime_version': ['withFluid', '1.3.2'], 'phantom_runtime_version': ['withPhantom', '1.0.3']].each { key, input ->
+    if (project.hasProperty(key)) {
+        if (!project.hasProperty(input[0]) || project.property(key).toString() != input[1])
+            throw new GradleException("${key} requires ${input[0]} and the pinned ${input[1]} input")
+        runProfile += '-' + key.split('_')[0] + input[1].replace('.', '')
+    }
+}
 // Explicit isolated test batches preserve previous worlds and failure evidence.
 if (project.hasProperty('fmpRunLabel')) {
     def label = project.property('fmpRunLabel').toString()
@@ -220,8 +227,10 @@ dependencies {
         localRuntime files(fxnt)
     }
     if (project.hasProperty('withFluid')) {
-        def fluid = new File(dependencyInput, 'dependencies/artifacts/fluidlogistics/1.2.9/fluidlogistics-1.2.9.jar')
-        if (!fluid.isFile()) throw new GradleException('Missing pinned, isolated FluidLogistics 1.2.9 test artifact')
+        def fluid = project.hasProperty('fluid_runtime_version')
+                ? new File(optionalInput, 'fluidlogistics/1.3.2/fluidlogistics-1.3.2-mc1.21.1.jar')
+                : new File(dependencyInput, 'dependencies/artifacts/fluidlogistics/1.2.9/fluidlogistics-1.2.9.jar')
+        if (!fluid.isFile()) throw new GradleException('Missing pinned, isolated FluidLogistics test artifact')
         localRuntime files(fluid)
     }
     if (project.hasProperty('withMaid')) {
@@ -233,16 +242,13 @@ dependencies {
         localRuntime files(new File(optionalInput, 'sophisticated-storage/1.21.1-1.6.7.2184/sophisticatedstorage-1.21.1-1.6.7.2184.jar'))
         localRuntime files(new File(optionalInput, 'sophisticated-core/1.21.1-1.5.16.2422/sophisticatedcore-1.21.1-1.5.16.2422.jar'))
     }
-    def ars = new File(optionalInput, 'ars-nouveau/5.13.3/ars_nouveau-1.21.1-5.13.3.jar')
     def sbw = new File(optionalInput, 'superb-warfare/0.8.9.2/superbwarfare-0.8.9.2-mc1.21.1-c22d98c2.jar')
     // Compile-time ports only; never an FMP loader dependency or bundled mod.
-    compileOnly(ars.isFile() ? files(ars) : 'maven.modrinth:TKB6INcv:yWDnir1o')
     compileOnly(sbw.isFile() ? files(sbw) : 'maven.modrinth:Cd3DYqzn:bl7W8fjU')
-    if (project.hasProperty('withArs')) localRuntime files(ars)
     if (project.hasProperty('withSbw')) {
         localRuntime files(sbw, new File(optionalInput, 'kotlin-for-forge/5.12.0/kotlinforforge-5.12.0-all.jar'))
     }
-    if (project.hasProperty('withArs') || project.hasProperty('withSbw'))
+    if (project.hasProperty('withSbw'))
         localRuntime files(new File(optionalInput, 'geckolib/4.9.3/geckolib-neoforge-1.21.1-4.9.3.jar'))
     if (project.hasProperty('withSophisticated') && project.hasProperty('withStorage'))
         localRuntime files(new File(optionalInput,'sophisticated-backpacks/1.21.1-3.26.13.2214/sophisticatedbackpacks-1.21.1-3.26.13.2214.jar'))
@@ -274,8 +280,10 @@ dependencies {
         localRuntime files('reference-build-safe/research/transports/2.3.0/cmpackagecouriers-neoforge-2.3.0.jar')
     }
     if (project.hasProperty('withPhantom')) {
-        def phantom = new File(referenceOutput, 'phantom-compat/createphantom-1.0.2.jar')
-        if (!phantom.isFile()) throw new GradleException('Missing locked Create Phantom 1.0.2 research input')
+        def phantom = project.hasProperty('phantom_runtime_version')
+                ? new File(optionalInput, 'createphantom/1.0.3/createphantom-1.0.3.jar')
+                : new File(referenceOutput, 'phantom-compat/createphantom-1.0.2.jar')
+        if (!phantom.isFile()) throw new GradleException('Missing locked Create Phantom research input')
         localRuntime files(phantom)
     }
     if (project.hasProperty('fmpPhantomPublished')) {
@@ -321,7 +329,7 @@ neoForge {
             if (project.hasProperty('fmpCompatReview')) {
                 if (!project.hasProperty('fmpGameTests') && !project.hasProperty('fmpArtifactProbe')) throw new GradleException('Compatibility review requires isolated test sources or external artifact probe')
                 def review = project.property('fmpCompatReview').toString()
-                if (!(review in ['verify-failure','verify-timeout','settings-close','prediction','growth','templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','pallet','materials','sbw','feedback','tacz','wand','gadgets','effortless','craftingtweaks','mousetweaks','toms','toms-network','toms-polymorph','polymorph','ui']))
+                if (!(review in ['verify-failure','verify-timeout','settings-close','prediction','growth','templates','jei','emi','fluid','fluid-input','capacity','fxnt','sophisticated','maid','maid-handover','pallet','materials','sbw','feedback','tacz','wand','gadgets','effortless','craftingtweaks','mousetweaks','toms','toms-network','toms-polymorph','polymorph','ui']))
                     throw new GradleException('Unknown compatibility review')
                 systemProperty 'fmp.compatReview', review
             }

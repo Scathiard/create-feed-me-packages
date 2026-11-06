@@ -188,7 +188,8 @@ public final class MaidPhantomTasks {
     private static synchronized boolean carrierWired() {
         if (carrierReady) return true;
         try {
-            markRemoved = Class.forName("com.yision.phantom.logistics.courier.AirCourierTask").getMethod("markRemoved");
+            markRemoved = Class.forName("com.yision.phantom.logistics.courier.AirCourierTask").getDeclaredMethod("markRemoved");
+            markRemoved.setAccessible(true);
             carrierEntry = Class.forName("com.yision.phantom.registry.AllItems").getField("MINI_PHANTOM").get(null);
             carrierAsStack = carrierEntry.getClass().getMethod("asStack");
             carrierReady = true;
@@ -490,7 +491,7 @@ public final class MaidPhantomTasks {
 
     /** Public entity-level lookup for other takeover points (a port returning a carrier to one of our maids). */
     public static LivingEntity maidByEntity(MinecraftServer server, java.util.UUID id) {
-        if (!available() || server == null || id == null) return null;
+        if (server == null || id == null) return null;
         return maidEntity(server, id);
     }
 
@@ -528,8 +529,7 @@ public final class MaidPhantomTasks {
         var decoded = state.marker(taskId);
         if (!decoded.marked()) return null;
         if (required != null && decoded.direction() != required) return null;
-        if (!Phantom102Gate.usable(true)) return null;
-        if (!dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102FlightCompatible()) return null;
+        if (!dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.flightReady()) return null;
         // Entity level, matching how the entry was written: the cache is not needed to fly to her or to fill her bag.
         return maidEntity(server, decoded.maidId());
     }

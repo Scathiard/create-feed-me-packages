@@ -30,13 +30,15 @@ public final class ParcelEnvelope {
             if (type == DataComponents.CUSTOM_DATA && dev.scathiard.feedmepackages.compat.FactoryLogistics
                     .onlyOrderMetadata(box.get(DataComponents.CUSTOM_DATA))) continue;
             if (!SAFE.contains(type) && type != FmpRegistries.PARCEL_SEAL.get()
-                    && type != FmpRegistries.FLUID_PARCEL_SEAL.get()) return false;
+                    && type != FmpRegistries.FLUID_PARCEL_SEAL.get()
+                    && !dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.isContentsComponent(type)) return false;
         }
         return true;
     }
 
     public static boolean items(ItemStack box) {
         // Subclasses may expose only a partial item view while owning fluids, energy or other payloads.
-        return recognized(box) && box.getItem().getClass() == PackageItem.class;
+        return recognized(box) && box.getItem().getClass() == PackageItem.class
+                && !dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.hasFluidContents(box);
     }
 }

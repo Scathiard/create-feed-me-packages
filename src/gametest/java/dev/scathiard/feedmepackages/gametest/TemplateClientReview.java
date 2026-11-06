@@ -175,6 +175,7 @@ public final class TemplateClientReview {
                             case "fxnt" -> "FxntClientReview";
                             case "sophisticated" -> "SophisticatedClientReview";
                             case "maid" -> "MaidClientReview";
+                            case "maid-handover" -> "MaidHandoverClientReview";
                             case "pallet" -> "PalletClientReview";
                             case "materials" -> "MaterialsClientReview";
                             case "sbw" -> "SbwClientReview";

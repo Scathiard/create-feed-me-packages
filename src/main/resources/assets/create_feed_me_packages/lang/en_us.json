@@ -212,8 +212,6 @@
   "gui.create_feed_me_packages.compat.sbw_config_disabled": "Cached Superb Warfare ammunition is disabled by the server",
   "gui.create_feed_me_packages.compat.sbw_server_mismatch": "Superb Warfare API mismatch: cached ammunition disabled",
   "gui.create_feed_me_packages.compat.sbw_client_mismatch": "Client Superb Warfare API mismatch: cache ammo hints disabled",
-  "gui.create_feed_me_packages.compat.ars_config_disabled": "Cached Ars Nouveau placement is disabled by the server",
-  "gui.create_feed_me_packages.compat.ars_server_mismatch": "Ars Nouveau API mismatch: cached placement disabled",
   "gui.create_feed_me_packages.return_invalid_label": "Reset return address",
   "gui.create_feed_me_packages.return_invalid_hint": "Original address preserved; set a valid address to resume returns",
   "gui.create_feed_me_packages.status.storage_locked.preserved": "Cache data could not be read. Affected operations are paused and original records are preserved. Check required mods and the server log.",

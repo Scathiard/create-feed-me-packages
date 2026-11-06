@@ -28,7 +28,7 @@ public abstract class Phantom102PortReturnMixin {
 
     @Inject(method = "tryQueueStoredReturnCarrierToPlayer", at = @At("HEAD"), cancellable = true, remap = false)
     private void fmp$portReturnToMaid(UUID playerId, CallbackInfoReturnable<Boolean> cir) {
-        if (!Phantom102Gate.usable(true)) return;
+        if (!dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.enabled()) return;
         if (!OptionalMixins.phantom102PortReturnCompatible()) return;
         if (!MaidPhantomPortReturn.takeOver(this, playerId)) return;
         cir.setReturnValue(Boolean.TRUE);

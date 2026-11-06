@@ -10,7 +10,6 @@
   },
   "extraFlags": [
     "withStorage",
-    "withArs",
     "withSbw",
     "withTacz",
     "withWand",

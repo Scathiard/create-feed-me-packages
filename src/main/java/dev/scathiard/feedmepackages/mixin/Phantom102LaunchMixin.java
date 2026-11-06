@@ -30,8 +30,8 @@ public abstract class Phantom102LaunchMixin {
     @Inject(method = "resolvePackageTarget", at = @At("HEAD"), cancellable = true, remap = false)
     private static void fmp$resolveMaidTarget(ServerLevel level, ItemStack box, Vec3 origin,
             @Coerce Object dimension, @Coerce Object portPos, CallbackInfoReturnable<Object> cir) {
-        if (!Phantom102Gate.usable(true)) return;
-        if (!OptionalMixins.phantom102FlightCompatible()) return;
+        if (!dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.enabled()) return;
+        if (!dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.flightReady()) return;
         Object target = MaidPhantomLaunch.nativeTargetFor(level.getServer(), box);
         if (target != null) cir.setReturnValue(target);
     }

@@ -430,8 +430,11 @@ public final class ReceiveTests {
         var named = new FluidStack(Fluids.WATER, 1); named.set(DataComponents.CUSTOM_NAME, Component.literal("exact water"));
         var f = fluidSetup(h, named, 15950, 125); var box = f.box(125);
         box.set(DataComponents.CUSTOM_NAME, Component.literal("original fluid parcel"));
-        var tank = PackageItem.getContents(box).getStackInSlot(0).copy(); tank.set(DataComponents.CUSTOM_NAME, Component.literal("original inner tank"));
-        var contents = NonNullList.withSize(9, ItemStack.EMPTY); contents.set(0, tank); box.set(AllDataComponents.PACKAGE_CONTENTS, ItemContainerContents.fromItems(contents));
+        boolean innerTank = !PackageItem.getContents(box).getStackInSlot(0).isEmpty();
+        if (innerTank) {
+            var tank = PackageItem.getContents(box).getStackInSlot(0).copy(); tank.set(DataComponents.CUSTOM_NAME, Component.literal("original inner tank"));
+            var contents = NonNullList.withSize(9, ItemStack.EMPTY); contents.set(0, tank); box.set(AllDataComponents.PACKAGE_CONTENTS, ItemContainerContents.fromItems(contents));
+        }
         ParcelAuthentication.applyFluid(f.ledger(), f.player().registryAccess(), box, box.get(FmpRegistries.FLUID_PARCEL_SEAL.get()));
         for (int i = 0; i < 36; i++) f.player().getInventory().setItem(i, new ItemStack(Items.STONE, 64));
         var held = f.player().getInventory().getItem(0);
@@ -442,7 +445,7 @@ public final class ReceiveTests {
                  &&  f.player().getInventory().getItem(0) == held,
                 "Partial fluid receipt lost stock or touched a full bag");
         h.assertTrue(rest.get(DataComponents.CUSTOM_NAME).getString().equals("original fluid parcel")
-                && PackageItem.getContents(rest).getStackInSlot(0).get(DataComponents.CUSTOM_NAME).getString().equals("original inner tank")
+                && (!innerTank || PackageItem.getContents(rest).getStackInSlot(0).get(DataComponents.CUSTOM_NAME).getString().equals("original inner tank"))
                 && FluidStack.isSameFluidSameComponents(named, FluidPackages.read(rest))
                 && ParcelAuthentication.validFluid(f.ledger(), f.player().registryAccess(), rest, rest.get(FmpRegistries.FLUID_PARCEL_SEAL.get()))
                 && saved.problem().isEmpty() && ItemStack.matches(saved.find(f.handle().cacheId()).fluids().residual(f.key()), rest),

@@ -1071,18 +1071,21 @@ public final class MaidTests {
     private static void phantomSourceGate(GameTestHelper h) throws ReflectiveOperationException {
         h.assertTrue(dev.scathiard.feedmepackages.compat.PhantomDispatch.ready(),"Native Phantom API unavailable");
         var f=sourceReturnFixture(h);
-        var gate=dev.scathiard.feedmepackages.compat.maid.phantom.v102.Phantom102Gate.class.getDeclaredField("verdict");gate.setAccessible(true);
-        dev.scathiard.feedmepackages.compat.maid.phantom.v102.Phantom102Gate.verdict();Object prior=gate.get(null);
+        boolean modern=dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.modern();
+        var gate=modern ? dev.scathiard.feedmepackages.compat.maid.phantom.v103.Phantom103Flight.class.getDeclaredField("enabled")
+                : dev.scathiard.feedmepackages.compat.maid.phantom.v102.Phantom102Gate.class.getDeclaredField("verdict");gate.setAccessible(true);
+        dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.enabled();Object prior=gate.get(null);
         int before=livePhantomTasks().size();
         try {
-            gate.set(null,"disabled reason=test-shape-mismatch");ReturnService.check(MaidAccess.endpoint(f.maid()));
+            gate.set(null,modern ? Boolean.FALSE : "disabled reason=test-shape-mismatch");ReturnService.check(MaidAccess.endpoint(f.maid()));
             h.assertTrue(f.stock()==100&&f.ledger().returnEscrow(f.handle().cacheId())==null
                     &&livePhantomTasks().size()==before,"Source maid dispatched despite unavailable recovery capability");
             h.assertTrue(MaidCompatibility.inventory(f.maid()).getStackInSlot(0).getCount()==1,"Disabled route charged its carrier");
         } finally {gate.set(null,prior);}
         var box=handoverBox(f,new ItemStack(Items.STONE,36));
         PackageItem.addAddress(box,f.ledger().returnAddress(f.handle().cacheId()));
-        for(String member:List.of("phantom102FlightReady","phantom102PortReturnReady")) {
+        for(String member:modern ? List.of("phantom103FlightReady","phantom103PortReady","phantom103BeltReady")
+                : List.of("phantom102FlightReady","phantom102PortReturnReady")) {
             var field=dev.scathiard.feedmepackages.mixin.OptionalMixins.class.getDeclaredField(member);field.setAccessible(true);
             Object saved=field.get(null);
             try {
@@ -1098,7 +1101,7 @@ public final class MaidTests {
     }
     private static void phantomMarkerFailure(GameTestHelper h) throws ReflectiveOperationException {
         var f=sourceReturnFixture(h);int before=livePhantomTasks().size();
-        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.available(),"Task bridge unavailable");
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.flightReady(),"Task bridge unavailable");
         var id=dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.class.getDeclaredField("id");id.setAccessible(true);
         Object saved=id.get(null);
         try {
@@ -1129,6 +1132,9 @@ public final class MaidTests {
     }
 
     private static void phantomPortFault(GameTestHelper h, boolean afterAdmission) throws ReflectiveOperationException {
+        if (dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.modern()) {
+            phantomCarrierBeltFault(h,afterAdmission);return;
+        }
         var f = setup(h, new ItemStack(Items.DIRT), 0);
         var port = PhantomCompatibilityTests.port(h, "Fault-" + UUID.randomUUID());
         var queueField = port.getClass().getDeclaredField("returnQueue"); queueField.setAccessible(true);
@@ -1173,6 +1179,30 @@ public final class MaidTests {
         h.succeed();
     }
 
+    /** 1.0.3 returns the real carrier through the belt rather than constructing a flight inside the port. */
+    private static void phantomCarrierBeltFault(GameTestHelper h, boolean afterAdmission) throws ReflectiveOperationException {
+        var f=setup(h,new ItemStack(Items.DIRT),0);
+        PhantomCompatibilityTests.port(h,"CarrierFault-"+UUID.randomUUID());PhantomCompatibilityTests.returnRunway(h);
+        var item=Class.forName("com.yision.phantom.item.miniphantom.MiniPhantomItem");
+        var carrier=(ItemStack)item.getMethod("returningToPlayer",UUID.class).invoke(null,f.maid().getUUID());
+        var onBelt=new com.simibubi.create.content.kinetics.belt.transport.TransportedItemStack(carrier);onBelt.beltPosition=1;
+        var belt=(com.simibubi.create.content.kinetics.belt.BeltBlockEntity)h.getBlockEntity(new BlockPos(4,1,3));
+        var launch=Class.forName("com.yision.phantom.logistics.courier.AirCourierBeltHooks")
+                .getDeclaredMethod("launchReturningCarrierToPlayer",com.simibubi.create.content.kinetics.belt.BeltBlockEntity.class,
+                        com.simibubi.create.content.kinetics.belt.transport.TransportedItemStack.class);launch.setAccessible(true);
+        var id=dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.class.getDeclaredField("id");id.setAccessible(true);
+        Object previous=id.get(null);int before=livePhantomTasks().size();boolean sent;
+        phantomVisualFailures=0;failPhantomVisual=afterAdmission;
+        try {
+            if(!afterAdmission)id.set(null,Object.class.getMethod("toString"));
+            sent=(boolean)launch.invoke(null,belt,onBelt);
+        } finally {failPhantomVisual=false;id.set(null,previous);}
+        h.assertTrue(sent==afterAdmission && livePhantomTasks().size()==before+(afterAdmission?1:0)
+                && phantomVisualFailures==(afterAdmission?1:0),"Carrier belt admission result did not match native ownership");
+        h.assertTrue(onBelt.stack.getCount()==1,"Launch helper removed the belt caller's carrier itself");
+        h.succeed();
+    }
+
     private static void phantomTaskPersistence(GameTestHelper h) throws ReflectiveOperationException {
         var f = setup(h, new ItemStack(Items.DIRT), 0);
         Object task = nativeMaidTask(h, f.owner, parcel(f, 16), f.maid);
@@ -1187,7 +1217,8 @@ public final class MaidTests {
         h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks
                 .maidForReturn(restored, h.getLevel().getServer()) == f.maid,
                 "Native save/load lost the carrier's dispatching maid");
-        var nativeTask = nativeMaidTask(h, f.owner, parcel(f, 1), f.maid);
+        var ordinaryBox=handoverBox(f,new ItemStack(Items.DIRT));PackageItem.addAddress(ordinaryBox,SupplyService.address(f.owner));
+        var nativeTask = nativeMaidTask(h, f.owner, ordinaryBox, f.owner);
         var nativeTag = (CompoundTag) type.getMethod("save", net.minecraft.core.HolderLookup.Provider.class, CompoundTag.class)
                 .invoke(nativeTask, h.getLevel().registryAccess(), new CompoundTag());
         h.assertTrue(!nativeTag.contains(dev.scathiard.feedmepackages.compat.maid.phantom.v102.PhantomMaidTaskState.KEY),
@@ -1253,8 +1284,25 @@ public final class MaidTests {
         }).thenSucceed();
     }
 
+    private static void phantomModernCarrier(GameTestHelper h) throws ReflectiveOperationException {
+        var f=setup(h,new ItemStack(Items.DIRT),0);
+        var type=Class.forName("com.yision.phantom.logistics.courier.AirCourierTask");
+        Object task=type.getMethod("forCarrierReturnToPlayer",UUID.class,ServerLevel.class,UUID.class,
+                net.minecraft.resources.ResourceKey.class,Vec3.class,Vec3.class,Vec3.class)
+                .invoke(null,UUID.randomUUID(),h.getLevel(),f.maid().getUUID(),h.getLevel().dimension(),f.maid().position(),
+                        new Vec3(0,0,1),new Vec3(0,0,.3));
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.maidForReturn(task,h.getLevel().getServer())==f.maid(),
+                "Native belt carrier factory lost the source maid before admission");
+        Class.forName("com.yision.phantom.logistics.courier.AirCourierTaskManager").getMethod("addTask",net.minecraft.server.MinecraftServer.class,type)
+                .invoke(null,h.getLevel().getServer(),task);
+        var carrier=dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.nativeCarrier();
+        h.startSequence().thenWaitUntil(()->h.assertTrue(maidItemCount(f.maid(),carrier)==1,"Carrier did not reach her inventory"))
+                .thenIdle(20).thenExecute(()->h.assertTrue(maidItemCount(f.maid(),carrier)==1&&f.owner().getInventory().countItem(carrier.getItem())==0,
+                        "Native carrier duplicated or went to the owner")).thenSucceed();
+    }
+
     /** A real native package-to-player task aimed at her, built exactly the way our own dispatch builds one. */
-    private static Object nativeMaidTask(GameTestHelper h, ServerPlayer sender, ItemStack box, TamableAnimal maid)
+    private static Object nativeMaidTask(GameTestHelper h, ServerPlayer sender, ItemStack box, net.minecraft.world.entity.LivingEntity maid)
             throws ReflectiveOperationException {
         var factory = Class.forName("com.yision.phantom.logistics.courier.AirCourierTask").getMethod("forPackageToPlayer",
                 UUID.class, ItemStack.class, ServerLevel.class, UUID.class, net.minecraft.resources.ResourceKey.class,
@@ -1269,6 +1317,9 @@ public final class MaidTests {
      * only through our own registry, and its carrier must end up in her inventory using the native item source.
      */
     private static void phantomReturnToMaid(GameTestHelper h) throws ReflectiveOperationException {
+        if (dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.modern()) {
+            phantomModernCarrier(h);return;
+        }
         if (!dev.scathiard.feedmepackages.compat.PhantomDispatch.ready()) return;
         var f = setup(h, new ItemStack(Items.DIRT), 0);
         var owner = TestPlayers.create(h, ItemStack.EMPTY);

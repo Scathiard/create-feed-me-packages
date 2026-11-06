@@ -15,7 +15,7 @@ import java.util.Set;
 /** Warn once per changed failure on joining/reload, including players not wearing a pendant. */
 public final class ClientCompatibility {
     private ClientCompatibility() {}
-    private static CompatibilityStatus.State serverFxnt, serverEmi, serverTacz, serverWand, serverGadgets, serverEffortless, serverSophisticated, serverMaid, serverFactory, serverSbw, serverArs;
+    private static CompatibilityStatus.State serverFxnt, serverEmi, serverTacz, serverWand, serverGadgets, serverEffortless, serverSophisticated, serverMaid, serverFactory, serverSbw;
     private static CompatibilityStatus.State serverCraftingTweaks,serverPaper,serverBee,serverPhantom;
     private static Set<String> reported = Set.of();
     public static boolean sbwSourcesAvailable() { return serverSbw==CompatibilityStatus.State.READY && OptionalMixins.sbwCompatible(); }
@@ -28,8 +28,8 @@ public final class ClientCompatibility {
             && dev.scathiard.feedmepackages.compat.tacz.TaczMaterials.ready()
             && dev.scathiard.feedmepackages.compat.tacz.TaczClientSources.ready(); }
     public static void register() {
-        CompatibilityStatus.receiveOnClient(message -> { serverFxnt = message.fxnt(); serverEmi = message.emi(); serverTacz = message.tacz(); serverWand = message.wand(); serverGadgets = message.gadgets(); serverEffortless = message.effortless(); serverSophisticated = message.sophisticated(); serverMaid = message.maid(); serverFactory = message.factory(); serverSbw=message.sbw(); serverArs=message.ars(); serverCraftingTweaks=message.craftingTweaks(); serverPaper=message.paper(); serverBee=message.bee(); serverPhantom=message.phantom(); });
-        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> { serverFxnt = null; serverEmi = null; serverTacz = null; serverWand = null; serverGadgets = null; serverEffortless = null; serverSophisticated = null; serverMaid = null; serverFactory = null; serverSbw=null; serverArs=null; serverCraftingTweaks=null; serverPaper=null; serverBee=null; serverPhantom=null; reported = Set.of(); });
+        CompatibilityStatus.receiveOnClient(message -> { serverFxnt = message.fxnt(); serverEmi = message.emi(); serverTacz = message.tacz(); serverWand = message.wand(); serverGadgets = message.gadgets(); serverEffortless = message.effortless(); serverSophisticated = message.sophisticated(); serverMaid = message.maid(); serverFactory = message.factory(); serverSbw=message.sbw(); serverCraftingTweaks=message.craftingTweaks(); serverPaper=message.paper(); serverBee=message.bee(); serverPhantom=message.phantom(); });
+        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> { serverFxnt = null; serverEmi = null; serverTacz = null; serverWand = null; serverGadgets = null; serverEffortless = null; serverSophisticated = null; serverMaid = null; serverFactory = null; serverSbw=null; serverCraftingTweaks=null; serverPaper=null; serverBee=null; serverPhantom=null; reported = Set.of(); });
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post event) -> tick());
     }
     private static void tick() {
@@ -43,8 +43,6 @@ public final class ClientCompatibility {
         if(serverSbw==CompatibilityStatus.State.CONFIG_DISABLED) failures.add("sbw_config_disabled");
         else if(serverSbw==CompatibilityStatus.State.API_MISMATCH) failures.add("sbw_server_mismatch");
         else if(serverSbw==CompatibilityStatus.State.READY && !OptionalMixins.sbwCompatible()) failures.add("sbw_client_mismatch");
-        if(serverArs==CompatibilityStatus.State.CONFIG_DISABLED) failures.add("ars_config_disabled");
-        else if(serverArs==CompatibilityStatus.State.API_MISMATCH) failures.add("ars_server_mismatch");
         if (serverFactory == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("factory_config_disabled");
         else if (serverFactory == CompatibilityStatus.State.API_MISMATCH) failures.add("factory_server_mismatch");
         if (serverMaid == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("maid_config_disabled");

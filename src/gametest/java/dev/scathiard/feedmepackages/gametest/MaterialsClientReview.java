@@ -195,7 +195,7 @@ final class MaterialsClientReview {
                 if(elapsed<5)break;require(PalletClient.modePose(0).itemReady(),"Reload retained a stale morph");
                 FeedMePackages.LOGGER.info("FMP_PALLET_R014_MATERIALS_PASSED modeSwitch=true useDuringMorph=true reverseMidway=true actualFluids=true leftHand=true cancelNoFeed=true lastFoodCancelNoFeed=true foodFeedOnce=true drinkFeedOnce=true lastFood=true restock=true continuousMeals=true resourceReload=true");next();
             }
-            case 39 -> { if(!PalletNozzleClientReview.tick())break;return !net.neoforged.fml.ModList.get().isLoaded("ars_nouveau") || ArsClientReview.tick(); }
+            case 39 -> { return PalletNozzleClientReview.tick(); }
             case 40 -> {
                 if(elapsed<15 || PalletClient.amount(bread)!=1)break;receiptsBefore=PalletClient.feedReceipts();button(1,true);next();
             }

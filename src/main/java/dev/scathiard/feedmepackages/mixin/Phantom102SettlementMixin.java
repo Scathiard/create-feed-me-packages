@@ -57,7 +57,7 @@ public abstract class Phantom102SettlementMixin {
     private static void fmp$maidCanReceivePackage(ServerLevel level, @Coerce Object target, ItemStack stack,
                                                   CallbackInfoReturnable<Boolean> cir) {
         // Reaching this handler is itself the proof that the injection was applied, hence usable(true).
-        if (!Phantom102Gate.usable(true)) return;
+        if (!dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.enabled()) return;
         if (!OptionalMixins.phantom102Compatible()) return;
         UUID maidId = fmp$playerTargetId(target);
         if (maidId == null) return;

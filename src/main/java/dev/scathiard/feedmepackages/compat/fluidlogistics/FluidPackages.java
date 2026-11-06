@@ -26,7 +26,8 @@ public final class FluidPackages {
                 && NATIVE_PACKAGES.contains(raw.getString("id"))
                 && raw.contains("count", net.minecraft.nbt.Tag.TAG_INT) && raw.getInt("count") == 1;
     }
-    private record Api(Method family, Method read, Method writeTank, Method create, Method capacity, Method key, Method keyFluid) {}
+    private record Api(Method family, Method read, Method writeTank, Method create, Method capacity, Method key, Method keyFluid,
+                       net.minecraft.core.component.DataComponentType<?> contents, Method writePackage) {}
     private static final class Holder {
         private static final Api API = discover();
     }
@@ -40,13 +41,21 @@ public final class FluidPackages {
         if (!ModList.get().isLoaded("fluidlogistics")) return null;
         try {
             String base = "com.yision.fluidlogistics.content.logistics.fluidPackage.";
+            net.minecraft.core.component.DataComponentType<?> contents = null;
+            Method writePackage = null;
+            var components = Class.forName("com.yision.fluidlogistics.registry.AllDataComponents");
+            try {
+                contents = (net.minecraft.core.component.DataComponentType<?>) components.getField("PACKAGE_FLUID_CONTENT").get(null);
+                writePackage = method(base + "FluidPackageContentHelper", "setCanonicalContents", void.class, ItemStack.class, FluidStack.class);
+            } catch (NoSuchFieldException legacyFormat) { /* 1.2.9 stores a compressed tank inside the parcel. */ }
             return new Api(method(base + "FluidPackageItem", "isFluidPackage", boolean.class, ItemStack.class),
                     method(base + "FluidPackageContentHelper", "getSingleContainedFluid", FluidStack.class, ItemStack.class),
                     method(base + "CompressedTankItem", "setFluid", void.class, ItemStack.class, FluidStack.class),
                     method(base + "FluidPackageContentHelper", "createCanonicalPackage", ItemStack.class, FluidStack.class),
                     method(base + "CompressedTankItem", "getCapacity", int.class),
                     method("com.yision.fluidlogistics.api.packager.PackageResourceTypes", "createFluidKey", ItemStack.class, FluidStack.class),
-                    method("com.yision.fluidlogistics.api.packager.PackageResourceTypes", "getFluid", FluidStack.class, ItemStack.class));
+                    method("com.yision.fluidlogistics.api.packager.PackageResourceTypes", "getFluid", FluidStack.class, ItemStack.class),
+                    contents, writePackage);
         } catch (ReflectiveOperationException | LinkageError incompatible) {
             fail(incompatible); return null;
         }
@@ -66,6 +75,15 @@ public final class FluidPackages {
         if (box.isEmpty() || status() != Status.READY) return false;
         try { return (boolean) Holder.API.family().invoke(null, box.copy()); }
         catch (ReflectiveOperationException | LinkageError unavailable) { fail(unavailable); return false; }
+    }
+
+    /** A known payload type, not a promise that its contents are a supported single-fluid parcel. */
+    public static boolean isContentsComponent(net.minecraft.core.component.DataComponentType<?> type) {
+        return status() == Status.READY && type == Holder.API.contents();
+    }
+
+    public static boolean hasFluidContents(ItemStack box) {
+        return status() == Status.READY && Holder.API.contents() != null && box.has(Holder.API.contents());
     }
 
     /** Empty means unrecognized, never an empty parcel which FMP may consume. */
@@ -104,7 +122,7 @@ public final class FluidPackages {
         }
     }
 
-    /** Reduce only the fluid component on the original inner tank's copy; preserve other package/tank components. */
+    /** Edit a private copy using the native format; never turn a mixed parcel into a single-fluid parcel. */
     public static ItemStack remainder(ItemStack original, int consumed) {
         var fluid = read(original);
         if (fluid.isEmpty() || consumed < 0 || consumed > fluid.getAmount()) throw new IllegalArgumentException("Invalid fluid parcel debit");
@@ -112,13 +130,19 @@ public final class FluidPackages {
         if (remaining == 0) return ItemStack.EMPTY;
         var result = original.copy();
         if (consumed > 0) {
-            var tank = PackageItem.getContents(original).getStackInSlot(0).copy();
-            try { Holder.API.writeTank().invoke(null, tank, fluid.copyWithAmount(remaining)); }
+            try {
+                if (Holder.API.writePackage() != null && hasFluidContents(original)) {
+                    Holder.API.writePackage().invoke(null, result, fluid.copyWithAmount(remaining));
+                } else {
+                    var tank = PackageItem.getContents(original).getStackInSlot(0).copy();
+                    Holder.API.writeTank().invoke(null, tank, fluid.copyWithAmount(remaining));
+                    var contents = NonNullList.withSize(9, ItemStack.EMPTY); contents.set(0, tank);
+                    result.set(AllDataComponents.PACKAGE_CONTENTS, ItemContainerContents.fromItems(contents));
+                }
+            }
             catch (ReflectiveOperationException | LinkageError unavailable) {
                 fail(unavailable); throw new IllegalArgumentException("Fluid parcel edit unavailable", unavailable);
             }
-            var contents = NonNullList.withSize(9, ItemStack.EMPTY); contents.set(0, tank);
-            result.set(AllDataComponents.PACKAGE_CONTENTS, ItemContainerContents.fromItems(contents));
             if (!FluidStack.matches(fluid.copyWithAmount(remaining), read(result)))
                 throw new IllegalArgumentException("Fluid parcel remainder did not preserve the exact variant");
         }

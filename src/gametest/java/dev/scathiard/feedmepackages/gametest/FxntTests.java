@@ -138,13 +138,13 @@ public final class FxntTests {
         try {
             for (var state : CompatibilityStatus.State.values()) for (var emi : CompatibilityStatus.State.values())
                     for (var tacz : CompatibilityStatus.State.values()) for (var wand : CompatibilityStatus.State.values()) for (var gadgets : CompatibilityStatus.State.values()) for (var effortless : CompatibilityStatus.State.values()) for (var sophisticated : CompatibilityStatus.State.values()) {
-                wire.clear(); var message = new CompatibilityStatus.Message(tacz, wand, gadgets, effortless, state, emi, sophisticated, state, sophisticated, state,emi,state,emi,tacz,wand); CompatibilityStatus.Message.CODEC.encode(wire, message);
+                wire.clear(); var message = new CompatibilityStatus.Message(tacz, wand, gadgets, effortless, state, emi, sophisticated, state, sophisticated, state,state,emi,tacz,wand); CompatibilityStatus.Message.CODEC.encode(wire, message);
                 helper.assertTrue(CompatibilityStatus.Message.CODEC.decode(wire).equals(message), "Availability payload changed state");
             }
-            for (int malformed = 0; malformed < 31; malformed++) {
+            for (int malformed = 0; malformed < 29; malformed++) {
                 wire.clear();
-                if (malformed < 15) { wire.writeZero(malformed); wire.writeByte(255); wire.writeZero(14 - malformed); }
-                else wire.writeZero(malformed == 30 ? 16 : malformed - 15);
+                if (malformed < 14) { wire.writeZero(malformed); wire.writeByte(255); wire.writeZero(13 - malformed); }
+                else wire.writeZero(malformed == 28 ? 15 : malformed - 14);
                 boolean rejected = false;
                 try { CompatibilityStatus.Message.CODEC.decode(wire); }
                 catch (IllegalArgumentException | IndexOutOfBoundsException | io.netty.handler.codec.DecoderException expected) { rejected = true; }

@@ -80,13 +80,10 @@ public final class PhantomDispatch {
         boolean source=dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(bearer);
         if(!source && recipient==null)return true;
         if(!dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.enabled()
-                || !dev.scathiard.feedmepackages.compat.maid.phantom.v102.Phantom102Gate.enabled()
-                || !dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.available()
-                || !dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102FlightCompatible())return false;
+                || !dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.flightReady())return false;
         if(recipient!=null && !dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102Compatible())return false;
         // Load/inspect the return queue only for a route which actually needs it.
-        return !source || !port || dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomPortReturn.available()
-                && dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102PortReturnCompatible();
+        return !source || !port || dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.portReady();
     }
 
     /** A player dispatching: the player is his own HUD/source identity. */

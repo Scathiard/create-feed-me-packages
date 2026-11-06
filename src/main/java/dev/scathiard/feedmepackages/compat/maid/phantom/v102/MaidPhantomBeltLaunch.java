@@ -58,7 +58,7 @@ public final class MaidPhantomBeltLaunch {
     public static boolean launchIfMaid(BeltBlockEntity belt, TransportedItemStack transported) {
         if (!wired()) return refuse("reflective wiring unavailable");
         if (belt == null || transported == null) return refuse("no belt item");
-        if (!Phantom102Gate.usable(true)) return refuse("capability gate disabled");
+        if (!dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.enabled()) return refuse("capability gate disabled");
         if (!dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom102BeltCompatible()) return refuse("shape gate refused");
         if (!(belt.getLevel() instanceof ServerLevel level)) return refuse("not a server level");
         MinecraftServer server = level.getServer();
@@ -144,6 +144,32 @@ public final class MaidPhantomBeltLaunch {
     private static boolean refuse(String reason) {
         note("not taken over - " + reason);
         return false;
+    }
+
+    /** 1.0.3 stores a return target on the belt item. Null is an unrelated native route; false retains this item. */
+    public static Boolean launchCarrierIfMaid(BeltBlockEntity belt, TransportedItemStack stack) {
+        if (!dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.modern()
+                || !(belt.getLevel() instanceof ServerLevel level)) return null;
+        try {
+            var item = Class.forName(P + "item.miniphantom.MiniPhantomItem");
+            var target = optional(item.getMethod("getPlayerReturnTarget", ItemStack.class).invoke(null,stack.stack));
+            if (target.isEmpty() || !(target.get() instanceof UUID uuid)) return null;
+            var maid = MaidPhantomTasks.maidByEntity(level.getServer(),uuid);
+            if (maid == null) return null;
+            if (!wired() || !dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.flightReady()) return false;
+            var geometry = getLaunchGeometry.invoke(null,level,belt,stack);
+            var factory = Class.forName(P + "logistics.courier.AirCourierTask").getMethod("forCarrierReturnToPlayer",
+                    UUID.class,ServerLevel.class,UUID.class,ResourceKey.class,Vec3.class,Vec3.class,Vec3.class);
+            Object task=factory.invoke(null,UUID.randomUUID(),level,uuid,maid.level().dimension(),
+                    launchSpawnPos.invoke(geometry),launchDirection.invoke(geometry),launchMotion.invoke(geometry));
+            if (!MaidPhantomTasks.rememberReturn(task,maid)) return false;
+            var submission=dev.scathiard.feedmepackages.compat.PhantomTaskSubmission.prepare(level.getServer(),task);
+            boolean sent=submission!=null && submission.submit();
+            if(!sent)MaidPhantomTasks.forget(task);
+            return sent;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failed) {
+            return refuse("maid carrier launch failed: " + failed);
+        }
     }
 
     private static boolean wired() {

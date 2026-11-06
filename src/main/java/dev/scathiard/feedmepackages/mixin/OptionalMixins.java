@@ -64,22 +64,6 @@ public final class OptionalMixins implements IMixinConfigPlugin {
             return sbwReady = ready;
         } catch (ClassNotFoundException | IOException absent) { return sbwReady = false; }
     }
-    private static Boolean arsReady;
-    public static boolean arsCompatible() { return Boolean.TRUE.equals(arsReady); }
-    private static boolean inspectArs(String target) {
-        try {
-            var node=MixinService.getService().getBytecodeProvider().getClassNode(target);
-            String prefix="Lcom/hollingsworth/arsnouveau/api/spell/";
-            String place="(Lnet/minecraft/world/phys/BlockHitResult;Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/LivingEntity;"+prefix+"SpellStats;"+prefix+"SpellContext;"+prefix+"SpellResolver;Lnet/minecraft/world/entity/player/Player;)V";
-            String attempt="(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/BlockItem;Lnet/minecraft/world/phys/BlockHitResult;Lnet/minecraft/world/entity/player/Player;)Lnet/minecraft/world/InteractionResult;";
-            String extract="(Ljava/util/function/Predicate;I)Lcom/hollingsworth/arsnouveau/api/item/inv/ExtractedStack;";
-            boolean ready=hasMethod(node,"place",place) && hasMethod(node,"attemptPlace",attempt)
-                    && calls(node,"place",place,"com/hollingsworth/arsnouveau/api/item/inv/InventoryManager","extractItem",extract)==1
-                    && calls(node,"place",place,"com/hollingsworth/arsnouveau/api/item/inv/InventoryManager","extractRandomItem",extract)==1;
-            if(!ready) LogUtils.getLogger().warn("FMP Ars Nouveau adapter disabled: native place/extraction signatures changed");
-            return arsReady=ready;
-        } catch (ClassNotFoundException | IOException absent) { return arsReady=false; }
-    }
     private static boolean factoryReady;
     private static Boolean sophisticatedReady;
     public static boolean sophisticatedCompatible() { return Boolean.TRUE.equals(sophisticatedReady); }
@@ -93,6 +77,11 @@ public final class OptionalMixins implements IMixinConfigPlugin {
      * until the phantom target is actually probed, i.e. fails closed.
      */
     private static Boolean phantom102Ready;
+    private static Boolean phantom103FlightReady;
+    public static boolean phantom103FlightCompatible() { return Boolean.TRUE.equals(phantom103FlightReady); }
+    private static Boolean phantom103PortReady, phantom103BeltReady;
+    public static boolean phantom103PortCompatible() { return Boolean.TRUE.equals(phantom103PortReady); }
+    public static boolean phantom103BeltCompatible() { return Boolean.TRUE.equals(phantom103BeltReady); }
     public static boolean phantom102Compatible() { return Boolean.TRUE.equals(phantom102Ready); }
     private static Boolean phantom102FlightReady;
     public static boolean phantom102FlightCompatible() { return Boolean.TRUE.equals(phantom102FlightReady); }
@@ -124,8 +113,37 @@ public final class OptionalMixins implements IMixinConfigPlugin {
     @Override public void onLoad(String mixinPackage) {}
     @Override public String getRefMapperConfig() { return null; }
     @Override public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (mixinClassName.contains(".Phantom103") && net.neoforged.fml.loading.LoadingModList.get().getMods().stream()
+                .noneMatch(mod -> mod.getModId().equals("createphantom") && mod.getVersion().toString().equals("1.0.3"))) return false;
+        if (mixinClassName.endsWith("Phantom103PortReturnMixin") || mixinClassName.endsWith("Phantom103CarrierBeltMixin")) {
+            try {
+                var node=MixinService.getService().getBytecodeProvider().getClassNode(targetClassName);
+                if(mixinClassName.endsWith("Phantom103PortReturnMixin")) {
+                    return phantom103PortReady=hasMethod(node,"tick","()V") && calls(node,"tick","()V",
+                            "com/yision/phantom/logistics/courier/AirCourierDeliveryService","targetState",
+                            "(Lnet/minecraft/server/MinecraftServer;Lcom/yision/phantom/entity/courier/AirCourierEntity$Mission;Lnet/minecraft/resources/ResourceKey;Lnet/minecraft/core/BlockPos;Ljava/util/UUID;Lnet/minecraft/world/item/ItemStack;)Lcom/yision/phantom/logistics/courier/AirCourierDeliveryService$TargetState;")==1;
+                }
+                return phantom103BeltReady=hasMethod(node,"launchReturningCarrierToPlayer",
+                        "(Lcom/simibubi/create/content/kinetics/belt/BeltBlockEntity;Lcom/simibubi/create/content/kinetics/belt/transport/TransportedItemStack;)Z");
+            } catch(ClassNotFoundException | IOException absent){return false;}
+        }
+        if (mixinClassName.endsWith("Phantom103FlightMixin")) {
+            try {
+                var node = MixinService.getService().getBytecodeProvider().getClassNode(targetClassName);
+                String server = "Lnet/minecraft/server/MinecraftServer;";
+                String task = "Lcom/yision/phantom/logistics/courier/AirCourierTask";
+                phantom103FlightReady = targetClassName.equals("com.yision.phantom.logistics.courier.AirCourierTask")
+                        && hasMethod(node,"prepareFlightTarget","("+server+")"+task+"$FlightTarget;")
+                        && hasMethod(node,"prepareForDispatch","("+server+")V")
+                        && hasMethod(node,"doFinishDelivery","("+server+"Lnet/minecraft/server/level/ServerLevel;)V")
+                        && hasMethod(node,"startCarrierReturn","("+server+")V")
+                        && hasMethod(node,"resolveFlightTarget","("+server+")"+task+"$FlightTarget;")
+                        && hasMethod(node,"save","(Lnet/minecraft/core/HolderLookup$Provider;Lnet/minecraft/nbt/CompoundTag;)Lnet/minecraft/nbt/CompoundTag;")
+                        && hasMethod(node,"load","(Lnet/minecraft/core/HolderLookup$Provider;Lnet/minecraft/nbt/CompoundTag;)"+task+";");
+                return phantom103FlightReady;
+            } catch (ClassNotFoundException | IOException absent) { phantom103FlightReady=false;return false; }
+        }
         if (mixinClassName.endsWith("CraftingTweaksEditMixin")) return inspectCraftingTweaks();
-        if (mixinClassName.endsWith("ArsPlaceSourcesMixin")) return inspectArs(targetClassName);
         if (mixinClassName.endsWith("SbwAmmoSourcesMixin") || mixinClassName.endsWith("SbwAmmoCountMixin")) return inspectSbw();
         if (mixinClassName.endsWith("Phantom102SettlementMixin")) {
             // Shape mismatch => this Mixin is not applied at all (no require=0, no behaviour change).

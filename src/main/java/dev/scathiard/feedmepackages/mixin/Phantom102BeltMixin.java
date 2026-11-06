@@ -32,7 +32,7 @@ public abstract class Phantom102BeltMixin {
     @Inject(method = "launchPackageCourier", at = @At("HEAD"), cancellable = true, remap = false)
     private static void fmp$launchForMaid(BeltBlockEntity belt, TransportedItemStack transported,
                                           CallbackInfoReturnable<Boolean> cir) {
-        if (!Phantom102Gate.usable(true)) return;
+        if (!dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.enabled()) return;
         if (!OptionalMixins.phantom102BeltCompatible()) return;
         if (!MaidPhantomBeltLaunch.launchIfMaid(belt, transported)) return;
         cir.setReturnValue(Boolean.TRUE);

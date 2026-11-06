@@ -212,8 +212,6 @@
   "gui.create_feed_me_packages.compat.sbw_config_disabled": "卓越前线缓存弹药已被服务器禁用",
   "gui.create_feed_me_packages.compat.sbw_server_mismatch": "卓越前线接口不匹配：缓存弹药已停用",
   "gui.create_feed_me_packages.compat.sbw_client_mismatch": "客户端卓越前线接口不匹配：缓存弹药预览已停用",
-  "gui.create_feed_me_packages.compat.ars_config_disabled": "新生魔艺缓存放置已被服务器禁用",
-  "gui.create_feed_me_packages.compat.ars_server_mismatch": "新生魔艺接口不匹配：缓存放置已停用",
   "gui.create_feed_me_packages.return_invalid_label": "重设退货地址",
   "gui.create_feed_me_packages.return_invalid_hint": "原地址已保留；重新设置后恢复退货",
   "gui.create_feed_me_packages.status.storage_locked.preserved": "缓存数据无法读取，相关操作已暂停；原始记录已保留，请检查所需模组及服务器日志。",
