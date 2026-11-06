@@ -96,6 +96,7 @@ public final class MaidTests {
             tests.add(test("phantom_return_inventory_priority", h -> carrierInventoryPriority(h, false)));
             // End-to-end maid compatibility: a real native courier delivering into a real maid's cache.
             tests.add(test("phantom_delivery_to_maid", MaidTests::phantomDeliveryToMaid));
+            tests.add(test("phantom_native_source_port", MaidTests::phantomNativeSourcePort));
             // And the way home: the returning carrier must come to her, not to her owner.
             tests.add(test("phantom_return_to_maid", MaidTests::phantomReturnToMaid));
             tests.add(test("phantom_return_cache_full_bag", MaidTests::phantomReturnCache));
@@ -1299,6 +1300,28 @@ public final class MaidTests {
         h.startSequence().thenWaitUntil(()->h.assertTrue(maidItemCount(f.maid(),carrier)==1,"Carrier did not reach her inventory"))
                 .thenIdle(20).thenExecute(()->h.assertTrue(maidItemCount(f.maid(),carrier)==1&&f.owner().getInventory().countItem(carrier.getItem())==0,
                         "Native carrier duplicated or went to the owner")).thenSucceed();
+    }
+
+    private static void phantomNativeSourcePort(GameTestHelper h) throws ReflectiveOperationException {
+        var f=setup(h,new ItemStack(Items.DIRT),0);f.maid().setPos(h.absoluteVec(new Vec3(1,1.2,1)));
+        var port=PhantomCompatibilityTests.port(h,"Origin-"+UUID.randomUUID());
+        var type=Class.forName("com.yision.phantom.logistics.courier.AirCourierTask");
+        Object task=type.getMethod("forPackageToPlayer",UUID.class,ItemStack.class,ServerLevel.class,UUID.class,
+                net.minecraft.resources.ResourceKey.class,Vec3.class,Vec3.class,Vec3.class,net.minecraft.resources.ResourceKey.class,
+                BlockPos.class,UUID.class,UUID.class,UUID.class).invoke(null,UUID.randomUUID(),parcel(f,16),h.getLevel(),
+                        f.maid().getUUID(),h.getLevel().dimension(),Vec3.atCenterOf(port.getBlockPos()),new Vec3(0,0,1),
+                        new Vec3(0,0,.3),h.getLevel().dimension(),port.getBlockPos(),null,null,f.owner().getUUID());
+        h.assertTrue(dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.remember(task,f.maid()),"Recipient marker missing");
+        Class.forName("com.yision.phantom.logistics.courier.AirCourierTaskManager").getMethod("addTask",net.minecraft.server.MinecraftServer.class,type)
+                .invoke(null,h.getLevel().getServer(),task);
+        var carriers=(IItemHandler)port.getClass().getMethod("getCarrierInventory").invoke(port);
+        var carrier=dev.scathiard.feedmepackages.compat.maid.phantom.v102.MaidPhantomTasks.nativeCarrier();
+        h.startSequence().thenWaitUntil(()->h.assertTrue(f.stock()==16&&count(carriers,carrier)==1,"Carrier did not return to the original station"))
+                .thenIdle(20).thenExecute(()->{
+                    h.assertTrue(f.stock()==16&&count(carriers,carrier)==1&&maidItemCount(f.maid(),carrier)==0
+                            &&f.owner().getInventory().countItem(carrier.getItem())==0,"Original-station return duplicated or redirected carrier");
+                    FeedMePackages.LOGGER.info("FMP_MAID_PHANTOM_SOURCE_PORT_PASSED cargo=16 originalPortCarrier=1 maidCarrier=0 ownerCarrier=0");
+                }).thenSucceed();
     }
 
     /** A real native package-to-player task aimed at her, built exactly the way our own dispatch builds one. */
