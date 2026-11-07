@@ -52,6 +52,11 @@ public final class TaczMaterials {
         return clientSources.get().stream().filter(stack -> accepts(gun, stack)).map(ItemStack::copy).toList();
     }
     public static Object append(LivingEntity actor, ItemStack gun, Object original, int requested) {
+        if (dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(actor)
+                && original instanceof IItemHandler inventory && requested > 0 && !gun.isEmpty()
+                && FmpConfig.taczAmmoEnabled() && ready())
+            return dev.scathiard.feedmepackages.compat.maid.MaidInventorySource.ammo(actor, inventory,
+                    stack -> accepts(gun, stack), requested);
         if (!(actor instanceof Player player) || !(original instanceof IItemHandler nativeHandler)
                 || requested <= 0 || gun.isEmpty() || player.isSpectator() || !ready()) return original;
         var segments = new ArrayList<Segment>(); CacheHandle handle = null;

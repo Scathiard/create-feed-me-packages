@@ -622,11 +622,9 @@ public final class MaidTests {
         inv.setStackInSlot(0, bread.copyWithCount(2));
         h.assertTrue(find(f, s -> s.is(Items.BREAD), 4) == 0 && f.stock() == 12, "Native bag priority was bypassed");
         inv.setStackInSlot(0, ItemStack.EMPTY);
-        int slot = find(f, s -> s.is(Items.BREAD), 4);
-        h.assertTrue(slot >= 0 && inv.getStackInSlot(slot).getCount() == 4 && f.stock() == 8
-                && ItemStack.isSameItemSameComponents(inv.getStackInSlot(slot), bread), "Native shortage event lost count or components");
-        find(f, s -> s.is(Items.BREAD), 4);
-        h.assertTrue(f.stock() == 8, "A second availability query restaged stock already in the native bag");
+        for (int i = 0; i < 10; i++)
+            h.assertTrue(find(f, s -> s.is(Items.BREAD), 4) == -1 && f.stock() == 12,
+                    "A generic availability query staged cached food outside a native consumption operation");
         h.succeed();
     }
     private static void access(GameTestHelper h) throws ReflectiveOperationException {
@@ -678,7 +676,7 @@ public final class MaidTests {
         for (int i = 0; i < inv.getSlots(); i++) inv.setStackInSlot(i, new ItemStack(Items.DIRT, 64));
         h.assertTrue(find(f, s -> s.is(Items.BREAD), 4) == -1 && f.stock() == 10, "Full native bag consumed or dropped cache stock");
         inv.setStackInSlot(0, ItemStack.EMPTY);
-        h.assertTrue(find(f, s -> s.is(Items.BREAD), 4) == 0 && f.stock() == 6, "Freeing one real native slot did not resume transfer");
+        h.assertTrue(find(f, s -> s.is(Items.BREAD), 4) == -1 && f.stock() == 10, "Freeing a slot caused query-time staging");
         h.succeed();
     }
     private static void meal(GameTestHelper h) throws ReflectiveOperationException {
@@ -730,6 +728,11 @@ public final class MaidTests {
     }
     private static void death(GameTestHelper h) throws ReflectiveOperationException {
         var f = setup(h, new ItemStack(Items.BREAD), 10);
+        MaidConsumptionTests.fill(f);
+        f.maid.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.DIAMOND_SWORD));
+        f.maid.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.SHIELD));
+        MaidConsumptionTests.meal(f.maid, h.getLevel());
+        h.assertTrue(f.maid.isUsingItem() && f.stock() == 9, "Death fixture did not start a one-item native cache meal");
         var server = h.getLevel().getServer();
         h.assertTrue(server.getPlayerList().getPlayer(f.owner.getUUID()) == null, "Maid death must retain its offline-owner scenario");
         // Vanilla GameTestServer omits Services.profileCache, while real servers provide it.
@@ -753,7 +756,7 @@ public final class MaidTests {
         } finally {
             if (needsProfileCache) servicesField.set(server, originalServices);
         }
-        h.assertTrue(!MaidAccess.resolve(f.maid).active() && f.stock() == 10, "Death retained active access or changed the ordinary cache");
+        h.assertTrue(!MaidAccess.resolve(f.maid).active() && f.stock() == 9, "Death retained active access or refunded the transferred food");
         Entity grave = null;
         for (var entity : h.getLevel().getAllEntities())
             if (entity.getClass().getName().equals("com.github.tartaricacid.touhoulittlemaid.entity.item.EntityTombstone")
@@ -762,6 +765,8 @@ public final class MaidTests {
         var items = (IItemHandler) grave.getClass().getMethod("getItems").invoke(grave); int found = 0;
         for (int i = 0; i < items.getSlots(); i++) if (f.handle.cacheId().equals(items.getStackInSlot(i).get(FmpRegistries.IDENTITY.get()))) found++;
         h.assertTrue(found == 1, "Native tombstone did not retain exactly the physical ordinary pendant");
+        h.assertTrue(count(items, new ItemStack(Items.BREAD)) == 1 && count(items, new ItemStack(Items.SHIELD)) == 1
+                && count(items, new ItemStack(Items.DIAMOND_SWORD)) == 1, "Death during eating lost or duplicated the food or hidden original hand");
         h.assertTrue(server.getPlayerList().getPlayer(f.owner.getUUID()) == null,
                 "Offline owner was made online to bypass a native death listener");
         dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP_MAID_DEATH_PASSED offlineOwner=true nativeTombstonePendant={} stock={} testProfileCache={}", found, f.stock(), needsProfileCache);
@@ -784,6 +789,7 @@ public final class MaidTests {
     }
     private static void tacz(GameTestHelper h) throws ReflectiveOperationException {
         var ammo = TaczTests.ammo("762x39"); var f = setup(h, ammo, 100); var gun = TaczTests.gun(f.owner, "ak47");
+        MaidConsumptionTests.fill(f);
         f.maid.setItemInHand(InteractionHand.MAIN_HAND, gun); f.maid.restrictTo(f.maid.blockPosition(), 20);
         var op = Class.forName("com.tacz.guns.api.entity.IGunOperator");
         op.getMethod("initialData").invoke(f.maid);
@@ -794,9 +800,9 @@ public final class MaidTests {
         var compat = Class.forName("com.github.tartaricacid.touhoulittlemaid.compat.gun.tacz.TacInnerCompat");
         var attack = compat.getDeclaredMethod("performGunAttack", f.maid.getClass(), LivingEntity.class, ItemStack.class); attack.setAccessible(true);
         attack.invoke(null, f.maid, target, gun);
-        h.assertTrue(data.getField("reloadTimestamp").getLong(holder) >= 0 && TaczTests.totalLoaded(gun) == 0 && f.stock() < 100,
-                "Native maid NO_AMMO did not request real ammo and start reload");
-        var inv = MaidCompatibility.inventory(f.maid); long staged = 100 - f.stock();
+        h.assertTrue(data.getField("reloadTimestamp").getLong(holder) >= 0 && TaczTests.totalLoaded(gun) == 0 && f.stock() == 100,
+                "Native maid NO_AMMO did not start a read-only cache reload");
+        var inv = MaidCompatibility.inventory(f.maid);
         op.getMethod("cancelReload").invoke(f.maid);
         h.assertTrue(f.stock() + count(inv, ammo) == 100 && TaczTests.totalLoaded(gun) == 0,
                 "Native cancellation lost staged ammo or refilled a canceled magazine");
@@ -808,8 +814,8 @@ public final class MaidTests {
         var reload = TaczTests.reloadService(f.maid, holder);
         data.getField("reloadTimestamp").setLong(holder, TaczTests.nowMillis() - 30_000);
         reload.getClass().getMethod("tickReloadState").invoke(reload);
-        h.assertTrue(TaczTests.totalLoaded(gun) == 30 && f.stock() + count(inv, ammo) == 70 && f.stock() == 100 - staged,
-                "Native maid reload did not conserve cache, staged ammo and magazine");
+        h.assertTrue(TaczTests.totalLoaded(gun) == 30 && f.stock() + count(inv, ammo) == 70 && f.stock() == 70 && count(inv, ammo) == 0,
+                "Native maid reload did not consume exactly 30 cached rounds with a full backpack");
         h.succeed();
     }
     private static int count(IItemHandler inv, ItemStack item) {

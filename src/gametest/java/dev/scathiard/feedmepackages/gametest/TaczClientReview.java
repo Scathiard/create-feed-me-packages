@@ -20,6 +20,7 @@ final class TaczClientReview {
     private static java.util.UUID cacheId;
     @FunctionalInterface private interface Action { void run(ServerPlayer player) throws ReflectiveOperationException; }
     static boolean tick() throws ReflectiveOperationException {
+        if (stage == 18) return MaidConsumptionClientReview.tick();
         ticks++;
         if (!net.neoforged.fml.ModList.get().isLoaded("tacz")) {
             if (ticks < 40) return false;
@@ -151,7 +152,7 @@ final class TaczClientReview {
             }
             case 17 -> {
                 FeedMePackages.LOGGER.info("FMP_TACZ_CLIENT_QUANTITY nativeInventory=1 cache=5000 visibleLowerBound=4097 noDoubleCount=true unequip=NO_AMMO");
-                return true;
+                next();
             }
         }
         return false;

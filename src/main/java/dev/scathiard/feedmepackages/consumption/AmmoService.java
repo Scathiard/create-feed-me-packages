@@ -5,6 +5,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ProjectileWeaponItem;
+import dev.scathiard.feedmepackages.compat.maid.MaidMaterialSource;
 import java.util.*;
 
 /** Ephemeral query objects are not inventory. Only the standard draw/useAmmo commit path may spend them. */
@@ -16,14 +17,34 @@ public final class AmmoService {
     // ItemStack uses identity equality; weak keys do not extend the lifetime of discarded queries.
     private static final Map<ItemStack, Ticket> TICKETS = Collections.synchronizedMap(new WeakHashMap<>());
     private static final class Ticket {
-        final ServerPlayer player; final MaterialTransaction plan; final ItemStack weapon, prototype;
+        final LivingEntity actor; final MaterialTransaction plan; final MaidMaterialSource maidSource;
+        final ItemStack weapon, prototype;
         boolean used, committed;
         Ticket(ServerPlayer player, MaterialTransaction plan, ItemStack weapon, ItemStack prototype) {
-            this.player = player; this.plan = plan; this.weapon = weapon.copy(); this.prototype = prototype.copyWithCount(1);
+            actor = player; this.plan = plan; maidSource = null; this.weapon = weapon.copy(); this.prototype = prototype.copyWithCount(1);
+        }
+        Ticket(LivingEntity maid, MaidMaterialSource source, ItemStack weapon, ItemStack prototype) {
+            actor = maid; plan = null; maidSource = source; this.weapon = weapon.copy(); this.prototype = prototype.copyWithCount(1);
         }
         boolean valid(ItemStack actualWeapon, LivingEntity shooter) {
-            return !used && player == shooter && ItemStack.matches(weapon, actualWeapon) && plan.valid();
+            return !used && actor == shooter && ItemStack.matches(weapon, actualWeapon)
+                    && (maidSource != null ? maidSource.available(prototype) > 0 : plan.valid());
         }
+        boolean take(int amount) {
+            return maidSource != null ? maidSource.take(prototype, amount) : plan.take(prototype, amount) && plan.commit();
+        }
+    }
+    /** EntityMaid's native projectile query uses the same draw/useAmmo path when loading a crossbow. */
+    public static ItemStack maidCandidate(LivingEntity maid, ItemStack weapon, ItemStack vanilla) {
+        if (!vanilla.isEmpty() || !(weapon.getItem() instanceof ProjectileWeaponItem projectile)) return vanilla;
+        var source = MaidMaterialSource.open(maid); if (source == null) return vanilla;
+        for (var prototype : source.candidates(projectile.getSupportedHeldProjectiles(weapon))) {
+            int available = source.available(prototype);
+            if (available <= 0) continue;
+            var candidate = prototype.copyWithCount(Math.min(prototype.getMaxStackSize(), available));
+            TICKETS.put(candidate, new Ticket(maid, source, weapon, prototype)); return candidate;
+        }
+        return vanilla;
     }
     public static ItemStack candidate(Player player, ItemStack weapon, ItemStack vanilla) {
         if (!(weapon.getItem() instanceof ProjectileWeaponItem projectile) || player.isSpectator()) return vanilla;
@@ -63,7 +84,7 @@ public final class AmmoService {
         var ticket = TICKETS.get(ammo);
         if (ticket == null) return ammo.split(amount);
         if (ticket.used || ticket.committed || amount <= 0 || amount > ammo.getCount()
-                || !ticket.plan.take(ticket.prototype, amount) || !ticket.plan.commit()) throw new Unavailable();
+                || !ticket.take(amount)) throw new Unavailable();
         ticket.committed = true;
         return ammo.split(amount);
     }

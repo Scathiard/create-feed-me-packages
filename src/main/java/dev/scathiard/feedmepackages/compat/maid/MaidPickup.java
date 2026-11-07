@@ -25,7 +25,7 @@ public final class MaidPickup {
         if (simulate || maid.level().isClientSide || !enabled(maid) || !ground.isAlive() || ground.hasPickUpDelay()) return null;
         var access = MaidAccess.resolve(maid);
         if (!access.active() || busy(access.handle())) return null;
-        var inventory = MaidCompatibility.inventory(maid); var stacks = new ArrayList<ItemStack>();
+        var inventory = MaidCompatibility.pickupInventory(maid); var stacks = new ArrayList<ItemStack>();
         for (int slot = 0; slot < inventory.getSlots(); slot++) stacks.add(inventory.getStackInSlot(slot).copy());
         return new Capture(access.handle(), ground.getItem().copy(), List.copyOf(stacks));
     }
@@ -36,7 +36,7 @@ public final class MaidPickup {
         if (capture == null || !pickedUp || !enabled(maid)) return;
         var access = MaidAccess.resolve(maid);
         if (!access.active() || !capture.handle().equals(access.handle()) || busy(access.handle())) return;
-        var inventory = MaidCompatibility.inventory(maid);
+        var inventory = MaidCompatibility.pickupInventory(maid);
         if (inventory.getSlots() != capture.before().size()) return;
         var ledger = CacheLedger.get(maid.getServer()); var record = ledger.find(access.handle().cacheId());
         ItemVariantKey key;
@@ -58,7 +58,7 @@ public final class MaidPickup {
             if (moved > 0) changed.put(slot, actual.copyWithCount(actual.getCount() - moved));
         }
         if (changed.isEmpty() || !dev.scathiard.feedmepackages.service.CachePolicy.admits(key, maid.registryAccess())) return;
-        // No foreign callback between proof and commit. Native backpack setters preserve the handler and slots.
+        // Native backpack/hand setters preserve the original slots; only this pickup's increments are removed.
         ledger.replace(access.handle(), record.state().revision(), record.withState(edit.finish()));
         changed.forEach(inventory::setStackInSlot);
     }
