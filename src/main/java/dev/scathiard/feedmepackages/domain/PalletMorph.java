@@ -1,6 +1,6 @@
 package dev.scathiard.feedmepackages.domain;
 
-/** r014's reversible display timeline. It never delays use, owns stock or queues selections. */
+/** r018's reversible display timeline. It never delays use, owns stock or queues selections. */
 public final class PalletMorph {
     public static final double DURATION = .3;
     private double from, target, since;
@@ -18,7 +18,7 @@ public final class PalletMorph {
     public Pose pose(double now) { return at(progress(now)); }
     public static Pose at(double progress) {
         double q=Double.isFinite(progress)?Math.clamp(progress,0,1):0;
-        return new Pose(q,17*ease(q,.12,.48),16.7*(1-ease(q,.55,1)),-90*ease(q,.02,.12));
+        return new Pose(q,17*ease(q,.12,.48),18.7*(1-ease(q,.55,1)),-90*ease(q,.02,.12));
     }
     public record Pose(double progress,double itemOffset,double fluidOffset,double gate) {
         public boolean itemReady() { return progress==0; }

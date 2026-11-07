@@ -5,6 +5,25 @@ import java.util.*;
 /** Clips this tool's baked BLOCK-format faces at the outlet, preserving UVs instead of squashing them. */
 public final class PalletClipping {
     private PalletClipping() {}
+    /** Final rendered positions, plus unchanged/interpolated color, UV, light and normals. */
+    static List<float[]> clip(float[][] vertices,float nx,float ny,float nz,float limit) {
+        var output=new ArrayList<float[]>(5);
+        float[] previous=vertices[3];float before=distance(previous,nx,ny,nz,limit);
+        for(var current:vertices) {
+            float after=distance(current,nx,ny,nz,limit);
+            if((before<=0)!=(after<=0)) {
+                float t=before/(before-after);float[] cut=new float[current.length];
+                for(int i=0;i<cut.length;i++)cut[i]=mix(previous[i],current[i],t);
+                output.add(cut);
+            }
+            if(after<=0)output.add(current);
+            previous=current;before=after;
+        }
+        return output;
+    }
+    static float distance(float[] vertex,float nx,float ny,float nz,float limit) {
+        return vertex[0]*nx+vertex[1]*ny+vertex[2]*nz-limit;
+    }
     public static List<int[]> clip(int[] data,float plane) {
         if(data.length!=32) throw new IllegalArgumentException("Expected four BLOCK-format vertices");
         var output=new ArrayList<int[]>(5);

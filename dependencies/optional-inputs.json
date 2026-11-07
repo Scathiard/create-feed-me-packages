@@ -118,6 +118,15 @@
       "version": "1.0.3",
       "sha256": "3ac4adeefcdf4d5ee840fca3f841b63b82cb8c34d9d841bbdb2eba4fc16e2703",
       "path": "dependencies/optional/createphantom/1.0.3/createphantom-1.0.3.jar"
+    },
+    {
+      "source": "https://modrinth.com/mod/timeless-and-classics-zero/version/O2Pfsh6w",
+      "url": "https://cdn.modrinth.com/data/SzzJttH8/versions/O2Pfsh6w/tacz-neoforge-1.21.1-1.2.0.jar",
+      "version": "1.2.0",
+      "id": "O2Pfsh6w",
+      "sha256": "b01384895b51a32e65ae9e2de6b99fa92b2f9285c2dafcac2112932fc93bff21",
+      "sha512": "8f54d0b620040cd4451329ee62fa2b2ede153220d85a8722ef9ffe6e31b9aaeff9f3a55a9bc92df29f1769ea751a50d36110139eacc809a84d5ca4186fdcc461",
+      "path": "dependencies/optional/tacz/1.2.0/tacz-neoforge-1.21.1-1.2.0.jar"
     }
   ]
 }

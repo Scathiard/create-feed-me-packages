@@ -31,7 +31,8 @@ if (project.hasProperty('mobile_runtime_version')) {
         throw new GradleException('The explicit Mobile Packages runtime input is pinned to 0.7.8 and requires withMobile')
     runProfile += '-mobile078'
 }
-['fluid_runtime_version': ['withFluid', '1.3.2'], 'phantom_runtime_version': ['withPhantom', '1.0.3']].each { key, input ->
+['fluid_runtime_version': ['withFluid', '1.3.2'], 'phantom_runtime_version': ['withPhantom', '1.0.3'],
+ 'tacz_runtime_version': ['withTacz', '1.2.0']].each { key, input ->
     if (project.hasProperty(key)) {
         if (!project.hasProperty(input[0]) || project.property(key).toString() != input[1])
             throw new GradleException("${key} requires ${input[0]} and the pinned ${input[1]} input")
@@ -200,8 +201,10 @@ dependencies {
     }
 
     if (project.hasProperty('withTacz')) {
-        def tacz = new File(dependencyInput, 'dependencies/artifacts/tacz/1.1.8-hotfix-r6/tacz-neoforge-1.21.1-1.1.8-hotfix-r6.jar')
-        if (!tacz.isFile()) throw new GradleException('Missing pinned, isolated TaCZ 1.1.8-hotfix-r6 test artifact')
+        def tacz = project.findProperty('tacz_runtime_version') == '1.2.0'
+                ? new File(optionalInput, 'tacz/1.2.0/tacz-neoforge-1.21.1-1.2.0.jar')
+                : new File(dependencyInput, 'dependencies/artifacts/tacz/1.1.8-hotfix-r6/tacz-neoforge-1.21.1-1.1.8-hotfix-r6.jar')
+        if (!tacz.isFile()) throw new GradleException('Missing pinned, isolated TaCZ test artifact: ' + tacz)
         localRuntime files(tacz)
     }
     if (project.hasProperty('withWand')) {
@@ -520,6 +523,7 @@ tasks.register('artifactProbeJar', Jar) {
         include 'dev/scathiard/feedmepackages/gametest/LegacyOwnership*.class'
         include 'dev/scathiard/feedmepackages/gametest/ArtifactProbeBootstrap*.class'
         include 'dev/scathiard/feedmepackages/gametest/ConsumptionTests*.class'
+        include 'dev/scathiard/feedmepackages/gametest/TaczTests*.class'
         include 'dev/scathiard/feedmepackages/gametest/SophisticatedTests*.class'
         include 'dev/scathiard/feedmepackages/gametest/GadgetsTests*.class'
         include 'dev/scathiard/feedmepackages/gametest/InteractionTests*.class'

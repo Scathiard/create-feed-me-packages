@@ -806,7 +806,7 @@ public final class MaidTests {
         data.getField("drawTimestamp").setLong(holder, -1); data.getField("shootTimestamp").setLong(holder, -30_000);
         op.getMethod("reload").invoke(f.maid);
         var reload = TaczTests.reloadService(f.maid, holder);
-        data.getField("reloadTimestamp").setLong(holder, System.currentTimeMillis() - 30_000);
+        data.getField("reloadTimestamp").setLong(holder, TaczTests.nowMillis() - 30_000);
         reload.getClass().getMethod("tickReloadState").invoke(reload);
         h.assertTrue(TaczTests.totalLoaded(gun) == 30 && f.stock() + count(inv, ammo) == 70 && f.stock() == 100 - staged,
                 "Native maid reload did not conserve cache, staged ammo and magazine");

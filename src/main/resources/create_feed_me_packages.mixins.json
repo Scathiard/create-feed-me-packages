@@ -66,6 +66,8 @@
     "ClientContentDiagnosticMixin",
     "CreativeCursorClickMixin",
     "TaczHudSourcesMixin",
+    "TaczLegacyHudSourcesMixin",
+    "TaczAmmoCountMixin",
     "TaczClientShootMixin",
     "PalletAttackMixin",
     "EmiInventorySourcesMixin",

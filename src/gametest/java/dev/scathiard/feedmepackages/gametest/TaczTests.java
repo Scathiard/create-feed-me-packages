@@ -32,7 +32,8 @@ public final class TaczTests {
                 test("box_and_variants", TaczTests::boxAndVariants), test("inventory_firing", TaczTests::inventoryFiring),
                 test("canceled_reload_event", TaczTests::canceledReload), test("partial_reload", TaczTests::partialReload),
                 test("creative_reload", TaczTests::creativeReload), test("shape_guard", TaczTests::shapeGuard),
-                test("canceled_shoot", TaczTests::canceledShoot), test("infinite_reload", TaczTests::infiniteReload));
+                test("canceled_shoot", TaczTests::canceledShoot), test("infinite_reload", TaczTests::infiniteReload),
+                test("legacy_ammo_persistence", TaczTests::legacyAmmoPersistence));
     }
     @FunctionalInterface private interface Body { void run(GameTestHelper helper) throws ReflectiveOperationException; }
     private static TestFunction test(String name, Body body) {
@@ -98,6 +99,30 @@ public final class TaczTests {
         h.assertTrue(combined.extractItem(first, 4, false).isEmpty(), "Stale handler retained cache access after unequip");
         h.succeed();
     }
+    private static void legacyAmmoPersistence(GameTestHelper h) throws ReflectiveOperationException {
+        var player = player(h); var gun = gun(player, "ak47"); var current = ammo("762x39");
+        // The released unofficial port stores cartridges as tacz:ammo + CUSTOM_DATA.AmmoId.
+        var legacy = new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.fromNamespaceAndPath("tacz", "ammo")));
+        var data = new net.minecraft.nbt.CompoundTag(); data.putString("AmmoId", "tacz:762x39");
+        legacy.set(DataComponents.CUSTOM_DATA, net.minecraft.world.item.component.CustomData.of(data));
+        legacy.set(DataComponents.MAX_STACK_SIZE, current.getMaxStackSize());
+        h.assertTrue(ItemStack.isSameItemSameComponents(legacy, current), "Installed mod no longer recognizes the previous cartridge representation");
+        player.setItemInHand(InteractionHand.MAIN_HAND, gun); ConsumptionTests.seed(player, 0, legacy, 37);
+        var handle = dev.scathiard.feedmepackages.service.AccessGate.resolve(player).handle();
+        var ledger = dev.scathiard.feedmepackages.storage.CacheLedger.get(player.getServer());
+        var original = ledger.find(handle.cacheId());
+        var restored = dev.scathiard.feedmepackages.storage.CacheLedger.load(
+                ledger.save(new net.minecraft.nbt.CompoundTag(), player.registryAccess()), player.registryAccess()).find(handle.cacheId());
+        h.assertTrue(restored != null && restored.state().cells().get(0).amount() == 37
+                && restored.state().cells().get(0).filter().equals(original.state().cells().get(0).filter()),
+                "Ledger round trip changed the previous ammo filter or quantity");
+        ledger.replace(handle, original.state().revision(), restored);
+        var script = script(player, gun);
+        h.assertTrue((int)script.getClass().getMethod("consumeAmmoFromPlayer", int.class).invoke(script, 11) == 11
+                && ConsumptionTests.stock(player, 0) == 26, "Restored cartridge cache was not spendable exactly once");
+        FeedMePackages.LOGGER.info("FMP_TACZ_AMMO_PERSISTENCE legacyComponents=true initial=37 spent=11 remaining=26");
+        h.succeed();
+    }
     private static void reload(GameTestHelper h, String gunId, String ammoId, int capacity) throws ReflectiveOperationException {
         var player = player(h); var gun = gun(player, gunId); var ammo = ammo(ammoId);
         player.setItemInHand(InteractionHand.MAIN_HAND, gun); ConsumptionTests.seed(player, 0, ammo, 100);
@@ -123,7 +148,7 @@ public final class TaczTests {
         var nativeReload = reloadService(player, holder);
         var tick = nativeReload.getClass().getMethod("tickReloadState");
         // Advance only the native elapsed-time input; the author's tick/script decides the feed and quantity.
-        timestamp.setLong(holder, System.currentTimeMillis() - 30_000);
+        timestamp.setLong(holder, nowMillis() - 30_000);
         tick.invoke(nativeReload);
         int loaded = magazine(gun) + ((boolean)gun.getItem().getClass().getMethod("hasBulletInBarrel", ItemStack.class).invoke(gun.getItem(), gun) ? 1 : 0);
         h.assertTrue(loaded == capacity && ConsumptionTests.stock(player, 0) == 100 - capacity,
@@ -139,6 +164,12 @@ public final class TaczTests {
     private static int magazine(ItemStack gun) throws ReflectiveOperationException {
         return (int)gun.getItem().getClass().getMethod("getCurrentAmmoCount", ItemStack.class).invoke(gun.getItem(), gun);
     }
+    /** Use the installed gun mod's gameplay clock; 1.2 pauses it with the game. */
+    static long nowMillis() throws ReflectiveOperationException {
+        try {
+            return (long)Class.forName("com.tacz.guns.util.time.GunTime").getMethod("nowMillis").invoke(null);
+        } catch (ClassNotFoundException legacy) { return System.currentTimeMillis(); }
+    }
     static int totalLoaded(ItemStack gun) throws ReflectiveOperationException {
         return magazine(gun) + ((boolean)gun.getItem().getClass().getMethod("hasBulletInBarrel", ItemStack.class).invoke(gun.getItem(), gun) ? 1 : 0);
     }
@@ -146,12 +177,12 @@ public final class TaczTests {
         var op = Class.forName("com.tacz.guns.api.entity.IGunOperator");
         op.getMethod("initialData").invoke(player); op.getMethod("draw", Supplier.class).invoke(player, (Supplier<ItemStack>)player::getMainHandItem);
         var holder = op.getMethod("getDataHolder").invoke(player);
-        holder.getClass().getField("drawTimestamp").setLong(holder, System.currentTimeMillis() - 30_000);
+        holder.getClass().getField("drawTimestamp").setLong(holder, nowMillis() - 30_000);
         holder.getClass().getField("shootTimestamp").setLong(holder, -30_000); return holder;
     }
     private static String fire(ServerPlayer player, Object holder) throws ReflectiveOperationException {
         holder.getClass().getField("shootTimestamp").setLong(holder, -30_000);
-        long time = System.currentTimeMillis() - holder.getClass().getField("baseTimestamp").getLong(holder);
+        long time = nowMillis() - holder.getClass().getField("baseTimestamp").getLong(holder);
         return Class.forName("com.tacz.guns.api.entity.IGunOperator").getMethod("shoot", Supplier.class, Supplier.class, long.class)
                 .invoke(player, (Supplier<Float>)() -> 0f, (Supplier<Float>)() -> 0f, time).toString();
     }
@@ -226,7 +257,7 @@ public final class TaczTests {
         player.setItemInHand(InteractionHand.MAIN_HAND, gun); ConsumptionTests.seed(player, 0, ammo("762x39"), 40);
         player.setGameMode(net.minecraft.world.level.GameType.CREATIVE);
         var holder = draw(player); Class.forName("com.tacz.guns.api.entity.IGunOperator").getMethod("reload").invoke(player);
-        holder.getClass().getField("reloadTimestamp").setLong(holder, System.currentTimeMillis() - 30_000);
+        holder.getClass().getField("reloadTimestamp").setLong(holder, nowMillis() - 30_000);
         var nativeReload = reloadService(player, holder); nativeReload.getClass().getMethod("tickReloadState").invoke(nativeReload);
         h.assertTrue(totalLoaded(gun) == 30 && ConsumptionTests.stock(player, 0) == 40, "Creative reload did not retain the native free-ammo rule");
         h.succeed();
@@ -247,13 +278,29 @@ public final class TaczTests {
         }
         var hud = bytecode("com.tacz.guns.client.gui.overlay.GunHudOverlay");
         var clientShoot = bytecode("com.tacz.guns.client.gameplay.LocalPlayerShoot");
-        h.assertTrue(dev.scathiard.feedmepackages.mixin.OptionalMixins.hasTaczClientPorts(hud, clientShoot), "Native client quantity ports failed shape guard");
+        boolean shared = TaczTests.class.getClassLoader().getResource("com/tacz/guns/client/gameplay/ClientAmmoCount.class") != null;
+        var count = shared ? bytecode("com.tacz.guns.client.gameplay.ClientAmmoCount") : null;
+        var holder = shared ? bytecode("com.tacz.guns.client.gameplay.LocalPlayerDataHolder") : null;
+        java.util.function.BiPredicate<org.objectweb.asm.tree.ClassNode, org.objectweb.asm.tree.ClassNode> clientGuard = (a, b) -> shared
+                ? dev.scathiard.feedmepackages.mixin.OptionalMixins.hasTaczCountPorts(a, b, count, holder)
+                : dev.scathiard.feedmepackages.mixin.OptionalMixins.hasTaczClientPorts(a, b);
+        h.assertTrue(clientGuard.test(hud, clientShoot), "Native client quantity ports failed shape guard");
+        if (shared) {
+            h.assertTrue(!dev.scathiard.feedmepackages.mixin.OptionalMixins.hasTaczClientPorts(hud, clientShoot), "Official reader also selected the legacy HUD adapter");
+            for (String method : List.of("get", "getCached")) {
+                var missing = bytecode("com.tacz.guns.client.gameplay.ClientAmmoCount"); missing.methods.removeIf(m -> m.name.equals(method));
+                h.assertTrue(!dev.scathiard.feedmepackages.mixin.OptionalMixins.hasTaczCountPorts(hud, clientShoot, missing, holder), "Incomplete shared reader remained enabled: " + method);
+            }
+            var missing = bytecode("com.tacz.guns.client.gameplay.LocalPlayerDataHolder"); missing.methods.removeIf(m -> m.name.equals("getCachedAmmoCount"));
+            h.assertTrue(!dev.scathiard.feedmepackages.mixin.OptionalMixins.hasTaczCountPorts(hud, clientShoot, count, missing), "Disconnected native display cache remained enabled");
+        }
         for (String method : List.of("handleCacheCount", "render")) {
             var missing = bytecode("com.tacz.guns.client.gui.overlay.GunHudOverlay"); missing.methods.removeIf(m -> m.name.equals(method));
-            h.assertTrue(!dev.scathiard.feedmepackages.mixin.OptionalMixins.hasTaczClientPorts(missing, clientShoot), "Missing HUD port remained enabled: " + method);
+            h.assertTrue(!clientGuard.test(missing, clientShoot), "Missing HUD port remained enabled: " + method);
         }
         clientShoot.methods.removeIf(m -> m.name.equals("doShoot"));
-        h.assertTrue(!dev.scathiard.feedmepackages.mixin.OptionalMixins.hasTaczClientPorts(hud, clientShoot), "Missing client scheduler port remained enabled");
+        h.assertTrue(!clientGuard.test(hud, clientShoot), "Missing client scheduler port remained enabled");
+        FeedMePackages.LOGGER.info("FMP_TACZ_SHAPE_GUARD sharedCount={} missingPortsRejected=true", shared);
         h.succeed();
     }
     private static Object gunData(String id) throws ReflectiveOperationException {
@@ -287,7 +334,7 @@ public final class TaczTests {
         else { player.getInventory().setItem(1, ammo.copyWithCount(60)); player.getInventory().setItem(2, ammo.copyWithCount(40)); }
         var holder = draw(player); Class.forName("com.tacz.guns.api.entity.IGunOperator").getMethod("reload").invoke(player);
         var nativeReload = reloadService(player, holder);
-        holder.getClass().getField("reloadTimestamp").setLong(holder, System.currentTimeMillis() - 30_000);
+        holder.getClass().getField("reloadTimestamp").setLong(holder, nowMillis() - 30_000);
         nativeReload.getClass().getMethod("tickReloadState").invoke(nativeReload);
         long source = cached ? ConsumptionTests.stock(player, 0) : player.getInventory().getItem(1).getCount() + player.getInventory().getItem(2).getCount();
         int loaded = totalLoaded(gun);

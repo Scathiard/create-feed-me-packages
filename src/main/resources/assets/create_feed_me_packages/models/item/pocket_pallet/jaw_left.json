@@ -1,13 +1,7 @@
 {
-  "credit": "r005 local review: approved geometry preserved. Rear Create reference, newly authored front material.",
-  "texture_size": [
-    128,
-    128
-  ],
+  "credit": "Pocket Pallet r018, supplied by the project owner. Create/Minecraft asset rights remain with their respective owners; see META-INF/fmp-pallet-art.txt.",
   "textures": {
-    "0": "create_feed_me_packages:item/pocket_pallet/pocket_pallet_front",
-    "1": "create:item/extendo_grip",
-    "particle": "#0"
+    "0": "create_feed_me_packages:item/pocket_pallet/pocket_pallet_front"
   },
   "elements": [
     {

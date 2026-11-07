@@ -61,27 +61,26 @@ final class PalletNozzleClientReview {
             }
             case 4 -> { if(PalletClient.feedReceipts()==receipts)break;require(PalletClient.feedReceipts()==receipts+1,"First success receipt mismatch");next(); }
             case 5 -> {
-                require(PalletClient.fluidPose(0).emitting() && PalletClient.fluidPose(0).tip()>0,"No water jet/valve motion after actual use");
-                TemplateClientReview.capture("r014-water-nozzle-pressed");
-                FeedMePackages.LOGGER.info("FMP_R014_FIRST_FEEDBACK pose={}",PalletClient.fluidPose(0));
+                require(PalletClient.fluidPose(0).active() && PalletClient.fluidPose(0).tip()>0,"No valve motion after actual use");
+                TemplateClientReview.capture("r018-water-nozzle-pressed");
+                FeedMePackages.LOGGER.info("FMP_R018_FIRST_FEEDBACK pose={}",PalletClient.fluidPose(0));
                 use(TARGETS[1]);next();
             }
             case 6 -> { if(PalletClient.feedReceipts()==receipts+1)break;require(PalletClient.feedReceipts()==receipts+2,"Rapid use lost/doubled receipt");next(); }
             case 7 -> {
-                require(PalletClient.fluidPose(0).emitting(),"Rapid use failed to restart fluid feedback");
-                TemplateClientReview.capture("r014-water-rapid-use");use(TARGETS[2]);next();
+                require(PalletClient.fluidPose(0).active(),"Rapid use failed to restart fluid feedback");
+                TemplateClientReview.capture("r018-water-rapid-use");use(TARGETS[2]);next();
             }
             case 8 -> { if(PalletClient.feedReceipts()==receipts+2)break;require(PalletClient.feedReceipts()==receipts+3,"Final-use receipt mismatch");next(); }
             case 9 -> {
-                require(!PalletClient.hasCargo() && PalletClient.fluidPose(0).emitting()
-                        && PalletClient.feedbackFluid().getFluid()==Fluids.WATER,"Last liquid cut off its successful emission or left fake cargo");
-                TemplateClientReview.capture("r014-last-water-empty-chamber-feedback");
+                require(!PalletClient.hasCargo() && PalletClient.fluidPose(0).active(),"Last liquid cut off its valve feedback or left fake cargo");
+                TemplateClientReview.capture("r018-last-water-empty-chamber-feedback");
                 server(p->{require(InteractionTests.fluidStock(p,0)==0 && p.getInventory().countItem(Items.BUCKET)==0,"Three uses did not conserve fluid/containers");
                     for(var pos:TARGETS)require(p.level().getFluidState(pos.above()).isSource(),"Native use did not place source at "+pos);});next();
             }
             case 10 -> {
                 if(elapsed<8)break;require(PalletClient.fluidPose(0).equals(PalletFluidFeedback.Pose.REST),"Completed feedback was queued or retained");
-                TemplateClientReview.capture("r014-empty-chamber-rest");use(TARGETS[0]);next();
+                TemplateClientReview.capture("r018-empty-chamber-rest");use(TARGETS[0]);next();
             }
             case 11 -> {
                 if(elapsed<8)break;require(PalletClient.feedReceipts()==receipts+3 && PalletClient.fluidPose(0).equals(PalletFluidFeedback.Pose.REST),"Empty use replayed feedback");
@@ -93,22 +92,23 @@ final class PalletNozzleClientReview {
             }
             case 13 -> {if(PalletClient.feedReceipts()==receipts+3)break;require(PalletClient.feedReceipts()==receipts+4,"Restocked-use receipt mismatch");next();}
             case 14 -> {
-                require(PalletClient.fluidPose(0).emitting(),"Switch fixture missed active feedback");
-                PalletClient.choose(lava);require(!PalletClient.fluidPose(0).emitting() && PalletClient.feedbackFluid().isEmpty(),"Changing fluid retained old water jet");next();
+                require(PalletClient.fluidPose(0).active(),"Switch fixture missed active feedback");
+                double before=PalletClient.fluidPose(0).tip();
+                PalletClient.choose(lava);require(Math.abs(PalletClient.fluidPose(0).tip()-before)<1e-8,"Changing fluid snapped the valve instead of returning it");next();
             }
             case 15 -> {
                 if(!PalletClient.displayed().equals(lava) || elapsed<6)break;
                 require(PalletClient.modePose(0).progress()==1 && PalletClient.fluidPose(0).equals(PalletFluidFeedback.Pose.REST),"Same-form selection replayed transform/use");
-                TemplateClientReview.capture("r014-lava-chamber");work=MC.reloadResourcePacks();next();
+                TemplateClientReview.capture("r018-lava-chamber");work=MC.reloadResourcePacks();next();
             }
             case 16 -> {
                 if(elapsed<5)break;
                 require(PalletClient.displayed().equals(lava) && PalletClient.modePose(0).progress()==1
                         && PalletClient.fluidPose(0).equals(PalletFluidFeedback.Pose.REST),"Resource reload retained stale nozzle motion");
-                for(String part:new String[]{"fluid_head","fluid_pipe","nozzle_collar","nozzle_middle","nozzle_tip"})
+                for(String part:new String[]{"create_cog","fluid_head","fluid_pipe","nozzle_collar","nozzle_middle","nozzle_tip"})
                     require(MC.getModelManager().getModel(PalletRenderer.modelId(part))!=MC.getModelManager().getMissingModel(),"Model absent after reload: "+part);
-                TemplateClientReview.capture("r014-lava-after-resource-reload");
-                FeedMePackages.LOGGER.info("FMP_R014_NOZZLE_PASSED nativeUsePackets=true rejectedTargetNoFeedback=true rapidUse=true lastFluidFeedback=true emptyNoFeedback=true restockNoFeedback=true switchCancelsOldJet=true actualFluidTint=true reload=true fluidDebit=3000+1000");
+                TemplateClientReview.capture("r018-lava-after-resource-reload");
+                FeedMePackages.LOGGER.info("FMP_R018_NOZZLE_PASSED nativeUsePackets=true rejectedTargetNoFeedback=true rapidUse=true lastFluidFeedback=true emptyNoFeedback=true restockNoFeedback=true switchReturnsValve=true noExternalJetOrDrops=true actualFluidTint=true reload=true fluidDebit=3000+1000");
                 phase=20;return true;
             }
         }
@@ -118,6 +118,6 @@ final class PalletNozzleClientReview {
         MC.gameMode.useItemOn(MC.player,InteractionHand.MAIN_HAND,new BlockHitResult(Vec3.atCenterOf(pos).add(0,.5,0),Direction.UP,pos,false));
     }
     private static void server(Consumer<ServerPlayer> action) { var server=MC.getSingleplayerServer();var id=MC.player.getUUID();work=server.submit(()->action.accept(server.getPlayerList().getPlayer(id))); }
-    private static void next() {FeedMePackages.LOGGER.info("FMP_R014_NOZZLE_STAGE {} complete",phase);phase++;changed=ticks;}
+    private static void next() {FeedMePackages.LOGGER.info("FMP_R018_NOZZLE_STAGE {} complete",phase);phase++;changed=ticks;}
     private static void require(boolean ok,String message) {if(!ok)throw new IllegalStateException(message);}
 }

@@ -215,7 +215,7 @@ public final class PalletClientReview {
                 work=MC.reloadResourcePacks();next();
             }
             case 32 -> {
-                for(String name:List.of("whole","fixed","tray_slide","jaw_left","jaw_right","outlet_gate","create_body_fixed","feed_socket_fixed","rails_fixed","head_fixed","fluid_head","fluid_pipe","nozzle_collar","nozzle_middle","nozzle_tip"))
+                for(String name:List.of("whole","fixed","tray_slide","jaw_left","jaw_right","outlet_gate","create_body_fixed","create_cog","feed_socket_fixed","rails_fixed","head_fixed","fluid_head","fluid_pipe","nozzle_collar","nozzle_middle","nozzle_tip"))
                     require(MC.getModelManager().getModel(PalletRenderer.modelId(name))!=MC.getModelManager().getMissingModel(),"Resource reload lost model "+name);
                 require(!PalletClient.feedPose(0).cargo(),"Resource reload replayed stale cargo");
                 TemplateClientReview.capture("pallet-after-resource-reload");next();

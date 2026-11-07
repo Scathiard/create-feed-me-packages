@@ -105,7 +105,7 @@ class PanelLayoutTest {
         for(int i=0;i<=240;i++) {
             var p=dev.scathiard.feedmepackages.domain.PalletMorph.at(i/240d);
             assertFalse(p.itemVisible() && p.fluidVisible());assertTrue(p.itemOffset()>=0 && p.itemOffset()<=17);
-            assertTrue(p.fluidOffset()>=0 && p.fluidOffset()<=16.7);
+            assertTrue(p.fluidOffset()>=0 && p.fluidOffset()<=18.7);
         }
     }
     @Test void retractingFacesCropTheirTextureCoordinatesInsteadOfStretchingThem() {
@@ -119,6 +119,29 @@ class PanelLayoutTest {
         }
         assertEquals(2,cut);assertEquals(4,PalletClipping.clip(data,2).size());assertTrue(PalletClipping.clip(data,-2).isEmpty());
         assertArrayEquals(data,clipFixture(),"Clipping must not mutate the shared baked model");
+    }
+    @Test void rotatedGateAndNativeCargoClipInFinalToolSpace() {
+        // The hand transform rotates/scales the tool; native cargo adds its own translation.
+        float[][] face=new float[4][16];
+        float[][] local={{0,0,-.1f},{1,0,-.1f},{1,1,.3f},{0,1,.3f}};
+        for(int i=0;i<4;i++) {
+            // Translate, rotate 90 degrees about Y, scale by 1/2.
+            face[i][0]=.56f+local[i][2]*.5f;face[i][1]=-.52f+local[i][1]*.5f;face[i][2]=-.72f-local[i][0]*.5f;
+            face[i][6]=255;face[i][8]=local[i][2]; // V follows the uncut tool-space Z.
+        }
+        float plane=2.8f/16;
+        var cut=PalletClipping.clip(face,2,0,0,plane+1.12f);
+        assertEquals(4,cut.size());int boundary=0;
+        for(var v:cut) {
+            float toolZ=2*(v[0]-.56f);
+            assertTrue(toolZ<=plane+1e-6);assertEquals(toolZ,v[8],1e-6);assertEquals(255,v[6]);
+            if(Math.abs(toolZ-plane)<1e-6)boundary++;
+        }
+        assertEquals(2,boundary);assertEquals(.3f,face[2][8]);
+        // At a 90-degree gate rotation, its rear plane is a local Y boundary, not local Z.
+        float[][] gate={{0,0,0},{1,0,0},{1,1,0},{0,1,0}};
+        var rotated=PalletClipping.clip(gate,0,-1,0,-.2f);
+        assertEquals(4,rotated.size());assertTrue(rotated.stream().allMatch(v->v[1]>=.2f-1e-6));
     }
     private static int[] clipFixture() {
         float[][] vertices={{0,0,-1,0,0},{1,0,-1,1,0},{1,0,1,1,1},{0,0,1,0,1}};int[] data=new int[32];

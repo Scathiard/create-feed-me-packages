@@ -1,13 +1,7 @@
 {
-  "credit": "FMP r011 integration. Existing r005 geometry and texture references preserved; third-party asset rights unchanged.",
-  "texture_size": [
-    128,
-    128
-  ],
+  "credit": "Pocket Pallet r018, supplied by the project owner. Create/Minecraft asset rights remain with their respective owners; see META-INF/fmp-pallet-art.txt.",
   "textures": {
-    "0": "create_feed_me_packages:item/pocket_pallet/pocket_pallet_front",
-    "1": "create:item/extendo_grip",
-    "particle": "#0"
+    "0": "create_feed_me_packages:item/pocket_pallet/pocket_pallet_front"
   },
   "elements": [
     {

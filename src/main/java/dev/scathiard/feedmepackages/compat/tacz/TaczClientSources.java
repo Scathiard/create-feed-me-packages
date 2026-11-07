@@ -34,7 +34,7 @@ public final class TaczClientSources {
         if (!failed) FeedMePackages.LOGGER.warn("FMP TaCZ client quantity port disabled: public API failed", cause);
         failed = true;
     }
-    /** Only the native HUD's local read receives this view; the real player inventory is never replaced. */
+    /** Only the native ammo reader receives this view; the real player inventory is never replaced. */
     public static Inventory hudSources(Inventory original, ItemStack gun) {
         if (!ready()) return original;
         var hints = TaczMaterials.clientHints(gun);

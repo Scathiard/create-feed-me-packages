@@ -96,6 +96,7 @@ public final class OptionalMixins implements IMixinConfigPlugin {
     public static boolean gadgetsCompatible() { return Boolean.TRUE.equals(gadgetsReady); }
     private static Boolean taczReady;
     private static Boolean taczClientReady;
+    private static boolean taczSharedCount;
     public static boolean taczCompatible() { return Boolean.TRUE.equals(taczReady); }
     public static boolean taczClientCompatible() { return Boolean.TRUE.equals(taczClientReady); }
     private static volatile boolean fxntTransferReady;
@@ -279,7 +280,10 @@ public final class OptionalMixins implements IMixinConfigPlugin {
         }
         if (mixinClassName.endsWith("EffortlessSourcesMixin") || mixinClassName.endsWith("EffortlessBuildMixin")) return inspectEffortless();
         if (mixinClassName.endsWith("GadgetSourcesMixin") || mixinClassName.endsWith("GadgetBuildMixin")) return inspectGadgets();
-        if (mixinClassName.endsWith("TaczHudSourcesMixin") || mixinClassName.endsWith("TaczClientShootMixin")) return inspectTaczClient();
+        if (mixinClassName.endsWith("TaczHudSourcesMixin")) return inspectTaczClient();
+        if (mixinClassName.endsWith("TaczLegacyHudSourcesMixin") || mixinClassName.endsWith("TaczClientShootMixin"))
+            return inspectTaczClient() && !taczSharedCount;
+        if (mixinClassName.endsWith("TaczAmmoCountMixin")) return inspectTaczClient() && taczSharedCount;
         if (mixinClassName.endsWith("TaczGunSourcesMixin") || mixinClassName.endsWith("TaczScriptSourcesMixin")
                 || mixinClassName.endsWith("TaczShootSourcesMixin")) return inspectTacz();
         boolean receive = mixinClassName.endsWith("MobileReceiveMixin");
@@ -480,9 +484,16 @@ public final class OptionalMixins implements IMixinConfigPlugin {
         if (taczClientReady != null) return taczClientReady;
         try {
             var provider = MixinService.getService().getBytecodeProvider();
-            taczClientReady = inspectTacz() && hasTaczClientPorts(provider.getClassNode("com.tacz.guns.client.gui.overlay.GunHudOverlay"),
-                    provider.getClassNode("com.tacz.guns.client.gameplay.LocalPlayerShoot"));
-            LogUtils.getLogger().info("FMP TaCZ client quantity ports shapeReady={}", taczClientReady);
+            var hud = provider.getClassNode("com.tacz.guns.client.gui.overlay.GunHudOverlay");
+            var shoot = provider.getClassNode("com.tacz.guns.client.gameplay.LocalPlayerShoot");
+            ClassNode count = null;
+            try { count = provider.getClassNode("com.tacz.guns.client.gameplay.ClientAmmoCount"); }
+            catch (ClassNotFoundException legacy) { /* The unofficial port has no shared reader. */ }
+            taczSharedCount = count != null;
+            taczClientReady = inspectTacz() && (taczSharedCount
+                    ? hasTaczCountPorts(hud, shoot, count, provider.getClassNode("com.tacz.guns.client.gameplay.LocalPlayerDataHolder"))
+                    : hasTaczClientPorts(hud, shoot));
+            LogUtils.getLogger().info("FMP TaCZ client quantity ports shapeReady={} sharedCount={}", taczClientReady, taczSharedCount);
         } catch (ClassNotFoundException absent) { taczClientReady = false; }
         catch (IOException | RuntimeException unreadable) {
             taczClientReady = false; LogUtils.getLogger().warn("FMP TaCZ client quantity ports disabled: cannot inspect bytecode", unreadable);
@@ -492,7 +503,6 @@ public final class OptionalMixins implements IMixinConfigPlugin {
     public static boolean hasTaczClientPorts(ClassNode hud, ClassNode shoot) {
         String stack = "Lnet/minecraft/world/item/ItemStack;", data = "Lcom/tacz/guns/resource/pojo/data/gun/GunData;";
         String gun = "Lcom/tacz/guns/api/item/IGun;", display = "Lcom/tacz/guns/client/resource/GunDisplayInstance;";
-        String render = "(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/DeltaTracker;)V";
         String inventoryCount = "(" + stack + "Lnet/minecraft/world/entity/player/Inventory;)V";
         return calls(hud, "handleCacheCount", "(Lnet/minecraft/client/player/LocalPlayer;" + stack + data + gun + "Z)V",
                     "net/minecraft/client/player/LocalPlayer", "getInventory", "()Lnet/minecraft/world/entity/player/Inventory;") == 1
@@ -500,11 +510,33 @@ public final class OptionalMixins implements IMixinConfigPlugin {
                 && calls(hud, "handleInventoryAmmo", inventoryCount, "net/minecraft/world/entity/player/Inventory", "getContainerSize", "()I") == 1
                 && calls(hud, "handleInventoryAmmo", inventoryCount, "com/tacz/guns/api/item/IAmmo", "isAmmoOfGun", "(" + stack + stack + ")Z") == 1
                 && calls(hud, "handleInventoryAmmo", inventoryCount, "com/tacz/guns/api/item/IAmmoBox", "getAmmoCount", "(" + stack + ")I") == 1
-                && calls(hud, "render", render, "java/text/DecimalFormat", "format", "(J)Ljava/lang/String;") == 2
-                && calls(hud, "render", render, "java/text/DecimalFormat", "format", "(D)Ljava/lang/String;") == 1
-                && hud.fields.stream().anyMatch(f -> f.name.equals("CURRENT_AMMO_FORMAT") && f.desc.equals("Ljava/text/DecimalFormat;"))
+                && hasTaczHudFormat(hud)
                 && calls(shoot, "doShoot", "(" + display + gun + stack + data + "JF)V",
                     "com/tacz/guns/api/item/IGun", "getCurrentAmmoCount", "(" + stack + ")I") == 1;
+    }
+    /** Official 1.2: both display caching and firing must reach the same native inventory reader. */
+    public static boolean hasTaczCountPorts(ClassNode hud, ClassNode shoot, ClassNode count, ClassNode holder) {
+        String stack = "Lnet/minecraft/world/item/ItemStack;", player = "Lnet/minecraft/client/player/LocalPlayer;";
+        String gun = "Lcom/tacz/guns/api/item/IGun;", data = "Lcom/tacz/guns/resource/pojo/data/gun/GunData;";
+        String display = "Lcom/tacz/guns/client/resource/GunDisplayInstance;", read = "(" + player + stack + gun + ")I";
+        String counter = "com/tacz/guns/client/gameplay/ClientAmmoCount";
+        return hasTaczHudFormat(hud)
+                && calls(hud, "handleCacheCount", "(" + player + stack + data + gun + ")V", counter, "getCached", read) == 1
+                && calls(shoot, "doShoot", "(" + display + gun + stack + data + "JF)V", counter, "get", read) == 1
+                && calls(count, "getCached", read, "com/tacz/guns/client/gameplay/LocalPlayerDataHolder", "getCachedAmmoCount", "(" + stack + gun + ")I") == 1
+                && calls(holder, "getCachedAmmoCount", "(" + stack + gun + ")I", counter, "get", read) == 1
+                && calls(count, "get", read, "net/minecraft/client/player/LocalPlayer", "getInventory", "()Lnet/minecraft/world/entity/player/Inventory;") == 1
+                && calls(count, "get", read, "net/minecraft/world/entity/player/Inventory", "getItem", "(I)" + stack) == 1
+                && calls(count, "get", read, "net/minecraft/world/entity/player/Inventory", "getContainerSize", "()I") == 1
+                && calls(count, "get", read, "com/tacz/guns/api/item/IAmmo", "isAmmoOfGun", "(" + stack + stack + ")Z") == 1
+                && calls(count, "get", read, "com/tacz/guns/api/item/IAmmoBox", "isAmmoBoxOfGun", "(" + stack + stack + ")Z") == 1
+                && calls(count, "get", read, "com/tacz/guns/api/item/IAmmoBox", "getAmmoCount", "(" + stack + ")I") == 1;
+    }
+    private static boolean hasTaczHudFormat(ClassNode hud) {
+        String render = "(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/DeltaTracker;)V";
+        return calls(hud, "render", render, "java/text/DecimalFormat", "format", "(J)Ljava/lang/String;") == 2
+                && calls(hud, "render", render, "java/text/DecimalFormat", "format", "(D)Ljava/lang/String;") == 1
+                && hud.fields.stream().anyMatch(f -> f.name.equals("CURRENT_AMMO_FORMAT") && f.desc.equals("Ljava/text/DecimalFormat;"));
     }
     /** All ports are checked together: a query-only partial installation must not advertise unspendable ammo. */
     public static boolean hasTaczPorts(ClassNode gun, ClassNode script, ClassNode shoot) {

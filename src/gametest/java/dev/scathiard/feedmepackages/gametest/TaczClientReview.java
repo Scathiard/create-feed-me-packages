@@ -91,7 +91,7 @@ final class TaczClientReview {
             }
             case 8 -> {
                 if (ticks - changed < 60) return false;
-                require(hudCount() == 3 && loaded(MC.player.getMainHandItem()) == 3, "Native inventory-fed HUD did not include cache");
+                require(hudCount() == 3 && inventoryFireCount() == 3, "Native inventory-fed HUD or shot scheduler did not include cache");
                 var result = Class.forName("com.tacz.guns.api.client.gameplay.IClientPlayerGunOperator").getMethod("shoot").invoke(MC.player);
                 require(result.toString().equals("SUCCESS"), "Native client inventory-fed shot refused cache-only ammo: " + result); next();
             }
@@ -127,7 +127,7 @@ final class TaczClientReview {
             case 14 -> {
                 if (ticks - changed < 60 || hudCount() != 4097) return false;
                 var gun = MC.player.getMainHandItem();
-                require(dev.scathiard.feedmepackages.compat.tacz.TaczClientSources.firingCount(gun, loaded(gun)) == 4097,
+                require(inventoryFireCount() == 4097,
                         "Client shot quantity counted cache twice after native HUD update");
                 require(dev.scathiard.feedmepackages.compat.tacz.TaczClientSources.format("4097", true).equals("≥4097"),
                         "Saturated material hint was presented as exact ammunition stock");
@@ -166,6 +166,16 @@ final class TaczClientReview {
     private static int hudCount() throws ReflectiveOperationException {
         var field = Class.forName("com.tacz.guns.client.gui.overlay.GunHudOverlay").getDeclaredField("cacheInventoryAmmoCount");
         field.setAccessible(true); return field.getInt(null);
+    }
+    private static int inventoryFireCount() throws ReflectiveOperationException {
+        var gun = MC.player.getMainHandItem();
+        try {
+            var counter = Class.forName("com.tacz.guns.client.gameplay.ClientAmmoCount");
+            return (int)counter.getMethod("get", net.minecraft.client.player.LocalPlayer.class, ItemStack.class,
+                    Class.forName("com.tacz.guns.api.item.IGun")).invoke(null, MC.player, gun, gun.getItem());
+        } catch (ClassNotFoundException legacy) {
+            return dev.scathiard.feedmepackages.compat.tacz.TaczClientSources.firingCount(gun, loaded(gun));
+        }
     }
     private static void largeStock(ServerPlayer p) throws ReflectiveOperationException {
         var access = dev.scathiard.feedmepackages.service.AccessGate.resolve(p); cacheId = access.handle().cacheId();

@@ -45,8 +45,8 @@ final class MaterialsClientReview {
                 bread=PalletClient.candidates().stream().filter(m->m.is(Items.BREAD)).findFirst().orElseThrow();
                 water=PalletClient.candidates().stream().filter(m->m.fluid().getFluid()==Fluids.WATER).findFirst().orElseThrow();
                 lava=PalletClient.candidates().stream().filter(m->m.fluid().getFluid()==Fluids.LAVA).findFirst().orElseThrow();
-                for(String name:List.of("create_body_fixed","feed_socket_fixed","rails_fixed","head_fixed","fluid_pipe","fluid_head","nozzle_collar","nozzle_middle","nozzle_tip"))
-                    require(MC.getModelManager().getModel(PalletRenderer.modelId(name))!=MC.getModelManager().getMissingModel(),"r014 missing model "+name);
+                for(String name:List.of("create_body_fixed","create_cog","feed_socket_fixed","rails_fixed","head_fixed","fluid_pipe","fluid_head","nozzle_collar","nozzle_middle","nozzle_tip"))
+                    require(MC.getModelManager().getModel(PalletRenderer.modelId(name))!=MC.getModelManager().getMissingModel(),"r018 missing model "+name);
                 PalletClient.mode(false);button(2,true);next();
             }
             case 2 -> { if(elapsed<8)break;select(m->m.is(Items.BREAD));next(); }

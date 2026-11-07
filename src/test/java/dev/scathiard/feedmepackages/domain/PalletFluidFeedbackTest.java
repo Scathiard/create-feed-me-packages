@@ -4,17 +4,16 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PalletFluidFeedbackTest {
-    @Test void authoredStrokeAndShortJetFinishWithoutFurtherEvents() {
+    @Test void authoredValvePressHoldsThenReturnsWithoutFurtherEvents() {
         var f=new PalletFluidFeedback();
         assertEquals(PalletFluidFeedback.Pose.REST,f.pose(10));
         f.success(10);
-        assertFalse(f.pose(10).emitting());
-        assertEquals(.18,f.pose(10.06).middle(),1e-8);
-        assertEquals(.45,f.pose(10.06).tip(),1e-8);
-        assertEquals(1,f.pose(10.06).jet(),1e-8);
-        assertTrue(f.pose(10.09).dropScale(2)>0);
-        // Third droplet starts at .056 and finishes .100 seconds later.
-        assertFalse(f.pose(10.16).emitting());
+        assertFalse(f.pose(10).active());
+        assertEquals(.375*.75,f.pose(10.04).middle(),1e-8);
+        assertEquals(.375,f.pose(10.08).middle(),1e-8);
+        assertEquals(.75,f.pose(10.08).tip(),1e-8);
+        assertEquals(.75,f.pose(10.208).tip(),1e-8);
+        assertEquals(.375,f.pose(10.224).tip(),1e-8);
         assertEquals(PalletFluidFeedback.Pose.REST,f.pose(10.25));
     }
     @Test void repeatedReceiptsContinueFromCurrentCompressionAndNeverQueue() {
@@ -26,10 +25,9 @@ class PalletFluidFeedbackTest {
         }
         assertEquals(PalletFluidFeedback.Pose.REST,f.pose(.45));
     }
-    @Test void selectionChangeStopsOldEmissionButReturnsTheValveSmoothly() {
+    @Test void selectionChangeReturnsTheValveSmoothly() {
         var f=new PalletFluidFeedback();f.success(0);double before=f.pose(.06).tip();f.cancel(.06);
         assertEquals(before,f.pose(.06).tip(),1e-10);
-        assertFalse(f.pose(.06).emitting());
         assertTrue(f.pose(.09).tip()>0 && f.pose(.09).tip()<before);
         assertEquals(PalletFluidFeedback.Pose.REST,f.pose(.13));
         f.success(.2);f.reset();assertEquals(PalletFluidFeedback.Pose.REST,f.pose(.23));

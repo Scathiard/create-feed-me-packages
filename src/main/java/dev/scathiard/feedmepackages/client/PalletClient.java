@@ -22,18 +22,25 @@ public final class PalletClient {
     private static final dev.scathiard.feedmepackages.domain.PalletMorph morph = new dev.scathiard.feedmepackages.domain.PalletMorph();
     private static PalletMaterial confirmed = PalletMaterial.EMPTY;
     private static final dev.scathiard.feedmepackages.domain.PalletFluidFeedback fluidFeedback = new dev.scathiard.feedmepackages.domain.PalletFluidFeedback();
-    private static net.neoforged.neoforge.fluids.FluidStack feedbackFluid = net.neoforged.neoforge.fluids.FluidStack.EMPTY;
+    private static double cogFrom,cogSince,cogDuration;
     private static dev.scathiard.feedmepackages.domain.PalletFeedPose interrupted;
     private static double time(float partial) {
         var level=Minecraft.getInstance().level;
         return level==null ? 0 : (level.getGameTime()+partial)/20.0;
     }
-    public static void resetMotion() { fluidFeedback.reset(); feedbackFluid=net.neoforged.neoforge.fluids.FluidStack.EMPTY; feedStarted=-1; cargo=false; stockVersion=-1; interrupted=null; queuedFeed=false; morph.snap(!confirmed.fluid().isEmpty()); }
+    public static void resetMotion() { fluidFeedback.reset(); cogFrom=cogSince=cogDuration=0; feedStarted=-1; cargo=false; stockVersion=-1; interrupted=null; queuedFeed=false; morph.snap(!confirmed.fluid().isEmpty()); }
     public static dev.scathiard.feedmepackages.domain.PalletMorph.Pose modePose(float partial) { return morph.pose(time(partial)); }
     public static boolean hasCargo() { return cargo; }
     public static dev.scathiard.feedmepackages.domain.PalletFluidFeedback.Pose fluidPose(float partial) { return fluidFeedback.pose(time(partial)); }
-    public static net.neoforged.neoforge.fluids.FluidStack feedbackFluid() { return feedbackFluid; }
-    private static void cancelFluidFeedback() { fluidFeedback.cancel(time(0)); feedbackFluid=net.neoforged.neoforge.fluids.FluidStack.EMPTY; }
+    private static void cancelFluidFeedback() { fluidFeedback.cancel(time(0)); }
+    public static float cogAngle(float partial) { return (float)(cogAt(time(partial))%360); }
+    private static double cogAt(double now) {
+        double t=cogDuration==0?0:Math.clamp((now-cogSince)/cogDuration,0,1);
+        return -40*now+cogFrom-360*t*t*(3-2*t);
+    }
+    private static void turnCog(double duration) {
+        double now=time(0);cogFrom=(cogAt(now)+40*now)%360;cogSince=now;cogDuration=duration;
+    }
     public static long feedReceipts() { return feedReceipts; }
     public static PalletMaterial displayed() { return confirmed; }
     public static dev.scathiard.feedmepackages.domain.PalletFeedPose feedPose(float partial) {
@@ -44,7 +51,7 @@ public final class PalletClient {
         cargo=next; stockVersion=version();
         if(!confirmed.fluid().isEmpty()) { queuedFeed=false;feedStarted=-1;interrupted=null;return; }
         if(!modePose(0).itemReady()) { queuedFeed=true;feedStarted=-1;interrupted=null;return; }
-        interrupted=feedPose(0);feedStarted=time(0);queuedFeed=false;
+        interrupted=feedPose(0);feedStarted=time(0);queuedFeed=false;turnCog(.35);
     }
     private PalletClient() {}
     private static UUID cache;
@@ -65,9 +72,11 @@ public final class PalletClient {
             if (Objects.equals(cache, message.cache()) && sequence == message.sequence()) {
                 selected = PalletMaterial.decode(message.encoded());
                 boolean changed=!confirmed.equals(selected);
+                boolean modeChanged=confirmed.fluid().isEmpty()!=selected.fluid().isEmpty();
                 confirmed=selected;
                 morph.target(!confirmed.fluid().isEmpty(),time(0));
                 if(changed) { cancelFluidFeedback(); animate(!confirmed.isEmpty() && amount(confirmed)>0); }
+                if(modeChanged)turnCog(.3);
             }
         });
         PalletNetwork.receiveFeedOnClient(message -> {
@@ -76,8 +85,8 @@ public final class PalletClient {
                     || selected.isEmpty() || !selected.encoded().equals(choice.encoded())) return;
             feedReceipts++; animate(message.hasNext());
             if(!confirmed.fluid().isEmpty() && confirmed.equals(selected)) {
-                feedbackFluid=confirmed.fluid().copy();
                 fluidFeedback.success(time(0));
+                turnCog(.24);
             }
         });
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post event) -> { sync(); if(Minecraft.getInstance().player!=null) dev.scathiard.feedmepackages.consumption.PalletUse.tick(Minecraft.getInstance().player); });
