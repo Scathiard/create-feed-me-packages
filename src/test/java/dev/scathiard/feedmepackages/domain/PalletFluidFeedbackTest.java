@@ -4,6 +4,16 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PalletFluidFeedbackTest {
+    @Test void jetOnlyFollowsSuccessfulUseAndStopsImmediatelyOnSelectionChange() {
+        var f=new PalletFluidFeedback();
+        assertEquals(0,f.jetRadius(10)); f.success(10);
+        assertEquals(0,f.jetRadius(10)); assertTrue(f.jetRadius(10.08)>0);
+        f.success(10.09); assertTrue(f.jetRadius(10.12)>0);
+        f.cancel(10.12); assertEquals(0,f.jetRadius(10.12));
+        assertTrue(f.pose(10.13).active(),"Valve may return, but must not emit the next selected fluid");
+        f.success(11); assertEquals(0,f.jetRadius(11.25));
+        f.reset(); assertEquals(0,f.jetRadius(11.1));
+    }
     @Test void authoredValvePressHoldsThenReturnsWithoutFurtherEvents() {
         var f=new PalletFluidFeedback();
         assertEquals(PalletFluidFeedback.Pose.REST,f.pose(10));

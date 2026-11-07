@@ -35,6 +35,7 @@ import java.util.function.Consumer;
 public final class TemplateClientReview {
     private static final Minecraft MC=Minecraft.getInstance();
     private static final String RUN=Long.toString(System.currentTimeMillis());
+    static String worldId() { return "fmp-template-"+RUN; }
     private static final String MODE=System.getProperty("fmp.compatReview", "");
     private static int phase,ticks,changed,sourceX,sourceY;
     private static boolean ended;

@@ -17,6 +17,11 @@ public final class PalletFluidFeedback {
         returning = true;
     }
     public void reset() { since = Double.NEGATIVE_INFINITY; carry = 0; returning = false; }
+    /** Create's spout widens and narrows a continuous fluid box; it is not a particle effect. */
+    public double jetRadius(double now) {
+        double t = (now - since) / DURATION;
+        return returning || t <= 0 || t >= 1 ? 0 : 4 * t * (1 - t) / 32;
+    }
     public Pose pose(double now) {
         double t = Math.max(0, now - since);
         if (!Double.isFinite(t) || t >= (returning ? .06 : DURATION)) return Pose.REST;

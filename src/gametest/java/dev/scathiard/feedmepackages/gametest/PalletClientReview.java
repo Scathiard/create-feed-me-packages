@@ -28,11 +28,13 @@ public final class PalletClientReview {
     private static UUID cache;
     private static List<Item> blocks;
     private static boolean highlightPending, highlightVerified;
+    private static boolean reopening;
     private static RuntimeException renderFailure;
     private static BlockPos placed, broken;
     private static long receipts;
     private static final Minecraft MC = Minecraft.getInstance();
     public static boolean tick() throws ReflectiveOperationException {
+        if(reopening)return false;
         ticks++;
         if (renderFailure != null) throw renderFailure;
         if (work != null) { if (!work.isDone()) return false; work.join(); work = null; }
@@ -145,7 +147,10 @@ public final class PalletClientReview {
                 var hit = (BlockHitResult) MC.hitResult; placed = hit.getBlockPos().relative(hit.getDirection());
                 receipts=PalletClient.feedReceipts();button(1, true); next();
             }
-            case 17 -> { button(1, false); next(); }
+            case 17 -> {
+                require(PalletClient.handLowering(.5f,0,0)>0,"Native right-click did not lower the housing");
+                TemplateClientReview.capture("pallet-right-click-dip");button(1, false); next();
+            }
             case 18 -> {
                 require(PalletClient.feedReceipts()==receipts+1,"Committed placement did not emit exactly one feed receipt");
                 server(p -> {
@@ -269,8 +274,35 @@ public final class PalletClientReview {
                 FeedMePackages.LOGGER.info("FMP_PALLET_QUIET_FAILURE_PASSED nativeCancel=true stockUnchanged=true noPlacementSilent=true selectionGuidanceRetained=true");
                 if(Boolean.getBoolean("fmp.palletQuietReview")) return true;
                 FeedMePackages.LOGGER.info("FMP_PALLET_CLIENT_PASSED defaultMiddle=true defaultArc=true forwardSteps=69 reverseSteps=70 nativeWrap=true nativeReverse=true nativeBlur=true keyboardAndMouseRebind=true horizontalDrag=true hysteresis=true escapeCancel=true brassArcHighlight=true authoritativeFeed=true gridSearch=true nativePlace=true nativeMiningWithTool=true");
-                FeedMePackages.LOGGER.info("FMP_PALLET_MODELS_CLIENT_PASSED bakedParts=16 inventory=true leftHand=true thirdPerson=true resourceReload=true fixedBody=true lowerHalf=true guiScales=1,2,3");
-                return true;
+                FeedMePackages.LOGGER.info("FMP_PALLET_MODELS_CLIENT_PASSED bakedParts=16 inventory=true leftHand=true thirdPerson=true resourceReload=true verticalDip=true noSweep=true lowerHalf=true guiScales=1,2,3");
+                next();
+            }
+            case 43 -> { PalletClient.choose(PalletClient.candidates().stream().filter(m->m.is(Items.STONE)).findFirst().orElseThrow());next(); }
+            case 44 -> {
+                if(!PalletClient.displayed().is(Items.STONE))return false;
+                next();reopening=true;
+                try {MC.level.disconnect();MC.disconnect(new net.minecraft.client.gui.screens.TitleScreen());}
+                finally {reopening=false;}
+            }
+            case 45 -> {
+                require(PalletClient.selected().isEmpty(),"Logout retained transient client selection");next();reopening=true;
+                try {MC.createWorldOpenFlows().openWorld(TemplateClientReview.worldId(),()->{throw new IllegalStateException("Pallet saved world failed to open");});}
+                finally {reopening=false;}
+            }
+            case 46 -> {
+                if(MC.player==null || MC.level==null || MC.screen!=null || MC.player.tickCount<30)return false;
+                require(PalletClient.selected().is(Items.STONE) && PalletClient.displayed().is(Items.STONE)
+                        && Objects.equals(cache,PalletClient.cache()),"Rejoined client did not automatically restore its saved choice");
+                TemplateClientReview.capture("pallet-rejoined-remembered-stone");receipts=PalletClient.feedReceipts();
+                MC.gameMode.useItemOn(MC.player,InteractionHand.MAIN_HAND,new BlockHitResult(new net.minecraft.world.phys.Vec3(8.5,4,10.5),Direction.UP,new BlockPos(8,3,10),false));next();
+            }
+            case 47 -> {
+                require(PalletClient.feedReceipts()==receipts+1,"Restored choice could not use native placement/receipt without reselection");
+                server(p->{require(PalletService.choice(p).key().stack(p.registryAccess(),1).is(Items.STONE)
+                        && CacheLedger.get(p.getServer()).find(cache).state().cells().getFirst().amount()==6,"Rejoined placement lost selected identity or conservation");});next();
+            }
+            case 48 -> {
+                FeedMePackages.LOGGER.info("FMP_PALLET_REJOIN_PASSED nativeDisconnect=true nativeWorldReload=true clientCleared=true automaticRecall=true nativeUseAfterRecall=true");return true;
             }
         }
         return false;
@@ -317,14 +349,22 @@ public final class PalletClientReview {
         require(top>=MC.screen.height/2.0 && thickness<=.11,"Pallet geometry crosses midline or band is too thick");
     }
     private static void verifyHandBody() throws ReflectiveOperationException {
+        float useDip=PalletClient.handLowering(0,0,0);
         var idle=handVertices(FmpRegistries.POCKET_PALLET.toStack(),0,0);
         var swing=handVertices(FmpRegistries.POCKET_PALLET.toStack(),.5f,0);
         var lowered=handVertices(FmpRegistries.POCKET_PALLET.toStack(),0,.75f);
-        boolean stableSwing=sameVertices(idle,swing),stableUse=sameVertices(idle,lowered);
-        FeedMePackages.LOGGER.info("FMP_PALLET_BODY_CHECK arm={} stableSwing={} stableUse={}",MC.player.getMainArm(),stableSwing,stableUse);
-        require(stableSwing && stableUse,"Pallet fixed-body vertices moved during vanilla hand animation");
+        // This helper also runs during the first ticks of eating: idle already contains
+        // the active use dip. Native swing/equip must take the maximum, never add another dip.
+        require(useDip>=0 && useDip<=.15f && verticalTranslation(idle,swing,-(.15f-useDip))
+                        && verticalTranslation(idle,lowered,-(Math.max(.1125f,useDip)-useDip)),
+                "Pallet must dip vertically without horizontal sweep/rotation in either hand");
+        FeedMePackages.LOGGER.info("FMP_PALLET_BODY_CHECK arm={} currentUseDip={} maxSwing=.15 maxEquip=.1125 noSweep=true",MC.player.getMainArm(),useDip);
         require(!sameVertices(handVertices(new ItemStack(Items.STONE),0,0),handVertices(new ItemStack(Items.STONE),.5f,.75f)),
                 "Native ordinary item animation was suppressed");
+    }
+    private static boolean verticalTranslation(List<Float> idle,List<Float> moved,float offset) {
+        for(int i=0;i<idle.size();i++)if(Math.abs(moved.get(i)-idle.get(i)-(i%3==1?offset:0))>0.00001)return false;
+        return true;
     }
     private static List<Float> handVertices(ItemStack stack,float swing,float equip) throws ReflectiveOperationException {
         var vertices=new ArrayList<Float>();

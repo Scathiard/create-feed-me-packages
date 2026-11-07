@@ -38,10 +38,10 @@ public final class PalletRenderer extends BlockEntityWithoutLevelRenderer {
             @Override public boolean applyForgeHandTransform(PoseStack pose,net.minecraft.client.player.LocalPlayer player,
                     HumanoidArm arm,ItemStack stack,float partial,float equip,float swing) {
                 if(arm!=player.getMainArm() || !player.getMainHandItem().is(FmpRegistries.POCKET_PALLET.get())) return false;
-                // Keep the machine housing at the vanilla resting position. Native swing and
-                // creative-use lowering must not stack on the authored tray/jaw animation.
-                // The old item still lowers normally when the player switches away.
-                pose.translate(arm==HumanoidArm.RIGHT?.56f:-.56f,-.52f,-.72f);
+                // Extendo Grip scales native equip lowering to .15 blocks. Keep that small
+                // vertical response, while suppressing vanilla sweep/rotation on both hands.
+                pose.translate(arm==HumanoidArm.RIGHT?.56f:-.56f,
+                        -.52f-PalletClient.handLowering(partial,swing,equip),-.72f);
                 return true;
             }
             @Override public BlockEntityWithoutLevelRenderer getCustomRenderer() {
@@ -90,6 +90,16 @@ public final class PalletRenderer extends BlockEntityWithoutLevelRenderer {
             if(PalletClient.hasCargo() && !cargo.fluid().isEmpty()) {
                 pose.pushPose();pose.translate(0,0,mode.fluidOffset()/16);
                 fluidBoxes(cargo.fluid(),FLUID_REGIONS,(float)((1-mode.fluidOffset())/16),pose,buffers,light,overlay);
+                pose.popPose();
+            }
+            float radius=PalletClient.fluidJetRadius(partial);
+            if(radius>0 && !cargo.fluid().isEmpty() && mode.progress()==1) {
+                // Same renderer, flowing texture and tint as Create's SpoutRenderer.
+                // The last successful use still emits its visual stream after stock reaches zero.
+                pose.pushPose();pose.translate(8/16.0,8.8/16.0,(-17.7+fluidMotion.tip())/16.0);
+                pose.mulPose(Axis.XP.rotationDegrees(90));
+                net.createmod.catnip.platform.NeoForgeCatnipServices.FLUID_RENDERER.renderFluidBox(
+                        cargo.fluid(),-radius,-1.2f,-radius,radius,0,radius,buffers,pose,light,true,true);
                 pose.popPose();
             }
         }

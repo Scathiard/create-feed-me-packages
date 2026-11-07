@@ -21,6 +21,7 @@ public final class PalletService {
     }
     private static final Map<ServerPlayer, Choice> CHOICES = new WeakHashMap<>();
     private static final Map<ServerPlayer, UUID> CONTEXTS = new WeakHashMap<>();
+    private static final String SAVED_CHOICE = "create_feed_me_packages:pallet_choice";
     private static Function<UseOnContext, InteractionResult> clientUse = context -> InteractionResult.FAIL;
     public static void clientUse(Function<UseOnContext, InteractionResult> function) { clientUse = Objects.requireNonNull(function); }
     public static boolean holding(net.minecraft.world.entity.player.Player player) {
@@ -30,13 +31,46 @@ public final class PalletService {
         PalletUse.tick(player);
         dev.scathiard.feedmepackages.network.PalletFluids.tick(player);
         var access = AccessGate.resolve(player); UUID cache = access.active() ? access.handle().cacheId() : null;
-        if (!Objects.equals(CONTEXTS.get(player), cache)) { CHOICES.remove(player); if (cache == null) CONTEXTS.remove(player); else CONTEXTS.put(player, cache); }
+        if (!Objects.equals(CONTEXTS.get(player), cache)) {
+            UUID previous=CONTEXTS.remove(player); CHOICES.remove(player);
+            // A real access/cache change clears the old preference. Initial login may
+            // briefly have no Curios inventory; leave its saved choice until access is known.
+            if(previous!=null) player.getPersistentData().remove(SAVED_CHOICE);
+            if(cache!=null) { CONTEXTS.put(player,cache); restore(player,cache); }
+        }
     }
     public static void forget(ServerPlayer player) { PalletUse.forget(player); CHOICES.remove(player); CONTEXTS.remove(player); }
     public static Choice choice(ServerPlayer player) { tick(player); return CHOICES.get(player); }
     public static void cancelChoice(ServerPlayer player, UUID cache) {
         var choice = choice(player);
-        if (choice != null && choice.cache().equals(cache)) CHOICES.remove(player);
+        if (choice != null && choice.cache().equals(cache)) {
+            CHOICES.remove(player); player.getPersistentData().remove(SAVED_CHOICE);
+        }
+    }
+    private static void remember(ServerPlayer player, Choice choice) {
+        CHOICES.put(player,choice);
+        var tag=new net.minecraft.nbt.CompoundTag(); tag.putUUID("cache",choice.cache()); tag.putString("material",choice.encoded());
+        player.getPersistentData().put(SAVED_CHOICE,tag);
+    }
+    /** A saved name never grants stock or access. Resolve it against this cache's real filters. */
+    private static void restore(ServerPlayer player, UUID cache) {
+        var tag=player.getPersistentData().getCompound(SAVED_CHOICE);
+        if(!tag.hasUUID("cache") || !cache.equals(tag.getUUID("cache"))) {
+            player.getPersistentData().remove(SAVED_CHOICE); return;
+        }
+        String encoded=tag.getString("material");
+        var record=CacheLedger.get(player.getServer()).find(cache);
+        for(var cell:record.state().cells())
+            if(cell.filter()!=null && cell.filter().encoded().equals(encoded)
+                    && PalletUse.supported(cell.filter().stack(player.registryAccess(),1))) {
+                CHOICES.put(player,new Choice(cache,cell.filter())); return;
+            }
+        for(var cell:record.fluids().state().cells())
+            if(cell.filter()!=null && ("fluid:"+cell.filter().encoded()).equals(encoded)) {
+                CHOICES.put(player,new Choice(cache,null,cell.filter())); return;
+            }
+        // Empty stock keeps its filter and selection. A removed/unsupported filter does not.
+        player.getPersistentData().remove(SAVED_CHOICE);
     }
     public static boolean choose(ServerPlayer player, UUID cache, String encoded) {
         tick(player); var access = AccessGate.resolve(player);
@@ -48,14 +82,14 @@ public final class PalletService {
             catch(IllegalArgumentException invalid) { return false; }
             int slot=record.fluids().state().find(fluid);
             if(slot<0 || record.fluids().state().cells().get(slot).amount()<=dev.scathiard.feedmepackages.interaction.FluidActions.reserved(cache,slot)) return false;
-            CHOICES.put(player,new Choice(cache,null,fluid));return true;
+            remember(player,new Choice(cache,null,fluid));return true;
         }
         for (int slot = 0; slot < record.state().cells().size(); slot++) {
             var cell = record.state().cells().get(slot);
             if (cell.filter() != null && cell.filter().encoded().equals(encoded)
                     && cell.amount() > CraftingReservations.reservedCache(cache, slot, null)
                     && PalletUse.supported(cell.filter().stack(player.registryAccess(), 1))) {
-                CHOICES.put(player, new Choice(cache, cell.filter())); return true;
+                remember(player, new Choice(cache, cell.filter())); return true;
             }
         }
         return false;

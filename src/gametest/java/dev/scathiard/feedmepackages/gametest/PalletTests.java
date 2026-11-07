@@ -50,6 +50,31 @@ public final class PalletTests {
         NeoForge.EVENT_BUS.addListener(listener); try { body.run(); } finally { NeoForge.EVENT_BUS.unregister(listener); }
     }
     @GameTest(template = "empty")
+    public static void palletChoiceSurvivesNativePlayerSaveAndFreshPlayerLoad(GameTestHelper h) {
+        var player = TestPlayers.real(h, java.util.UUID.randomUUID());
+        TestPlayers.necklace(player).setStackInSlot(0, FmpRegistries.PENDANT.toStack());
+        player.setItemInHand(InteractionHand.MAIN_HAND, FmpRegistries.POCKET_PALLET.toStack());
+        var handle = AccessGate.resolve(player).handle(); var ledger = CacheLedger.get(player.getServer());
+        var exact = new ItemStack(Items.CHEST);
+        exact.set(DataComponents.CUSTOM_NAME, net.minecraft.network.chat.Component.literal("Remember this chest"));
+        var key = ItemVariantKey.of(exact, player.registryAccess());
+        var old = ledger.find(handle.cacheId()); var edit = old.state().edit();
+        edit.filter(0, key); edit.insert(0, key, 2);
+        ledger.replace(handle, old.state().revision(), old.withState(edit.finish()));
+        h.assertTrue(PalletService.choose(player, handle.cacheId(), key.encoded()), "Could not select exact saved material");
+        var players = TestPlayers.nativeSavePlayers(player.getServer()); players.add(player);
+        try { player.getServer().getPlayerList().saveAll(); } finally { players.remove(player); }
+        PalletService.forget(player);
+        var restored = TestPlayers.real(h, player.getUUID());
+        h.assertTrue(player.getServer().getPlayerList().load(restored).isPresent(), "Native player file missing");
+        var choice = PalletService.choice(restored);
+        h.assertTrue(choice != null && choice.cache().equals(handle.cacheId()) && key.equals(choice.key()),
+                "Restart forgot the selected material or its exact components");
+        h.assertTrue(ledger.find(handle.cacheId()).state().cells().getFirst().amount() == 2,
+                "Remembering selection moved material");
+        h.succeed();
+    }
+    @GameTest(template = "empty")
     public static void nativePalletPlacementDebitsOneAndKeepsToolAndZeroAir(GameTestHelper h) {
         var f = setup(h, new ItemStack(Items.STONE));
         h.assertTrue(f.place().consumesAction()  &&  h.getBlockState(new BlockPos(2,2,2)).is(Blocks.STONE)
@@ -108,6 +133,23 @@ public final class PalletTests {
         f.player().setPos(h.absoluteVec(new Vec3(100, 2, 100))); h.assertTrue(f.place() == InteractionResult.FAIL, "Distant use bypassed reach check"); f.unchanged();
         TestPlayers.necklace(f.player()).setStackInSlot(0, FmpRegistries.PENDANT.toStack()); PalletService.tick(f.player());
         h.assertTrue(PalletService.choice(f.player()) == null, "Another cache inherited the previous block choice"); h.succeed();
+    }
+    @GameTest(template = "empty")
+    public static void savedPalletChoiceRetainsEmptyStockButNeverRevivesAfterCacheSwitchOrRejection(GameTestHelper h) {
+        var f=setup(h,new ItemStack(Items.STONE));var originalPendant=TestPlayers.necklace(f.player()).getStackInSlot(0);
+        var old=f.record();var edit=old.state().edit();edit.extract(0,7);
+        f.ledger().replace(f.handle(),old.state().revision(),old.withState(edit.finish()));
+        PalletService.forget(f.player());
+        h.assertTrue(PalletService.choice(f.player()).key().equals(f.key()) && !f.place().consumesAction() && f.stock()==0,
+                "Empty saved choice disappeared or created material");
+        TestPlayers.necklace(f.player()).setStackInSlot(0,FmpRegistries.PENDANT.toStack());PalletService.tick(f.player());
+        TestPlayers.necklace(f.player()).setStackInSlot(0,originalPendant);PalletService.forget(f.player());
+        h.assertTrue(PalletService.choice(f.player())==null,"Switching caches revived an old saved choice");
+        old=f.record();edit=old.state().edit();edit.insert(0,f.key(),2);
+        f.ledger().replace(f.handle(),old.state().revision(),old.withState(edit.finish()));
+        h.assertTrue(PalletService.choose(f.player(),f.handle().cacheId(),f.key().encoded()),"Cannot select restocked material");
+        PalletService.cancelChoice(f.player(),f.handle().cacheId());PalletService.forget(f.player());
+        h.assertTrue(PalletService.choice(f.player())==null,"Rejected selection revived after reload");h.succeed();
     }
 
     @GameTest(template = "empty")

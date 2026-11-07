@@ -61,7 +61,7 @@ final class PalletNozzleClientReview {
             }
             case 4 -> { if(PalletClient.feedReceipts()==receipts)break;require(PalletClient.feedReceipts()==receipts+1,"First success receipt mismatch");next(); }
             case 5 -> {
-                require(PalletClient.fluidPose(0).active() && PalletClient.fluidPose(0).tip()>0,"No valve motion after actual use");
+                require(PalletClient.fluidPose(0).active() && PalletClient.fluidPose(0).tip()>0 && PalletClient.fluidJetRadius(0)>0,"No valve/stream after actual use");
                 TemplateClientReview.capture("r018-water-nozzle-pressed");
                 FeedMePackages.LOGGER.info("FMP_R018_FIRST_FEEDBACK pose={}",PalletClient.fluidPose(0));
                 use(TARGETS[1]);next();
@@ -73,7 +73,7 @@ final class PalletNozzleClientReview {
             }
             case 8 -> { if(PalletClient.feedReceipts()==receipts+2)break;require(PalletClient.feedReceipts()==receipts+3,"Final-use receipt mismatch");next(); }
             case 9 -> {
-                require(!PalletClient.hasCargo() && PalletClient.fluidPose(0).active(),"Last liquid cut off its valve feedback or left fake cargo");
+                require(!PalletClient.hasCargo() && PalletClient.fluidPose(0).active() && PalletClient.fluidJetRadius(0)>0,"Last liquid cut off its valve/stream or left fake cargo");
                 TemplateClientReview.capture("r018-last-water-empty-chamber-feedback");
                 server(p->{require(InteractionTests.fluidStock(p,0)==0 && p.getInventory().countItem(Items.BUCKET)==0,"Three uses did not conserve fluid/containers");
                     for(var pos:TARGETS)require(p.level().getFluidState(pos.above()).isSource(),"Native use did not place source at "+pos);});next();
@@ -94,7 +94,7 @@ final class PalletNozzleClientReview {
             case 14 -> {
                 require(PalletClient.fluidPose(0).active(),"Switch fixture missed active feedback");
                 double before=PalletClient.fluidPose(0).tip();
-                PalletClient.choose(lava);require(Math.abs(PalletClient.fluidPose(0).tip()-before)<1e-8,"Changing fluid snapped the valve instead of returning it");next();
+                PalletClient.choose(lava);require(Math.abs(PalletClient.fluidPose(0).tip()-before)<1e-8 && PalletClient.fluidJetRadius(0)==0,"Changing fluid snapped the valve or retained an incorrect stream");next();
             }
             case 15 -> {
                 if(!PalletClient.displayed().equals(lava) || elapsed<6)break;
@@ -108,7 +108,7 @@ final class PalletNozzleClientReview {
                 for(String part:new String[]{"create_cog","fluid_head","fluid_pipe","nozzle_collar","nozzle_middle","nozzle_tip"})
                     require(MC.getModelManager().getModel(PalletRenderer.modelId(part))!=MC.getModelManager().getMissingModel(),"Model absent after reload: "+part);
                 TemplateClientReview.capture("r018-lava-after-resource-reload");
-                FeedMePackages.LOGGER.info("FMP_R018_NOZZLE_PASSED nativeUsePackets=true rejectedTargetNoFeedback=true rapidUse=true lastFluidFeedback=true emptyNoFeedback=true restockNoFeedback=true switchReturnsValve=true noExternalJetOrDrops=true actualFluidTint=true reload=true fluidDebit=3000+1000");
+                FeedMePackages.LOGGER.info("FMP_PALLET_NOZZLE_PASSED nativeUsePackets=true rejectedTargetNoFeedback=true rapidUse=true lastFluidFeedback=true emptyNoFeedback=true restockNoFeedback=true switchStopsStreamAndReturnsValve=true nativeSpoutStream=true noParticles=true actualFluidTint=true reload=true fluidDebit=3000+1000");
                 phase=20;return true;
             }
         }

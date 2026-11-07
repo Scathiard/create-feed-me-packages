@@ -17,6 +17,7 @@ import java.util.*;
 
 public final class PalletClient {
     private static double feedStarted = -1;
+    private static double handUseStarted = Double.NEGATIVE_INFINITY;
     private static long stockVersion = -1, feedReceipts;
     private static boolean cargo, queuedFeed;
     private static final dev.scathiard.feedmepackages.domain.PalletMorph morph = new dev.scathiard.feedmepackages.domain.PalletMorph();
@@ -32,6 +33,14 @@ public final class PalletClient {
     public static dev.scathiard.feedmepackages.domain.PalletMorph.Pose modePose(float partial) { return morph.pose(time(partial)); }
     public static boolean hasCargo() { return cargo; }
     public static dev.scathiard.feedmepackages.domain.PalletFluidFeedback.Pose fluidPose(float partial) { return fluidFeedback.pose(time(partial)); }
+    public static float fluidJetRadius(float partial) { return (float)fluidFeedback.jetRadius(time(partial)); }
+    /** A small vertical dip only; no vanilla sweep or rotation of the authored housing. */
+    public static float handLowering(float partial, float swing, float equip) {
+        double t = (time(partial) - handUseStarted) / .25;
+        double use = t > 0 && t < 1 ? Math.sin(Math.PI * t) : 0;
+        return .15f * (float)Math.max(Math.clamp(equip,0,1),
+                Math.max(use,Math.sin(Math.PI * Math.clamp(swing,0,1))));
+    }
     private static void cancelFluidFeedback() { fluidFeedback.cancel(time(0)); }
     public static float cogAngle(float partial) { return (float)(cogAt(time(partial))%360); }
     private static double cogAt(double now) {
@@ -60,7 +69,7 @@ public final class PalletClient {
     private static long fluidVersion;
     public static long version() { return ClientMaterials.version()+fluidVersion; }
     private static int sequence;
-    private static boolean spiral = true;
+    private static boolean spiral = true, recalled;
     public static void register() {
         PalletService.clientUse(PalletClient::use);
         dev.scathiard.feedmepackages.consumption.PalletUse.clientSelection(() -> selected().item());
@@ -90,7 +99,12 @@ public final class PalletClient {
             }
         });
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post event) -> { sync(); if(Minecraft.getInstance().player!=null) dev.scathiard.feedmepackages.consumption.PalletUse.tick(Minecraft.getInstance().player); });
-        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> { if(event.getPlayer()!=null) dev.scathiard.feedmepackages.consumption.PalletUse.forget(event.getPlayer()); cache = null; selected = confirmed = PalletMaterial.EMPTY; sequence = 0; fluids=null;fluidVersion++; resetMotion(); });
+        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> { if(event.getPlayer()!=null) dev.scathiard.feedmepackages.consumption.PalletUse.forget(event.getPlayer()); cache = null; selected = confirmed = PalletMaterial.EMPTY; sequence = 0; recalled=false; fluids=null;fluidVersion++; handUseStarted=Double.NEGATIVE_INFINITY; resetMotion(); });
+        NeoForge.EVENT_BUS.addListener((InputEvent.InteractionKeyMappingTriggered event) -> {
+            var mc=Minecraft.getInstance();
+            if(!event.isCanceled() && event.isUseItem() && event.getHand()==net.minecraft.world.InteractionHand.MAIN_HAND
+                    && mc.screen==null && mc.player!=null && PalletService.holding(mc.player)) handUseStarted=time(0);
+        });
         NeoForge.EVENT_BUS.addListener((InputEvent.MouseButton.Pre event) -> {
             if (event.getAction() == org.lwjgl.glfw.GLFW.GLFW_PRESS &&
                     open(InputConstants.Type.MOUSE.getOrCreate(event.getButton()))) event.setCanceled(true);
@@ -132,9 +146,14 @@ public final class PalletClient {
     }
     public static void sync() {
         UUID next = ClientMaterials.cacheId();
-        if (!Objects.equals(cache, next)) { cache = next; selected = confirmed = PalletMaterial.EMPTY; resetMotion(); }
+        if (!Objects.equals(cache, next)) { cache = next; selected = confirmed = PalletMaterial.EMPTY; recalled=false; resetMotion(); }
         var player=Minecraft.getInstance().player;
+        if(player==null || !PalletService.holding(player)) handUseStarted=Double.NEGATIVE_INFINITY;
         if(player==null || !PalletService.holding(player) || !ClientMaterials.active()) { resetMotion(); return; }
+        if(!recalled && cache!=null) {
+            recalled=true;
+            PacketDistributor.sendToServer(new PalletNetwork.Recall(++sequence,cache));
+        }
         if(stockVersion!=version()) {
             // The reserved last meal is still in the jaws. Cancelling its use returns
             // availability; it is not a newly delivered item and must not replay feed.
@@ -172,6 +191,7 @@ public final class PalletClient {
         if (cache == null || mc.player == null || !ClientMaterials.active() || stack.isEmpty()) return;
         if(!selected.equals(stack)) cancelFluidFeedback();
         selected = stack;
+        recalled=true;
         PacketDistributor.sendToServer(new PalletNetwork.Selection(++sequence, cache, selected.encoded()));
     }
     public static void mode(boolean value) { spiral = value; }

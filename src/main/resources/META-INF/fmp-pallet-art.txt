@@ -1,4 +1,4 @@
-Pocket Pallet r018 asset provenance (test.77)
+Pocket Pallet r018 asset provenance (test.78)
 
 Source: art/pocket_pallet/r018, supplied by the project owner and approved for game integration.
 Animated BBModel SHA-256: 55f50abdccc2513a47b6b4f0a380ffebf9228453a71edc139941b5011020f571
@@ -6,7 +6,7 @@ Original art is preserved unchanged. All build-required runtime models and textu
 
 The rotating cog, cleared cog slot, pixel-stepped copper chamber and elongated B nozzle follow r018. Native cog axis is (8,9,4), idle rotation -40 degrees/second, with a local turn for authored actions. Rails, tray, carried cargo and the rotated gate are clipped after animation at model Z=2.8u; other retracting ends use Z=1u. This preserves UVs instead of stretching hidden meshes.
 
-Mode changes take 0.30 seconds. The B nozzle travels 18.7u; its tip mesh is stored +2u Z to respect Minecraft JSON bounds, then restored -2u by the renderer. Fluid use compresses the middle/tip by 0.375/0.75u: 0.08s eased press, hold through 0.208s, linear return by 0.24s. No external fluid stream, drops or feedback particles remain. Contained fluid uses native texture, tint and light. These display timelines never own stock or set a gameplay cooldown.
+Mode changes take 0.30 seconds. The B nozzle travels 18.7u; its tip mesh is stored +2u Z to respect Minecraft JSON bounds, then restored -2u by the renderer. Fluid use compresses the middle/tip by 0.375/0.75u: 0.08s eased press, hold through 0.208s, linear return by 0.24s. The test.78 runtime adds a short continuous fluid stream using Create SpoutRenderer's FluidRenderHelper, with the selected fluid texture, tint and light. No droplets or particles are spawned. Successful use drives the stream even for the last unit; cancellation/selection change stops it. Contained fluid remains stock-dependent. The original r018 source art is unchanged. These display timelines never own stock or set a gameplay cooldown. Primary attack/use adds only a small vertical housing dip, retaining the authored orientation and separate food motion.
 
 The supplied 128x128 front atlas is copied unmodified. The rear body references create:item/extendo_grip; the cog references minecraft:block/stripped_dark_oak_log. Fluid parts reference Create's native glass_fluid_pipe, fluid_tank, fluid_tank_window_single, spout_nozzle and spout textures. Preview cargo/fluid are not baked into runtime geometry.
 

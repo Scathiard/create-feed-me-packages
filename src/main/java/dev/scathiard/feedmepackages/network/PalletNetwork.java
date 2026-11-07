@@ -47,23 +47,41 @@ public final class PalletNetwork {
         });
         @Override public Type<Selection> type() { return TYPE; }
     }
+    /** Read back this player's saved choice, never a client-provided replacement material. */
+    public record Recall(int sequence, UUID cache) implements CustomPacketPayload {
+        public Recall { if(sequence<=0 || cache==null) throw new IllegalArgumentException("Invalid pallet recall"); }
+        public static final Type<Recall> TYPE=new Type<>(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID,"pallet_recall"));
+        public static final StreamCodec<RegistryFriendlyByteBuf,Recall> CODEC=StreamCodec.of((b,m)->{
+            b.writeVarInt(m.sequence);b.writeUUID(m.cache);
+        },b->{ PanelPackets.bound(b,24);var message=new Recall(b.readVarInt(),b.readUUID());PanelPackets.end(b);return message; });
+        @Override public Type<Recall> type() { return TYPE; }
+    }
+    private static boolean allow(ServerPlayer player,int sequence) {
+        SEQUENCES.put(player,sequence);
+        var limit=LIMITS.computeIfAbsent(player,ignored->new long[]{player.tickCount,0});
+        if(player.tickCount-limit[0]>=20 || player.tickCount<limit[0]) { limit[0]=player.tickCount;limit[1]=0; }
+        return ++limit[1]<=8;
+    }
+    private static void reply(ServerPlayer player,int sequence,UUID cache) {
+        var choice=PalletService.choice(player);
+        PacketDistributor.sendToPlayer(player,new Selection(sequence,cache,
+                choice!=null && choice.cache().equals(cache)?choice.encoded():""));
+    }
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar=event.registrar("pallet-use-3");
+        var registrar=event.registrar("pallet-use-4");
         PalletFluids.register(registrar);
         registrar.playToClient(Feed.TYPE,Feed.CODEC,(message,context)->feedClient.accept(message));
+        registrar.playToServer(Recall.TYPE,Recall.CODEC,(message,context)->{
+            if(context.player() instanceof ServerPlayer player && allow(player,message.sequence)) reply(player,message.sequence,message.cache);
+        });
         registrar.playBidirectional(Selection.TYPE, Selection.CODEC, (message, context) -> {
             if (context.flow().isClientbound()) { client.accept(message); return; }
             if (!(context.player() instanceof ServerPlayer player)) return;
-            SEQUENCES.put(player,message.sequence);
-            var limit = LIMITS.computeIfAbsent(player, ignored -> new long[]{player.tickCount, 0});
-            if (player.tickCount - limit[0] >= 20 || player.tickCount < limit[0]) { limit[0] = player.tickCount; limit[1] = 0; }
             // Never silently retain another block when this selection was rejected: a following
             // native right-click packet must fail, not place the player's previous material.
-            if (++limit[1] > 8 || !PalletService.choose(player, message.cache, message.encoded))
+            if (!allow(player,message.sequence) || !PalletService.choose(player, message.cache, message.encoded))
                 PalletService.cancelChoice(player, message.cache);
-            var choice = PalletService.choice(player);
-            PacketDistributor.sendToPlayer(player, new Selection(message.sequence, message.cache,
-                    choice != null && choice.cache().equals(message.cache) ? choice.encoded() : ""));
+            reply(player,message.sequence,message.cache);
         });
     }
 }
