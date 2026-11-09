@@ -56,7 +56,7 @@ public final class CacheEdit<K extends MaterialVariant> {
         if (!canWrite(slot)) return 0;
         Cell<K> cell = cells.get(slot);
         if (variant == null || !variant.equals(cell.filter())) return 0;
-        int itemCapacity = capacity.groups() * variant.stackSize();
+        int itemCapacity = capacity.items(variant);
         int accepted = Math.min(offered, Math.max(0, itemCapacity - cell.amount()));
         cells.set(slot, cell.withAmount(cell.amount() + accepted));
         return accepted;

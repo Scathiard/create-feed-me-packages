@@ -3,21 +3,26 @@ package dev.scathiard.feedmepackages.client;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.simibubi.create.foundation.gui.AllGuiTextures;
 import dev.scathiard.feedmepackages.FeedMePackages;
-import java.io.IOException;
-import dev.scathiard.feedmepackages.client.PanelLayout;
-import dev.scathiard.feedmepackages.client.SupplyCreativeScreen;
-import dev.scathiard.feedmepackages.client.SupplyInventoryScreen;
-import dev.scathiard.feedmepackages.domain.CacheDropTarget;
 import dev.scathiard.feedmepackages.compat.maid.MaidMenus;
+import dev.scathiard.feedmepackages.compat.maid.MaidPackageHandover;
+import dev.scathiard.feedmepackages.domain.CacheDropTarget;
 import dev.scathiard.feedmepackages.domain.CacheGrid;
 import dev.scathiard.feedmepackages.domain.CacheViewport;
+import dev.scathiard.feedmepackages.domain.CellSettings;
+import dev.scathiard.feedmepackages.domain.FluidCellControls;
+import dev.scathiard.feedmepackages.domain.ReturnAddress;
+import dev.scathiard.feedmepackages.fluid.FluidVariantKey;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.item.PendantItem;
+import dev.scathiard.feedmepackages.logistics.ReturnService;
 import dev.scathiard.feedmepackages.mixin.ContainerScreenAccess;
 import dev.scathiard.feedmepackages.network.PanelNetwork;
 import dev.scathiard.feedmepackages.network.PanelPackets;
+import dev.scathiard.feedmepackages.registry.FmpRegistries;
 import dev.scathiard.feedmepackages.service.AccessGate;
+import dev.scathiard.feedmepackages.storage.CacheLedger;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -38,23 +43,23 @@ import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.gui.screens.recipebook.RecipeUpdateListener;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
-import net.minecraft.core.HolderLookup;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvents;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.ContainerScreenEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 import top.theillusivec4.curios.api.CuriosApi;
 import top.theillusivec4.curios.api.type.capability.ICuriosItemHandler;
 
-/** Recovered from test.42; pixel-atlas and layout corrections only. */
+/**
+ * Client-side controller and renderer for the Logistics Panel overlay attached to inventory,
+ * creative inventory, crafting table, and Touhou Little Maid container screens.
+ */
 public final class LogisticsPanel {
     private static final Minecraft MC = Minecraft.getInstance();
     /**
@@ -105,6 +110,27 @@ public final class LogisticsPanel {
     /** Veil over the whole button when the action is unavailable (keeps the old "greyed out" reading). */
     private static final int BUTTON_DISABLED_VEIL = 0xB0000000;
 
+    // --- Panel UI Color Palette (ARGB) ------------------------------------------------------------------------
+    private static final int COLOR_TEXT_DEFAULT = 0xFF000000;
+    private static final int COLOR_ADDRESS_HOVER = 0xFF7045AA;
+    private static final int COLOR_STATUS_WARNING = 0xFF714940;
+    private static final int COLOR_WAITING_DOT = 0xFFE6C178;
+    private static final int COLOR_FEEDBACK_ALERT = 0xFFFFB16B;
+    private static final int COLOR_SCROLL_RAIL = 0xFF302F2C;
+    private static final int COLOR_SCROLL_THUMB = 0xFFC0A366;
+    private static final int COLOR_STOCK_ZERO_OR_RETURN_IDLE = 0xFF968E81;
+    private static final int COLOR_STOCK_AMOUNT = 0xFFF5E8C6;
+    private static final int COLOR_READ_ONLY_BAR = 0xFFAA7777;
+    private static final int COLOR_RESIDUAL_OR_PENDING = 0xFF82C665;
+    private static final int COLOR_SHORTAGE_IDLE = 0xFF93938B;
+    private static final int COLOR_RETURN_SENT = 0xFFE0955A;
+    private static final int COLOR_CONFIGURE_DOT = 0xFFE0C27E;
+    private static final int COLOR_RETURN_PLACEHOLDER = 0xFF8A7E68;
+    private static final int COLOR_RETURN_EDITING = 0xFF4A3D28;
+    private static final int COLOR_COMPACT_BUTTON_TEXT = 0xFFF0E3C3;
+    private static final int COLOR_TOGGLE_DOT_ON = 0xFF76ED77;
+    private static final int COLOR_TOGGLE_DOT_OFF = 0xFF696969;
+
     private static AbstractContainerScreen<?> screen;
     private static UUID window;
     private static PanelPackets.Snapshot snapshot;
@@ -114,7 +140,7 @@ public final class LogisticsPanel {
     private static int selfLevel;
     private static PanelLayout layout;
     private static final Map<String, ItemStack> ICONS;
-    private static final Map<String, net.neoforged.neoforge.fluids.FluidStack> FLUID_ICONS = new HashMap<>();
+    private static final Map<String, FluidStack> FLUID_ICONS = new HashMap<>();
     private static int tick;
     private static int lastQuery;
     private static int sequence;
@@ -230,18 +256,18 @@ public final class LogisticsPanel {
         PanelNetwork.receiveLevelOnClient(LogisticsPanel::receiveLevel);
         IEventBus bus = NeoForge.EVENT_BUS;
         bus.addListener((ScreenEvent.Opening event) -> {
-            boolean bl = retainTransition = window != null && (event.getNewScreen() == screen || isRecipeOverlay(event.getNewScreen()));
+            retainTransition = window != null && (event.getNewScreen() == screen || isRecipeOverlay(event.getNewScreen()));
             if (LogisticsPanel.MC.player == null || event.getNewScreen() == null) {
                 return;
             }
-            ICuriosItemHandler inventory = CuriosApi.getCuriosInventory((LivingEntity)LogisticsPanel.MC.player).orElse(null);
-            if (inventory == null || inventory.findCurios(new String[]{"necklace"}).stream().noneMatch(found -> !found.slotContext().cosmetic() && found.stack().getItem() instanceof PendantItem)) {
+            ICuriosItemHandler inventory = CuriosApi.getCuriosInventory(LogisticsPanel.MC.player).orElse(null);
+            if (inventory == null || inventory.findCurios("necklace").stream().noneMatch(found -> !found.slotContext().cosmetic() && found.stack().getItem() instanceof PendantItem)) {
                 return;
             }
             if (event.getNewScreen().getClass() == InventoryScreen.class) {
-                event.setNewScreen((Screen)new SupplyInventoryScreen((Player)LogisticsPanel.MC.player));
+                event.setNewScreen(new SupplyInventoryScreen(LogisticsPanel.MC.player));
             } else if (event.getNewScreen().getClass() == CreativeModeInventoryScreen.class) {
-                event.setNewScreen((Screen)new SupplyCreativeScreen(LogisticsPanel.MC.player));
+                event.setNewScreen(new SupplyCreativeScreen(LogisticsPanel.MC.player));
             }
         });
         bus.addListener((net.neoforged.neoforge.client.event.ClientTickEvent.Post event) -> LogisticsPanel.tick());
@@ -329,7 +355,7 @@ public final class LogisticsPanel {
             }
             if (returnEditing) {
                 if (event.getCodePoint() >= ' ' && Character.isValidCodePoint(event.getCodePoint())
-                        && dev.scathiard.feedmepackages.domain.ReturnAddress.valid(returnBuffer + new String(Character.toChars(event.getCodePoint())))) {
+                        && ReturnAddress.valid(returnBuffer + new String(Character.toChars(event.getCodePoint())))) {
                     returnBuffer = returnBuffer + new String(Character.toChars(event.getCodePoint()));
                 }
                 event.setCanceled(true);
@@ -447,7 +473,7 @@ public final class LogisticsPanel {
     /** A carried Create package addressed to the maid whose page is open. */
     private static boolean maidPackageCarried() {
         if (!maidPanel() || LogisticsPanel.MC.player == null) return false;
-        return dev.scathiard.feedmepackages.compat.maid.MaidPackageHandover.addressedTo(
+        return MaidPackageHandover.addressedTo(
                 LogisticsPanel.MC.player.containerMenu.getCarried(), MaidMenus.target(screen.getMenu()));
     }
 
@@ -485,9 +511,9 @@ public final class LogisticsPanel {
     /** True only for the pendant the player actually wears: a spare in the bag must not borrow its level. */
     private static boolean wornPendant(ItemStack stack) {
         if (stack.isEmpty() || LogisticsPanel.MC.player == null) return false;
-        ICuriosItemHandler inventory = CuriosApi.getCuriosInventory((LivingEntity)LogisticsPanel.MC.player).orElse(null);
+        ICuriosItemHandler inventory = CuriosApi.getCuriosInventory(LogisticsPanel.MC.player).orElse(null);
         if (inventory == null) return false;
-        return inventory.findCurios(new String[]{"necklace"}).stream().anyMatch(found ->
+        return inventory.findCurios("necklace").stream().anyMatch(found ->
                 !found.slotContext().cosmetic() && found.stack().getItem() instanceof PendantItem
                         && ItemStack.isSameItemSameComponents(found.stack(), stack));
     }
@@ -497,7 +523,7 @@ public final class LogisticsPanel {
      * from the small {@code SelfLevel} sync, not from a panel snapshot, so hovering works with no panel open.
      */
     private static int wornLevel(ItemStack stack) {
-        UUID cache = stack.get(dev.scathiard.feedmepackages.registry.FmpRegistries.IDENTITY.get());
+        UUID cache = stack.get(FmpRegistries.IDENTITY.get());
         return cache != null && cache.equals(selfCache) ? selfLevel : 0;
     }
 
@@ -545,7 +571,7 @@ public final class LogisticsPanel {
         if (queuedScrollRow >= 0 && pageReady() && waiting == 0) scrollToRow(queuedScrollRow);
         if (tick - lastQuery >= 10) {
             lastQuery = tick;
-            PacketDistributor.sendToServer((CustomPacketPayload)new PanelPackets.Query(window, LogisticsPanel.MC.player.containerMenu.containerId, true, requestedFirstSlot, requestedColumnLimit), (CustomPacketPayload[])new CustomPacketPayload[0]);
+            PacketDistributor.sendToServer(new PanelPackets.Query(window, LogisticsPanel.MC.player.containerMenu.containerId, true, requestedFirstSlot, requestedColumnLimit));
         }
     }
 
@@ -558,7 +584,7 @@ public final class LogisticsPanel {
             // Cleanup acknowledgements are tracked separately from ordinary UI predictions.
             int seq = ++sequence;
             pendingReleases.put(seq, intent);
-            PacketDistributor.sendToServer((CustomPacketPayload)new PanelPackets.Command(window, seq, intent, false, "", 0), (CustomPacketPayload[])new CustomPacketPayload[0]);
+            PacketDistributor.sendToServer(new PanelPackets.Command(window, seq, intent, false, "", 0));
         } catch (IllegalArgumentException invalid) { /* stale template; nothing to release */ }
     }
 
@@ -584,7 +610,7 @@ public final class LogisticsPanel {
         if(MC.getConnection()!=null && MC.player!=null && active() && window!=null) submitFinalControls();
         controlDrafts.clear();
         if (Boolean.getBoolean("fmp.cursorDiagnostics") && window != null)
-            dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP_CLOSE_PREVIEW window={} confirmed={} remaining={} carriedCount={}",
+            FeedMePackages.LOGGER.info("FMP_CLOSE_PREVIEW window={} confirmed={} remaining={} carriedCount={}",
                     window, previewConfirmed, previewRemaining, MC.player == null ? 0 : MC.player.containerMenu.getCarried().getCount());
         // 只撤销本次 本地 FMP 预览（客户端维护的 previewRemaining），绝不按 snapshot.reserved(全局合计)撤。
         // 创造光标由客户端持有：TAKE_CURSOR 只发全量包、服务端 carried 为空；本地预览量由预览关联追踪，
@@ -593,8 +619,8 @@ public final class LogisticsPanel {
             var carried = LogisticsPanel.MC.player.containerMenu.getCarried();
             if (previewConfirmed && previewRemaining > 0 && previewVariant != null && !carried.isEmpty()) {
                 try {
-                    var variant = ItemVariantKey.decode(previewVariant, (HolderLookup.Provider)LogisticsPanel.MC.player.registryAccess());
-                    if (ItemStack.isSameItemSameComponents(carried, variant.stack((HolderLookup.Provider)LogisticsPanel.MC.player.registryAccess(), 1))) {
+                    var variant = ItemVariantKey.decode(previewVariant, LogisticsPanel.MC.player.registryAccess());
+                    if (ItemStack.isSameItemSameComponents(carried, variant.stack(LogisticsPanel.MC.player.registryAccess(), 1))) {
                         ItemStack next = carried.copy();
                         next.setCount(Math.max(0, next.getCount() - previewRemaining));
                         LogisticsPanel.MC.player.containerMenu.setCarried(next.isEmpty() ? ItemStack.EMPTY : next);
@@ -611,7 +637,7 @@ public final class LogisticsPanel {
         previewSeq = 0; cursorOperation = 0; cursorSerial = 0; cursorSession = null; cursorPending = false;
         cursorExpected = ItemStack.EMPTY; pendingReleases.clear();
         if (window != null && MC.getConnection() != null && LogisticsPanel.MC.player != null) {
-            PacketDistributor.sendToServer((CustomPacketPayload)new PanelPackets.Query(window, LogisticsPanel.MC.player.containerMenu.containerId, false), (CustomPacketPayload[])new CustomPacketPayload[0]);
+            PacketDistributor.sendToServer(new PanelPackets.Query(window, LogisticsPanel.MC.player.containerMenu.containerId, false));
         }
         screen = null;
         window = null;
@@ -740,18 +766,18 @@ public final class LogisticsPanel {
         if (selected >= incoming.cells().size() || selected >= 0 && (incoming.cells().get(selected).template().isEmpty() || !incoming.cells().get(selected).writable())) {
             selected = -1;
         }
-        HashSet<String> present = new HashSet<String>();
+        HashSet<String> present = new HashSet<>();
         for (PanelPackets.CellView cell : incoming.cells()) {
             if (cell.template().isEmpty()) continue;
             present.add(cell.template());
             if (cell.fluid()) {
-                try { FLUID_ICONS.put(cell.template(), dev.scathiard.feedmepackages.fluid.FluidVariantKey.decode(cell.template(), MC.player.registryAccess()).stack(MC.player.registryAccess(),1)); }
+                try { FLUID_ICONS.put(cell.template(), FluidVariantKey.decode(cell.template(), MC.player.registryAccess()).stack(MC.player.registryAccess(), 1)); }
                 catch (IllegalArgumentException invalid) { notice("invalid_display"); }
                 continue;
             }
             if (ICONS.containsKey(cell.template())) continue;
             try {
-                ICONS.put(cell.template(), ItemVariantKey.decode(cell.template(), (HolderLookup.Provider)LogisticsPanel.MC.player.registryAccess()).stack((HolderLookup.Provider)LogisticsPanel.MC.player.registryAccess(), 1));
+                ICONS.put(cell.template(), ItemVariantKey.decode(cell.template(), LogisticsPanel.MC.player.registryAccess()).stack(LogisticsPanel.MC.player.registryAccess(), 1));
             }
             catch (IllegalArgumentException invalid) {
                 LogisticsPanel.notice("invalid_display");
@@ -886,10 +912,10 @@ public final class LogisticsPanel {
         if (snapshot.fluidPreview().amount() > 0 && MC.player.containerMenu.getCarried().isEmpty()) {
             var preview = snapshot.fluidPreview(); var g = event.getGuiGraphics();
             try {
-                var fluid = dev.scathiard.feedmepackages.fluid.FluidVariantKey.decode(preview.template(), MC.player.registryAccess()).stack(MC.player.registryAccess(),1);
-                g.pose().pushPose(); g.pose().translate(0,0,400);
-                TemplateBrowsers.renderFluid(g,fluid,mouseX-8,mouseY-8); g.pose().popPose();
-                tooltip=List.of(fluid.getHoverName(),Component.literal(preview.amount()+" mB"),tr("fluid_preview"));
+                var fluid = FluidVariantKey.decode(preview.template(), MC.player.registryAccess()).stack(MC.player.registryAccess(), 1);
+                g.pose().pushPose(); g.pose().translate(0, 0, 400);
+                TemplateBrowsers.renderFluid(g, fluid, mouseX - 8, mouseY - 8); g.pose().popPose();
+                tooltip = List.of(fluid.getHoverName(), Component.literal(preview.amount() + " mB"), tr("fluid_preview"));
             } catch (IllegalArgumentException invalid) { notice("invalid_display"); }
         }
         if (layout.compact()) {
@@ -922,24 +948,24 @@ public final class LogisticsPanel {
         int levelWidth = level.isEmpty() ? 0 : LogisticsPanel.MC.font.width(level) + 4;
         int textWidth = copy.width() - 2 - levelWidth;
         String displayed = LogisticsPanel.MC.font.width(caption) <= textWidth ? caption : LogisticsPanel.MC.font.plainSubstrByWidth(caption, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026";
-        LogisticsPanel.text(g, displayed, copy.x() + 1, copy.y() + 3, copy.contains(mouseX, mouseY) ? -9419222 : 0xFF000000);
+        LogisticsPanel.text(g, displayed, copy.x() + 1, copy.y() + 3, copy.contains(mouseX, mouseY) ? COLOR_ADDRESS_HOVER : COLOR_TEXT_DEFAULT);
         if (!level.isEmpty())
             LogisticsPanel.text(g, level, copy.x() + copy.width() - levelWidth + 4, copy.y() + 3,
-                    copy.contains(mouseX, mouseY) ? -9419222 : 0xFF000000);
+                    copy.contains(mouseX, mouseY) ? COLOR_ADDRESS_HOVER : COLOR_TEXT_DEFAULT);
         if (copy.contains(mouseX, mouseY)) {
             tooltip = maid == null ? List.of(tr("address"), Component.literal(address))
                     : List.of(tr("maid_cache", maid.getName()), tr("address"), Component.literal(address));
         }
         if (!LogisticsPanel.active() || !snapshot.bound()) {
-            LogisticsPanel.text(g, "!", x + 10, y + 20, -9352640);
+            LogisticsPanel.text(g, "!", x + 10, y + 20, COLOR_STATUS_WARNING);
             if (new PanelLayout.Rect(x + 10, y + 20, 6, 9).contains(mouseX, mouseY)) {
                 var statusKey = LogisticsPanel.active() ? "unbound" : "status." + snapshot.status().name().toLowerCase(Locale.ROOT);
                 // A locked cache has to explain itself here too, not only in the server log: this is the
                 // state that made every cache-supplied recipe look like "missing materials".
-                tooltip = snapshot.status() == dev.scathiard.feedmepackages.service.AccessGate.Status.STORAGE_LOCKED
-                        ? List.of(LogisticsPanel.tr(statusKey, new Object[0]),
-                                LogisticsPanel.tr("status.storage_locked.detail", new Object[] { dev.scathiard.feedmepackages.storage.CacheLedger.SCHEMA }))
-                        : List.of(LogisticsPanel.tr(statusKey, new Object[0]));
+                tooltip = snapshot.status() == AccessGate.Status.STORAGE_LOCKED
+                        ? List.of(LogisticsPanel.tr(statusKey),
+                                LogisticsPanel.tr("status.storage_locked.detail", CacheLedger.SCHEMA))
+                        : List.of(LogisticsPanel.tr(statusKey));
             }
         }
         if (LogisticsPanel.active()) {
@@ -954,10 +980,10 @@ public final class LogisticsPanel {
             }
         }
         if (waiting != 0) {
-            LogisticsPanel.overlay(g, x + 10, y + 31, 4, 2, -1654408);
+            LogisticsPanel.overlay(g, x + 10, y + 31, 4, 2, COLOR_WAITING_DOT);
         }
         if (feedback != null && tick < feedbackUntil) {
-            LogisticsPanel.text(g, "!", x + 10, y + 20, -20117);
+            LogisticsPanel.text(g, "!", x + 10, y + 20, COLOR_FEEDBACK_ALERT);
             if (new PanelLayout.Rect(x + 10, y + 20, 6, 9).contains(mouseX, mouseY)) {
                 tooltip = List.of(feedback);
             }
@@ -965,10 +991,10 @@ public final class LogisticsPanel {
         int scrollRows = snapshot == null ? 0 : CacheGrid.rowsFor(snapshot.totalSlots(), snapshot.columnLimit());
         if (scrollRows > layout.visibleRows()) {
             PanelLayout.Rect rail = layout.scrollbar();
-            g.fill(rail.x(), rail.y(), rail.x() + rail.width(), rail.y() + rail.height(), -13619412);
+            g.fill(rail.x(), rail.y(), rail.x() + rail.width(), rail.y() + rail.height(), COLOR_SCROLL_RAIL);
             int thumb = Math.max(7, rail.height() * layout.visibleRows() / scrollRows);
             int offset = (rail.height() - thumb) * scrollRow() / Math.max(1, scrollRows - layout.visibleRows());
-            g.fill(rail.x(), rail.y() + offset, rail.x() + rail.width(), rail.y() + offset + thumb, -4152474);
+            g.fill(rail.x(), rail.y() + offset, rail.x() + rail.width(), rail.y() + offset + thumb, COLOR_SCROLL_THUMB);
         }
         if (!layout.compact()) {
             LogisticsPanel.renderTransferButton(g);
@@ -987,12 +1013,12 @@ public final class LogisticsPanel {
             var r = layout.maidPickupButton();
             iconButton(g, r, BUTTON_MAID_PICKUP_TEXTURE, snapshot.maidPickup() ? "maid_pickup_on" : "maid_pickup_off", active());
             if (r.width() > 0) mark(g, new PanelLayout.Rect(r.x() + 9, r.y() + 2, 3, 3),
-                    snapshot.maidPickup() ? 0xff76ed77 : 0xff696969);
+                    snapshot.maidPickup() ? COLOR_TOGGLE_DOT_ON : COLOR_TOGGLE_DOT_OFF);
         } else {
             var r = layout.craftingButton();
             iconButton(g, r, BUTTON_CRAFTING_TEXTURE, snapshot.craftingEnabled() ? "crafting_on" : "crafting_off", active());
             if (r.width() > 0) mark(g, new PanelLayout.Rect(r.x() + 9, r.y() + 2, 3, 3),
-                    snapshot.craftingEnabled() ? 0xff76ed77 : 0xff696969);
+                    snapshot.craftingEnabled() ? COLOR_TOGGLE_DOT_ON : COLOR_TOGGLE_DOT_OFF);
         }
         LogisticsPanel.iconButton(g, layout.transferButton(), BUTTON_TEXTURE, "collect_button",
                 LogisticsPanel.collectEnabled());
@@ -1084,7 +1110,7 @@ public final class LogisticsPanel {
         int y = r.y();
         renderSlot(g, x, y);
         ItemStack icon = ICONS.getOrDefault(cell.template(), ItemStack.EMPTY);
-        var fluidIcon = FLUID_ICONS.getOrDefault(cell.template(), net.neoforged.neoforge.fluids.FluidStack.EMPTY);
+        var fluidIcon = FLUID_ICONS.getOrDefault(cell.template(), FluidStack.EMPTY);
         if (!icon.isEmpty() || !fluidIcon.isEmpty()) {
             // Display "in-cell" quantity = cache amount minus the live cursor preview (P). During the
             // pre-confirmation wait a client-side prediction overrides this one cell so the number
@@ -1097,7 +1123,7 @@ public final class LogisticsPanel {
             if (display == 0) {
                 g.setColor(1.0f, 1.0f, 1.0f, 0.45f);
             }
-            if (cell.fluid()) TemplateBrowsers.renderFluid(g,fluidIcon,x+1,y+1); else g.renderItem(icon, x + 1, y + 1);
+            if (cell.fluid()) TemplateBrowsers.renderFluid(g, fluidIcon, x + 1, y + 1); else g.renderItem(icon, x + 1, y + 1);
             g.setColor(1.0f, 1.0f, 1.0f, 1.0f);
             String amount = cell.fluid() ? CellControlArtwork.fluidQuantity(display) : Integer.toString(display);
             float scale = Math.min(1.0f, 16.0f / (float)LogisticsPanel.MC.font.width(amount));
@@ -1108,33 +1134,33 @@ public final class LogisticsPanel {
             Objects.requireNonNull(LogisticsPanel.MC.font);
             poseStack.translate(f, f2 - 9.0f * scale, 190.0f);
             g.pose().scale(scale, scale, 1.0f);
-            g.drawString(LogisticsPanel.MC.font, amount, 0, 0, display == 0 ? -6909823 : -661306, true);
+            g.drawString(LogisticsPanel.MC.font, amount, 0, 0, display == 0 ? COLOR_STOCK_ZERO_OR_RETURN_IDLE : COLOR_STOCK_AMOUNT, true);
             g.pose().popPose();
         }
         CellFeedback.render(g, box.slot(), x, y);
-        if (!cell.writable()) LogisticsPanel.overlay(g, x + 1, y + 16, 16, 1, 0xFFAA7777);
+        if (!cell.writable()) LogisticsPanel.overlay(g, x + 1, y + 16, 16, 1, COLOR_READ_ONLY_BAR);
         boolean hover = r.contains(mouseX, mouseY);
         if (cell.residual()) {
-            LogisticsPanel.overlay(g, x + 1, y + 13, 3, 3, -8206747);
+            LogisticsPanel.overlay(g, x + 1, y + 13, 3, 3, COLOR_RESIDUAL_OR_PENDING);
             if (hover && new PanelLayout.Rect(x, y + 11, 6, 7).contains(mouseX, mouseY)) {
-                tooltip = List.of(LogisticsPanel.tr("residual", new Object[0]));
+                tooltip = List.of(LogisticsPanel.tr("residual"));
             }
         }
         if (cell.writable() && !cell.template().isEmpty() && cell.minimum() >= 0 && cell.amount() < cell.minimum()) {
-            int color = cell.pending() > 0 ? -8206747 : -7105653;
+            int color = cell.pending() > 0 ? COLOR_RESIDUAL_OR_PENDING : COLOR_SHORTAGE_IDLE;
             renderStatusArrow(g, x + 1, y + 1, color, false);
         }
         if (cell.writable() && !cell.template().isEmpty() && cell.maximum() >= 0 && cell.amount() > cell.maximum()) {
-            int color = cell.returnState() == dev.scathiard.feedmepackages.logistics.ReturnService.RETURN_SENT ? -2058918 : -6909823;
+            int color = cell.returnState() == ReturnService.RETURN_SENT ? COLOR_RETURN_SENT : COLOR_STOCK_ZERO_OR_RETURN_IDLE;
             renderStatusArrow(g, x + 1, y + 1, color, true);
         }
         if (hover && cell.writable() && !cell.template().isEmpty()) {
-            LogisticsPanel.overlay(g, box.dot().x(), box.dot().y() + 1, 4, 4, -2047362);
+            LogisticsPanel.overlay(g, box.dot().x(), box.dot().y() + 1, 4, 4, COLOR_CONFIGURE_DOT);
         }
         if (hover) {
-            tooltip = new ArrayList<Component>();
+            tooltip = new ArrayList<>();
             if (!icon.isEmpty() || !fluidIcon.isEmpty()) {
-                if (cell.fluid()) tooltip.add(fluidIcon.getHoverName()); else tooltip.addAll(Screen.getTooltipFromItem((Minecraft)MC, (ItemStack)icon));
+                if (cell.fluid()) tooltip.add(fluidIcon.getHoverName()); else tooltip.addAll(Screen.getTooltipFromItem(MC, icon));
                 int display = Math.max(0, cell.amount() - cell.reserved());
                 if (predict != null && predict.slot() == box.slot() && predict.window().equals(window))
                     display = Math.max(0, predict.result());
@@ -1142,17 +1168,17 @@ public final class LogisticsPanel {
                 if (!cell.fluid() && cell.stackSize() > 1) {
                     tooltip.add(LogisticsPanel.tr("stock_groups", cell.amount() / cell.stackSize(), snapshot.groupCapacity()));
                 }
-                if (display == 0 && cell.reserved() > 0) tooltip.add(LogisticsPanel.tr("held_preview", new Object[0]));
+                if (display == 0 && cell.reserved() > 0) tooltip.add(LogisticsPanel.tr("held_preview"));
             }
             if (cell.writable() && !cell.template().isEmpty()) tooltip.add(tr("clear_filter_hint"));
             if (cell.fluid()) tooltip.add(tr("fluid_take"));
             if (cell.fluid() || cell.template().isEmpty()) tooltip.add(tr("fluid_deposit"));
-            if (cell.amount() == 0 && TemplateBrowsers.available()) tooltip.add(tr("template_hint",ClientBootstrap.SELECT_TEMPLATE.getTranslatedKeyMessage()));
+            if (cell.amount() == 0 && TemplateBrowsers.available()) tooltip.add(tr("template_hint", ClientBootstrap.SELECT_TEMPLATE.getTranslatedKeyMessage()));
             if (cell.writable() && cell.minimum() >= 0 && cell.amount() < cell.minimum() && mouseX < x + 7 && mouseY < y + 7) {
-                tooltip = List.of(LogisticsPanel.tr(cell.pending() > 0 ? "requested" : "shortage", new Object[0]));
+                tooltip = List.of(LogisticsPanel.tr(cell.pending() > 0 ? "requested" : "shortage"));
             }
             if (cell.writable() && box.dot().contains(mouseX, mouseY) && !cell.template().isEmpty()) {
-                tooltip = List.of(LogisticsPanel.tr("configure", new Object[0]));
+                tooltip = List.of(LogisticsPanel.tr("configure"));
             }
             if (!cell.writable()) tooltip.add(tr("result.read_only"));
         }
@@ -1187,8 +1213,8 @@ public final class LogisticsPanel {
         }
     }
 
-    private static dev.scathiard.feedmepackages.domain.CellSettings settings(PanelPackets.CellView cell) {
-        return new dev.scathiard.feedmepackages.domain.CellSettings(cell.minimum(), cell.maximum(), cell.batch(), cell.pendingLimit(), cell.returnBatch());
+    private static CellSettings settings(PanelPackets.CellView cell) {
+        return new CellSettings(cell.minimum(), cell.maximum(), cell.batch(), cell.pendingLimit(), cell.returnBatch());
     }
     private static PanelPackets.CellView draftCell(CellControlDraft draft) {
         return snapshot.cells().get(snapshot.grid().localSlot(draft.context().slot()));
@@ -1219,7 +1245,7 @@ public final class LogisticsPanel {
         var cell = snapshot.cells().get(selected); var r = layout.slider();
         var parcel = new ItemStack(net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
                 ResourceLocation.fromNamespaceAndPath("create", "cardboard_package_10x8")));
-        int batchLimit = cell.fluid() ? dev.scathiard.feedmepackages.domain.FluidCellControls.maximum(snapshot.fluidPackageCapacity()) : 9 * cell.stackSize();
+        int batchLimit = cell.fluid() ? FluidCellControls.maximum(snapshot.fluidPackageCapacity()) : 9 * cell.stackSize();
         CellControlArtwork.render(g, r, draft.value(), cellCapacity(), cell.pending(), parcel, cell.fluid(), batchLimit);
         if (!r.contains(mouseX, mouseY)) return;
         tooltip = List.of();
@@ -1244,7 +1270,6 @@ public final class LogisticsPanel {
     }
 
     private static void renderReturnBar(GuiGraphics g) {
-        boolean placeholder;
         PanelLayout.Rect r = layout.returnBar();
         int x = r.x();
         int y = r.y();
@@ -1253,17 +1278,17 @@ public final class LogisticsPanel {
         // Background and hook were drawn once by frame(); only live text goes here.
         String value = returnEditing ? returnBuffer : (snapshot.returnAddress() == null ? "" : snapshot.returnAddress());
         int textWidth = Math.max(0, w - 12);
-        boolean bl = placeholder = value.isEmpty() && !returnEditing;
-        String shown = placeholder ? LogisticsPanel.tr(snapshot.returnAddressPreserved() ? "return_invalid_label" : "return_label", new Object[0]).getString() : (LogisticsPanel.MC.font.width(value) <= textWidth ? value : LogisticsPanel.MC.font.plainSubstrByWidth(value, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026");
+        boolean placeholder = value.isEmpty() && !returnEditing;
+        String shown = placeholder ? LogisticsPanel.tr(snapshot.returnAddressPreserved() ? "return_invalid_label" : "return_label").getString() : (LogisticsPanel.MC.font.width(value) <= textWidth ? value : LogisticsPanel.MC.font.plainSubstrByWidth(value, Math.max(0, textWidth - LogisticsPanel.MC.font.width("\u2026"))) + "\u2026");
         int n = y + h / 2;
         Objects.requireNonNull(LogisticsPanel.MC.font);
-        LogisticsPanel.text(g, shown, x + 9, n - 9 / 2, placeholder ? -7700888 : (returnEditing ? -11912408 : 0xFF000000));
+        LogisticsPanel.text(g, shown, x + 9, n - 9 / 2, placeholder ? COLOR_RETURN_PLACEHOLDER : (returnEditing ? COLOR_RETURN_EDITING : COLOR_TEXT_DEFAULT));
         if (returnEditing) {
             int caretX = Math.min(x + w - 3, x + 9 + LogisticsPanel.MC.font.width(shown));
-            g.fill(caretX, y + 4, caretX + 1, y + h - 4, -11912408);
+            g.fill(caretX, y + 4, caretX + 1, y + h - 4, COLOR_RETURN_EDITING);
         }
         if (r.contains(mouseX, mouseY)) {
-            tooltip = List.of(LogisticsPanel.tr(returnEditing ? "return_editing" : snapshot.returnAddressPreserved() ? "return_invalid_hint" : "return_hint", new Object[0]));
+            tooltip = List.of(LogisticsPanel.tr(returnEditing ? "return_editing" : snapshot.returnAddressPreserved() ? "return_invalid_hint" : "return_hint"));
         }
     }
 
@@ -1294,9 +1319,9 @@ public final class LogisticsPanel {
     private static void button(GuiGraphics g, int x, int y, String label, String help) {
         boolean hover = new PanelLayout.Rect(x, y, 18, 18).contains(mouseX, mouseY);
         (hover ? AllGuiTextures.BUTTON_HOVER : AllGuiTextures.BUTTON).render(g, x, y);
-        LogisticsPanel.text(g, label, x + (18 - LogisticsPanel.MC.font.width(label)) / 2, y + 5, -990269);
+        LogisticsPanel.text(g, label, x + (18 - LogisticsPanel.MC.font.width(label)) / 2, y + 5, COLOR_COMPACT_BUTTON_TEXT);
         if (hover) {
-            tooltip = help.equals("address") ? List.of(LogisticsPanel.tr("address", new Object[0]), Component.literal((String)snapshot.address())) : List.of(LogisticsPanel.tr(help, new Object[0]));
+            tooltip = help.equals("address") ? List.of(LogisticsPanel.tr("address"), Component.literal(snapshot.address())) : List.of(LogisticsPanel.tr(help));
         }
     }
 
@@ -1712,20 +1737,20 @@ public final class LogisticsPanel {
     private static boolean scroll(double x, double y, double amount) {
         if (templateTarget >= 0 && layout != null && layout.bounds().contains(x, y)) return true;
         if (!visible()) return false;
-        if (!layout.hidden() && layout.slider() != null && layout.slider().contains(x,y)) {
-            var draft=controls(); if (draft==null || amount==0 || draggingSlider || draggingMaximum) return true;
-            var value=draft.value(); boolean fluid=snapshot.cells().get(selected).fluid(); int step=Screen.hasShiftDown()?snapshot.cells().get(selected).stackSize():fluid?dev.scathiard.feedmepackages.fluid.FluidVariantKey.MILLIBUCKETS_PER_BUCKET:1;
-            int direction=amount>0?1:-1, cap=cellCapacity(), nine=fluid
-                    ?dev.scathiard.feedmepackages.domain.FluidCellControls.maximum(snapshot.fluidPackageCapacity()):9*snapshot.cells().get(selected).stackSize();
-            int field=-1; for(int i=0;i<4;i++) if(CellControlGeometry.field(layout.slider(),i).contains(x,y))field=i;
-            if(field<0)return true;
-            int next=switch(field) {
-                case 0 -> CellControlDraft.wheel(value.batch(),direction,step,1,nine,false);
-                case 1 -> CellControlDraft.wheel(value.returnBatch(),direction,step,1,nine,false);
-                case 2 -> CellControlDraft.wheel(Math.max(0,value.lower()),direction,step,0,value.upper()<0?cap:value.upper(),false);
-                default -> CellControlDraft.wheel(value.upper(),direction,step,Math.max(0,value.lower()),cap,true);
+        if (!layout.hidden() && layout.slider() != null && layout.slider().contains(x, y)) {
+            var draft = controls(); if (draft == null || amount == 0 || draggingSlider || draggingMaximum) return true;
+            var value = draft.value(); boolean fluid = snapshot.cells().get(selected).fluid(); int step = Screen.hasShiftDown() ? snapshot.cells().get(selected).stackSize() : fluid ? FluidVariantKey.MILLIBUCKETS_PER_BUCKET : 1;
+            int direction = amount > 0 ? 1 : -1, cap = cellCapacity(), nine = fluid
+                    ? FluidCellControls.maximum(snapshot.fluidPackageCapacity()) : 9 * snapshot.cells().get(selected).stackSize();
+            int field = -1; for (int i = 0; i < 4; i++) if (CellControlGeometry.field(layout.slider(), i).contains(x, y)) field = i;
+            if (field < 0) return true;
+            int next = switch (field) {
+                case 0 -> CellControlDraft.wheel(value.batch(), direction, step, 1, nine, false);
+                case 1 -> CellControlDraft.wheel(value.returnBatch(), direction, step, 1, nine, false);
+                case 2 -> CellControlDraft.wheel(Math.max(0, value.lower()), direction, step, 0, value.upper() < 0 ? cap : value.upper(), false);
+                default -> CellControlDraft.wheel(value.upper(), direction, step, Math.max(0, value.lower()), cap, true);
             };
-            draft.changed(CellControlDraft.adjust(value,field,next,cap,fluid?dev.scathiard.feedmepackages.domain.FluidCellControls.BUCKET:1),tick);
+            draft.changed(CellControlDraft.adjust(value, field, next, cap, fluid ? FluidCellControls.BUCKET : 1), tick);
             return true; // Includes wheel-at-boundary and the blank area: never scroll the backing grid.
         }
         if(!layout.bounds().contains(x,y)) return false;
@@ -1850,20 +1875,20 @@ public final class LogisticsPanel {
         return true;
     }
     private static void updateSliderDrag(double x, boolean maximum) {
-        var draft=controls(); if(draft==null || layout.slider()==null || !dragMoved && Math.abs(x-dragOriginX)<2) return;
-        dragMoved=true; var value=draft.value(); int cap=cellCapacity();
-        var cell=snapshot.cells().get(selected);
-        int next=CellControlGeometry.draggedValue(dragStartValue,x-dragOriginX,cap,cell.fluid()?1:cell.stackSize());
+        var draft = controls(); if (draft == null || layout.slider() == null || !dragMoved && Math.abs(x - dragOriginX) < 2) return;
+        dragMoved = true; var value = draft.value(); int cap = cellCapacity();
+        var cell = snapshot.cells().get(selected);
+        int next = CellControlGeometry.draggedValue(dragStartValue, x - dragOriginX, cap, cell.fluid() ? 1 : cell.stackSize());
         if (cell.fluid()) {
-            int bucket=dev.scathiard.feedmepackages.fluid.FluidVariantKey.MILLIBUCKETS_PER_BUCKET;
-            next=(int)Math.clamp(Math.round((double)next/bucket)*(long)bucket,0,cap);
+            int bucket = FluidVariantKey.MILLIBUCKETS_PER_BUCKET;
+            next = (int) Math.clamp(Math.round((double) next / bucket) * (long) bucket, 0, cap);
         }
-        int lower=value.lower(),upper=value.upper();
-        if(maximum) upper=next>=cap?-1:Math.max(next,Math.max(0,lower));
-        else { lower=Math.min(next,upper<0?cap:upper); if(lower==0) lower=-1; }
-        if(cell.fluid()) draft.changed(CellControlDraft.adjust(value,maximum?3:2,maximum?upper:lower,cap,
-                dev.scathiard.feedmepackages.domain.FluidCellControls.BUCKET),tick);
-        else draft.changed(CellControlDraft.adjust(value,maximum?3:2,maximum?upper:lower,cap),tick);
+        int lower = value.lower(), upper = value.upper();
+        if (maximum) upper = next >= cap ? -1 : Math.max(next, Math.max(0, lower));
+        else { lower = Math.min(next, upper < 0 ? cap : upper); if (lower == 0) lower = -1; }
+        if (cell.fluid()) draft.changed(CellControlDraft.adjust(value, maximum ? 3 : 2, maximum ? upper : lower, cap,
+                FluidCellControls.BUCKET), tick);
+        else draft.changed(CellControlDraft.adjust(value, maximum ? 3 : 2, maximum ? upper : lower, cap), tick);
     }
     private static void flushPendingThresholds() {
         if(snapshot==null || !active() || waiting!=0 || cursorPending || pendingCursorChange!=null || draggingSlider || draggingMaximum) return;
@@ -1924,7 +1949,7 @@ public final class LogisticsPanel {
         if (!templateTarget(slot) || template == null || template.isEmpty()) return false;
         try {
             boolean fluid = !template.fluid().isEmpty();
-            String encoded = fluid ? dev.scathiard.feedmepackages.fluid.FluidVariantKey.of(template.fluid(), MC.player.registryAccess()).encoded()
+            String encoded = fluid ? FluidVariantKey.of(template.fluid(), MC.player.registryAccess()).encoded()
                     : ItemVariantKey.of(template.item(), MC.player.registryAccess()).encoded();
             if (!send(fluid ? CacheActions.Action.SET_FLUID_GHOST : CacheActions.Action.SET_GHOST, slot, 0, -1, encoded)) return false;
             templateSequence = waiting; return true;
@@ -1957,7 +1982,7 @@ public final class LogisticsPanel {
         int count = 0;
         if (creative && !(held = LogisticsPanel.MC.player.containerMenu.getCarried()).isEmpty()) {
             try {
-                cursor = ItemVariantKey.of(held, (HolderLookup.Provider)LogisticsPanel.MC.player.registryAccess()).encoded();
+                cursor = ItemVariantKey.of(held, LogisticsPanel.MC.player.registryAccess()).encoded();
                 count = held.getCount();
             }
             catch (IllegalArgumentException invalid) {
@@ -1986,7 +2011,7 @@ public final class LogisticsPanel {
                 previewSeq = waiting; previewRemaining = 0; previewVariant = null; previewConfirmed = false;
             } else if (!previewConfirmed) previewSeq = 0;
         }
-        PacketDistributor.sendToServer((CustomPacketPayload)new PanelPackets.Command(window, waiting, intent, creative, cursor, count), (CustomPacketPayload[])new CustomPacketPayload[0]);
+        PacketDistributor.sendToServer(new PanelPackets.Command(window, waiting, intent, creative, cursor, count));
         return true;
     }
 
@@ -2025,22 +2050,22 @@ public final class LogisticsPanel {
 
     }
 
-    private static Component tr(String key, Object ... args) {
-        return Component.translatable((String)("gui.create_feed_me_packages." + key), (Object[])args);
+    private static Component tr(String key, Object... args) {
+        return Component.translatable("gui.create_feed_me_packages." + key, args);
     }
 
     private static void notice(String key) {
-        feedback = LogisticsPanel.tr(key, new Object[0]);
+        feedback = LogisticsPanel.tr(key);
         feedbackUntil = tick + 120;
     }
 
     static {
-        ICONS = new HashMap<String, ItemStack>();
+        ICONS = new HashMap<>();
         selected = -1;
         serial = -1L;
         capturedButton = -1;
         returnBuffer = "";
         tooltip = List.of();
-        PANEL = ResourceLocation.fromNamespaceAndPath((String)"create_feed_me_packages", (String)"textures/gui/panel.png");
+        PANEL = ResourceLocation.fromNamespaceAndPath("create_feed_me_packages", "textures/gui/panel.png");
     }
 }

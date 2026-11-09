@@ -1,13 +1,19 @@
 package dev.scathiard.feedmepackages.compat.maid.phantom.v102;
 
 import com.simibubi.create.content.logistics.box.PackageItem;
+import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.compat.maid.MaidAccess;
+import dev.scathiard.feedmepackages.compat.maid.MaidCompatibility;
+import dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat;
+import dev.scathiard.feedmepackages.logistics.ReceiveService;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.UUID;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 
@@ -23,7 +29,9 @@ import net.minecraft.world.phys.Vec3;
 public final class MaidPhantomTasks {
     private MaidPhantomTasks() {}
 
+    // --- Core AirCourierTask reflection handles ---------------------------------------------------------------
     private static boolean attempted;
+    private static Method id;
     private static Method targetPlayerId;
     private static Method mission;
     private static Method box;
@@ -34,6 +42,21 @@ public final class MaidPhantomTasks {
     private static Method doFinishDelivery;
     private static Method tryReturnUndeliveredPackage;
     private static Method startCarrierReturn;
+
+    // --- Native carrier item and task completion handles (wired lazily on return leg) -------------------------
+    private static Method markRemoved;
+    private static Method carrierAsStack;
+    private static Object carrierEntry;
+    private static boolean carrierReady;
+    private static boolean carrierWiringFailed;
+
+    // --- Optional diagnostic handles --------------------------------------------------------------------------
+    private static Field phaseField;
+    private static boolean phaseReady;
+    private static boolean phaseWiringFailed;
+    private static Field sourcePlayerIdField;
+    private static boolean sourcePlayerWired;
+    private static boolean sourcePlayerWiringFailed;
 
     /** True once every member this class touches was resolved. Never throws. */
     public static synchronized boolean available() {
@@ -59,6 +82,7 @@ public final class MaidPhantomTasks {
                 startCarrierReturn = task.getDeclaredMethod("startCarrierReturn", MinecraftServer.class);
                 startCarrierReturn.setAccessible(true);
             } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
+                id = null;
                 targetPlayerId = null;
                 mission = null;
                 box = null;
@@ -71,9 +95,17 @@ public final class MaidPhantomTasks {
                 startCarrierReturn = null;
             }
         }
-        return targetPlayerId != null && mission != null && box != null && position != null
-                && returningUndeliveredPackage != null && targetDimension != null && targetPhantomPortPos != null
-                && doFinishDelivery != null && tryReturnUndeliveredPackage != null && startCarrierReturn != null;
+        return id != null
+                && targetPlayerId != null
+                && mission != null
+                && box != null
+                && position != null
+                && returningUndeliveredPackage != null
+                && targetDimension != null
+                && targetPhantomPortPos != null
+                && doFinishDelivery != null
+                && tryReturnUndeliveredPackage != null
+                && startCarrierReturn != null;
     }
 
     /** The maid this task is currently delivering to, or null when the task is not one of ours. */
@@ -162,7 +194,7 @@ public final class MaidPhantomTasks {
         // type matters: an address in maid form can still hold a player UUID, and then this is simply not ours.
         for (ServerLevel level : server.getAllLevels()) {
             if (level.getEntity(id) instanceof LivingEntity other) {
-                String owner = other instanceof net.minecraft.world.entity.TamableAnimal pet
+                String owner = other instanceof TamableAnimal pet
                         ? String.valueOf(pet.getOwnerUUID()) : "n/a";
                 note("carrier return addresses " + id + " which is " + other.getType().toShortString()
                         + " (tame-owner=" + owner + ") in " + level.dimension().location()
@@ -173,17 +205,6 @@ public final class MaidPhantomTasks {
         note("carrier return addresses " + id + " but that entity is loaded in no level (chunk unloaded)");
         return null;
     }
-
-    // --- native carrier item and task ending -------------------------------------------------------------------
-    // Only the return leg needs these, and the native carrier does not exist during flight at all: the target mod
-    // creates it from AllItems.MINI_PHANTOM.asStack() at the moment of delivery (measured). So we create it from the
-    // same source instead of inventing an item, and a failure here is wired lazily so it can never disable the
-    // package path.
-    private static Method markRemoved;
-    private static Method carrierAsStack;
-    private static Object carrierEntry;
-    private static boolean carrierReady;
-    private static boolean carrierWiringFailed;
 
     private static synchronized boolean carrierWired() {
         if (carrierReady) return true;
@@ -197,7 +218,7 @@ public final class MaidPhantomTasks {
         } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
             if (!carrierWiringFailed) {
                 carrierWiringFailed = true;
-                dev.scathiard.feedmepackages.FeedMePackages.LOGGER.warn(
+                FeedMePackages.LOGGER.warn(
                         "FMP phantom maid: carrier wiring unavailable; a returning carrier keeps native behaviour", incompatible);
             }
             return false;
@@ -266,8 +287,9 @@ public final class MaidPhantomTasks {
         if (task == null || maid == null || server == null || !available()) return false;
         ItemStack box = packageOf(task);
         if (box == null || box.isEmpty()) return false;
-        if (!dev.scathiard.feedmepackages.logistics.ReceiveService.receive(MaidAccess.endpoint(maid), box))
+        if (!ReceiveService.receive(MaidAccess.endpoint(maid), box)) {
             return returnUndelivered(task, server);
+        }
         startCarrierReturn(task, server);
         return true;
     }
@@ -282,10 +304,6 @@ public final class MaidPhantomTasks {
         }
     }
 
-    private static Field phaseField;
-    private static boolean phaseReady;
-    private static boolean phaseWiringFailed;
-
     private static synchronized boolean phaseWired() {
         if (phaseReady) return true;
         try {
@@ -296,7 +314,7 @@ public final class MaidPhantomTasks {
         } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
             if (!phaseWiringFailed) {
                 phaseWiringFailed = true;
-                dev.scathiard.feedmepackages.FeedMePackages.LOGGER.warn("FMP phantom maid: phase not readable; diagnostics only", incompatible);
+                FeedMePackages.LOGGER.warn("FMP phantom maid: phase not readable; diagnostics only", incompatible);
             }
             return false;
         }
@@ -323,10 +341,10 @@ public final class MaidPhantomTasks {
     }
 
     /** The native player slot's UUID, for diagnostics only. Never throws. */
-    public static java.util.UUID targetId(Object task) {
+    public static UUID targetId(Object task) {
         if (!available() || task == null) return null;
         try {
-            return targetPlayerId.invoke(task) instanceof java.util.UUID id ? id : null;
+            return targetPlayerId.invoke(task) instanceof UUID uuid ? uuid : null;
         } catch (ReflectiveOperationException | RuntimeException failure) {
             return null;
         }
@@ -394,13 +412,18 @@ public final class MaidPhantomTasks {
         if (maid == null || !available()) return false;
         try {
             Class<?> type = task.getClass();
-            Field sourcePort = type.getDeclaredField("sourcePhantomPortPos"); sourcePort.setAccessible(true);
+            Field sourcePort = type.getDeclaredField("sourcePhantomPortPos");
+            sourcePort.setAccessible(true);
             if (sourcePort.get(task) != null) return false;
-            Field targetId = type.getDeclaredField("targetPlayerId"); targetId.setAccessible(true);
+            Field targetId = type.getDeclaredField("targetPlayerId");
+            targetId.setAccessible(true);
             Class<?> missionType = Class.forName("com.yision.phantom.entity.courier.AirCourierEntity$Mission");
-            Object returning = java.util.Arrays.stream(missionType.getEnumConstants())
-                    .filter(value -> ((Enum<?>) value).name().equals("CARRIER_RETURN_TO_PLAYER")).findFirst().orElseThrow();
-            Method reset = type.getDeclaredMethod("resetForReturn", missionType); reset.setAccessible(true);
+            Object returning = Arrays.stream(missionType.getEnumConstants())
+                    .filter(value -> ((Enum<?>) value).name().equals("CARRIER_RETURN_TO_PLAYER"))
+                    .findFirst()
+                    .orElseThrow();
+            Method reset = type.getDeclaredMethod("resetForReturn", missionType);
+            reset.setAccessible(true);
             targetId.set(task, maid.getUUID());
             targetPhantomPortPos.set(task, null);
             targetDimension.set(task, maid.level().dimension());
@@ -415,12 +438,13 @@ public final class MaidPhantomTasks {
     private static PhantomMaidTaskState state(Object task) {
         return task instanceof PhantomMaidTaskAccess access ? access.fmp$maidState() : null;
     }
-    private static Method id;
 
     private static UUID idOf(Object task) {
         if (task == null) return null;
         try {
-            if (id == null) id = task.getClass().getMethod("id");
+            if (id == null) {
+                id = task.getClass().getMethod("id");
+            }
             Object value = id.invoke(task);
             return value instanceof UUID uuid ? uuid : null;
         } catch (ReflectiveOperationException | RuntimeException unresolved) {
@@ -449,23 +473,18 @@ public final class MaidPhantomTasks {
         // Entity level only, deliberately: flying to her and putting a carrier into her inventory needs her entity,
         // not her cache. Requiring the full access path here made registration fail silently whenever her pendant was
         // not wearable at that moment (measured on the real machine: she dispatched, yet nothing was registered).
-        if (!dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(maid)
-                || !maid.isAlive() || maid.isRemoved()) return false;
+        if (!MaidCompatibility.isMaid(maid) || !maid.isAlive() || maid.isRemoved()) return false;
         var state = state(task);
         if (state == null) return false;
         state.remember(taskId, maid.getUUID(), direction);
         return true;
     }
 
-    private static java.lang.reflect.Field sourcePlayerIdField;
-    private static boolean sourcePlayerWired;
-    private static boolean sourcePlayerWiringFailed;
-
     /** The task's source player slot, for diagnostics only (it decides what a port schedules the carrier back to). */
-    public static java.util.UUID sourcePlayer(Object task) {
+    public static UUID sourcePlayer(Object task) {
         if (!sourcePlayerWired() || task == null) return null;
         try {
-            return sourcePlayerIdField.get(task) instanceof java.util.UUID id ? id : null;
+            return sourcePlayerIdField.get(task) instanceof UUID uuid ? uuid : null;
         } catch (ReflectiveOperationException | RuntimeException failure) {
             return null;
         }
@@ -482,7 +501,7 @@ public final class MaidPhantomTasks {
         } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
             if (!sourcePlayerWiringFailed) {
                 sourcePlayerWiringFailed = true;
-                dev.scathiard.feedmepackages.FeedMePackages.LOGGER.warn(
+                FeedMePackages.LOGGER.warn(
                         "FMP phantom maid: the source player slot is not readable; diagnostics only", incompatible);
             }
             return false;
@@ -490,16 +509,20 @@ public final class MaidPhantomTasks {
     }
 
     /** Public entity-level lookup for other takeover points (a port returning a carrier to one of our maids). */
-    public static LivingEntity maidByEntity(MinecraftServer server, java.util.UUID id) {
+    public static LivingEntity maidByEntity(MinecraftServer server, UUID id) {
         if (server == null || id == null) return null;
         return maidEntity(server, id);
     }
 
-    /** The maid entity with this UUID, at entity level: a maid, alive, not removed, somewhere loaded. */    private static LivingEntity maidEntity(MinecraftServer server, UUID id) {
+    /** The maid entity with this UUID, at entity level: a maid, alive, not removed, somewhere loaded. */
+    private static LivingEntity maidEntity(MinecraftServer server, UUID id) {
         for (ServerLevel level : server.getAllLevels()) {
             if (level.getEntity(id) instanceof LivingEntity maid
-                    && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(maid)
-                    && maid.isAlive() && !maid.isRemoved()) return maid;
+                    && MaidCompatibility.isMaid(maid)
+                    && maid.isAlive()
+                    && !maid.isRemoved()) {
+                return maid;
+            }
         }
         return null;
     }
@@ -529,14 +552,14 @@ public final class MaidPhantomTasks {
         var decoded = state.marker(taskId);
         if (!decoded.marked()) return null;
         if (required != null && decoded.direction() != required) return null;
-        if (!dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.flightReady()) return null;
+        if (!PhantomMaidCompat.flightReady()) return null;
         // Entity level, matching how the entry was written: the cache is not needed to fly to her or to fill her bag.
         return maidEntity(server, decoded.maidId());
     }
 
     /** Optional diagnostics; never retain every task/maid UUID in an unbounded global set. */
     public static void note(String reason) {
-        dev.scathiard.feedmepackages.FeedMePackages.LOGGER.debug("FMP phantom maid: {}", reason);
+        FeedMePackages.LOGGER.debug("FMP phantom maid: {}", reason);
     }
 
     /**
@@ -544,6 +567,6 @@ public final class MaidPhantomTasks {
      * the carrier whenever this returns false, so nothing is consumed or swallowed on a failure.
      */
     public static boolean handCarrierTo(LivingEntity maid, ItemStack carrier) {
-        return maid != null && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.returnCarrier(maid, carrier);
+        return maid != null && MaidCompatibility.returnCarrier(maid, carrier);
     }
 }

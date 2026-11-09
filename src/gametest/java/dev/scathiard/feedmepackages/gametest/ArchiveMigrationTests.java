@@ -27,8 +27,11 @@ public final class ArchiveMigrationTests {
         var server=h.getLevel().getServer();var registries=h.getLevel().registryAccess();
         Path backup=Path.of(System.getProperty("fmp.legacyBackup"));
         Path world=server.getWorldPath(LevelResource.ROOT);
+        Path legacyRun = backup.getParent().resolve("run");
+        Path repoRun = backup.getParent().getParent().getParent().resolve("run");
         h.assertTrue(!world.toRealPath().equals(backup.toRealPath())
-            && world.toRealPath().startsWith(backup.getParent().resolve("run").toRealPath())
+            && ((Files.exists(legacyRun) && world.toRealPath().startsWith(legacyRun.toRealPath()))
+                || (Files.exists(repoRun) && world.toRealPath().startsWith(repoRun.toRealPath())))
             && world.toRealPath().toString().contains("legacy023"),"Expected isolated legacy world copy");
         var original=read(backup.resolve("data").resolve(CacheLedger.NAME+".dat")).getCompound("data");
         h.assertTrue(original.getInt("schema")==8,"Archived world is not the released schema");
@@ -50,9 +53,16 @@ public final class ArchiveMigrationTests {
             record.putUUID("receipt",prior.receipt());record.putBoolean("completed",true);completed.add(record);
         }
         expected.put("private_retirements",completed);
+        expected.put("return_handoffs",new ListTag());
         long total=0;int orders=0,residuals=0;
         for(Tag tag:expected.getList("caches",Tag.TAG_COMPOUND)) {
             var row=(CompoundTag)tag;orders+=row.getList("orders",Tag.TAG_COMPOUND).size();residuals+=row.getList("residuals",Tag.TAG_COMPOUND).size();
+            int level=row.getInt("level");
+            var capacity=dev.scathiard.feedmepackages.domain.CacheCapacity.defaults(level);
+            var capTag=new CompoundTag();capTag.putInt("version",1);capTag.putInt("slots",capacity.slots());capTag.putInt("groups",capacity.groups());
+            capTag.put("retained",new ListTag());capTag.put("requested",new ListTag());
+            row.put("capacity_rules",capTag);
+            row.putBoolean("crafting_enabled",true);
             for(Tag cellTag:row.getList("cells",Tag.TAG_COMPOUND)) {
                 var cell=(CompoundTag)cellTag;total+=cell.getInt("amount");
                 int size=cell.contains("filter")?ItemVariantKey.decode(cell.getString("filter"),registries).stackSize():1;
