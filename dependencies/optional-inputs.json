@@ -2,6 +2,13 @@
   "purpose": "Pinned optional test inputs; binaries are not bundled or FMP loader dependencies. Original mod requirements still apply.",
   "artifacts": [
     {
+      "version": "19.70.0.469",
+      "source": "https://www.curseforge.com/minecraft/mc-mods/jei",
+      "localSource": "H:/MC/PCL/.minecraft/versions/1.21.1-NeoForge_21.1.249/mods/[JEI物品管理器] jei-1.21.1-neoforge-19.70.0.469.jar",
+      "sha256": "9ab82d9bdbc8d9a08b80bc2023e1d886f6335b92f937d3afac878c9ea995dc33",
+      "path": "dependencies/optional/jei/19.70.0.469/jei-1.21.1-neoforge-19.70.0.469.jar"
+    },
+    {
       "source": "https://modrinth.com/mod/geckolib/version/Grwn5rUB",
       "url": "https://cdn.modrinth.com/data/8BmcQJ2H/versions/Grwn5rUB/geckolib-neoforge-1.21.1-4.9.3.jar",
       "version": "4.9.3",
@@ -127,6 +134,34 @@
       "sha256": "b01384895b51a32e65ae9e2de6b99fa92b2f9285c2dafcac2112932fc93bff21",
       "sha512": "8f54d0b620040cd4451329ee62fa2b2ede153220d85a8722ef9ffe6e31b9aaeff9f3a55a9bc92df29f1769ea751a50d36110139eacc809a84d5ca4186fdcc461",
       "path": "dependencies/optional/tacz/1.2.0/tacz-neoforge-1.21.1-1.2.0.jar"
+    },
+    {
+      "version": "1.21.1-1.5.31.2460",
+      "source": "H:\\MC\\PCL\\.minecraft\\versions\\1.21.1-NeoForge_21.1.249\\mods\\sophisticatedcore-1.21.1-1.5.31.2460.jar",
+      "project": "https://www.curseforge.com/minecraft/mc-mods/sophisticated-core",
+      "sha256": "32eed2cd6540a06fbafe73b60df5e7c26f8c277b0bb5abc349261f78ab66c5bf",
+      "path": "dependencies/optional/sophisticated-core/1.21.1-1.5.31.2460/sophisticatedcore-1.21.1-1.5.31.2460.jar"
+    },
+    {
+      "version": "1.21.1-3.26.20.2244",
+      "source": "H:\\MC\\PCL\\.minecraft\\versions\\1.21.1-NeoForge_21.1.249\\mods\\sophisticatedbackpacks-1.21.1-3.26.20.2244.jar",
+      "project": "https://www.curseforge.com/minecraft/mc-mods/sophisticated-backpacks",
+      "sha256": "4104a0f47ee849a8d610faa76eb652453d7fbf98a38ff2516b972f70fc9d9edf",
+      "path": "dependencies/optional/sophisticated-backpacks/1.21.1-3.26.20.2244/sophisticatedbackpacks-1.21.1-3.26.20.2244.jar"
+    },
+    {
+      "version": "1.21.1-1.6.16.2222",
+      "source": "H:\\MC\\PCL\\.minecraft\\versions\\1.21.1-NeoForge_21.1.249\\mods\\sophisticatedstorage-1.21.1-1.6.16.2222.jar",
+      "project": "https://www.curseforge.com/minecraft/mc-mods/sophisticated-storage",
+      "sha256": "e9760b5a0967395b530482036259038a884590c92eb3b9382205d0636713d349",
+      "path": "dependencies/optional/sophisticated-storage/1.21.1-1.6.16.2222/sophisticatedstorage-1.21.1-1.6.16.2222.jar"
+    },
+    {
+      "version": "1.3.1",
+      "source": "H:\\MC\\PCL\\.minecraft\\versions\\1.21.1-NeoForge_21.1.249\\mods\\create_biotech-1.21.1-1.3.1.jar",
+      "project": "https://www.curseforge.com/minecraft/mc-mods/create-biotech",
+      "sha256": "ddf15b6fb623b0173d95cd138c0fb2465ff350af534254bc2580c63d2e25b78a",
+      "path": "dependencies/optional/create-biotech/1.3.1/create_biotech-1.21.1-1.3.1.jar"
     }
   ]
 }

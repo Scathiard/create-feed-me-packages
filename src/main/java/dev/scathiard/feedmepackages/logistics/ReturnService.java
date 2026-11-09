@@ -38,6 +38,7 @@ public final class ReturnService {
     private static final Item CARD = BuiltInRegistries.ITEM.get(ResourceLocation.parse("cmpackagecouriers:cardboard_plane_parts"));
     private static final Item BEE = BuiltInRegistries.ITEM.get(ResourceLocation.parse("create_mobile_packages:robo_bee"));
     private static final Item PHANTOM = BuiltInRegistries.ITEM.get(ResourceLocation.parse("createphantom:mini_phantom"));
+    private static final Item ALLAY = BuiltInRegistries.ITEM.get(ResourceLocation.parse("create_biotech:allay_courier"));
     private static final java.util.Set<UUID> OPERATING = new java.util.HashSet<>();
     public static boolean operating(net.minecraft.server.MinecraftServer server, UUID cache) { return server.isSameThread() && OPERATING.contains(cache); }
     private static final int PACKAGE_SLOTS = 9;
@@ -120,6 +121,7 @@ public final class ReturnService {
             if (result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null) result = dispatch(endpoint, handle, ledger, slot, BEE, address);
             if (phantomDispatcher(bearer) && result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null)
                 result = dispatch(endpoint, handle, ledger, slot, PHANTOM, address);
+            if (result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null) result = dispatch(endpoint, handle, ledger, slot, ALLAY, address);
             ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), cell.settings().returnBatch(), result);
         }
     }
@@ -151,6 +153,8 @@ public final class ReturnService {
         if (carrierItem == PHANTOM && !dev.scathiard.feedmepackages.compat.PhantomDispatch.canDispatch(bearer, box))
             return RETURN_FAILED;
 
+        if (carrierItem == ALLAY && !dev.scathiard.feedmepackages.compat.biotech.BiotechCompatibility.canDispatch(bearer, box)) return RETURN_FAILED;
+
         ItemStack carrierStack = carrier.inventorySlot() >= 0 ? inventory.get(carrier.inventorySlot())
                 : record.state().cells().get(carrier.cacheSlot()).filter().stack(bearer.registryAccess(), 1);
         var access = endpoint.access();
@@ -160,12 +164,12 @@ public final class ReturnService {
         ReturnEscrow hold;
         try {
             hold = new ReturnEscrow(UUID.randomUUID(), handle, state.revision(), slot, cell.filter(), amount,
-                    carrierStack.copyWithCount(1), carrier.inventorySlot(), carrier.cacheSlot(), carrierItem == CARD ? "paper" : carrierItem == BEE ? "bee" : "phantom", address, false, bearer instanceof TamableAnimal pet ? pet.getOwnerUUID() : null);
+                    carrierStack.copyWithCount(1), carrier.inventorySlot(), carrier.cacheSlot(), carrierItem == CARD ? "paper" : carrierItem == BEE ? "bee" : carrierItem == PHANTOM ? "phantom" : "biotech", address, false, bearer instanceof TamableAnimal pet ? pet.getOwnerUUID() : null);
         } catch (IllegalArgumentException refused) {
             // A combination the escrow refuses must never take the server tick down with it: refuse this dispatch
             // instead, leaving stock, carrier and escrow untouched. (User crash, maid + phantom, 2026-10-13.)
             FeedMePackages.LOGGER.error("FMP return dispatch refused by the escrow: cache={} transport={} reason={}",
-                    handle.cacheId(), carrierItem == CARD ? "paper" : carrierItem == BEE ? "bee" : "phantom", refused.getMessage());
+                    handle.cacheId(), carrierItem == CARD ? "paper" : carrierItem == BEE ? "bee" : carrierItem == PHANTOM ? "phantom" : "biotech", refused.getMessage());
             return RETURN_FAILED;
         }
         ledger.beginReturn(hold, record, bearer.registryAccess());
@@ -179,6 +183,7 @@ public final class ReturnService {
             result = carrierItem == CARD ? TransportDispatch.paperPlane((ServerLevel)bearer.level(), box.copy(), bearer.position())
                     : carrierItem == BEE ? TransportDispatch.bee((ServerLevel)bearer.level(), box.copy(), bearer.blockPosition(), handle.networkId(),
                             bearer instanceof TamableAnimal pet && dev.scathiard.feedmepackages.compat.maid.MaidCompatibility.isMaid(pet) ? pet.getUUID() : null)
+                    : carrierItem == ALLAY ? dev.scathiard.feedmepackages.compat.biotech.BiotechCompatibility.send(bearer, box.copy())
                     : bearer instanceof ServerPlayer phantomSender
                             ? dev.scathiard.feedmepackages.compat.PhantomDispatch.send(phantomSender, box.copy())
                             : dev.scathiard.feedmepackages.compat.PhantomDispatch.sendForMaid(bearer, box.copy());
@@ -318,6 +323,7 @@ public final class ReturnService {
             ItemStack stack = inventory.get(i);
             if (!stack.isEmpty() && stack.is(item)
                     && (item != PHANTOM || dev.scathiard.feedmepackages.compat.PhantomDispatch.carrierUsable(stack))
+                    && (item != ALLAY || dev.scathiard.feedmepackages.compat.biotech.BiotechCompatibility.carrierUsable(stack))
                     && stack.getCount() > inventory.reserved(i))
                 return new Carrier(i, -1);
         }

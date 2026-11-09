@@ -111,9 +111,48 @@ public final class OptionalMixins implements IMixinConfigPlugin {
     public static Set<String> fxntPreviewFailures() { return Set.copyOf(FXNT_PREVIEW_FAILURES); }
     // The old handler-order bridge conflicts with the 0.2.3 compatibility boundary.
     public static boolean emiCompatible() { return false; }
+    private static Boolean biotechReady;
+    public static boolean biotechCompatible() { return Boolean.TRUE.equals(biotechReady); }
+    private static synchronized boolean inspectBiotech() {
+        if (biotechReady != null) return biotechReady;
+        biotechReady = false;
+        if (net.neoforged.fml.loading.LoadingModList.get().getMods().stream().noneMatch(m ->
+                m.getModId().equals("create_biotech") && m.getVersion().toString().equals("1.3.1"))) return false;
+        try {
+            var provider = MixinService.getService().getBytecodeProvider();
+            String root = "com.nobodiiiii.createbiotech.content.allay.logistics.courier.";
+            var task = provider.getClassNode(root + "AllayCourierTask");
+            var dispatch = provider.getClassNode(root + "AllayCourierDispatchService");
+            var helper = provider.getClassNode(root + "AllayCourierHelper");
+            String server = "Lnet/minecraft/server/MinecraftServer;", player = "Lnet/minecraft/server/level/ServerPlayer;";
+            String level = "Lnet/minecraft/server/level/ServerLevel;", vec = "Lnet/minecraft/world/phys/Vec3;";
+            String port = "Lcom/nobodiiiii/createbiotech/content/allay/block/allayport/AllayPortBlockEntity;";
+            String registry = "Lnet/minecraft/core/HolderLookup$Provider;", tag = "Lnet/minecraft/nbt/CompoundTag;";
+            String owner = root.replace('.', '/');
+            biotechReady = hasMethod(task, "resolveTarget", "(" + server + ")L" + owner + "AllayCourierTask$ResolvedTarget;")
+                    && hasMethod(task, "landingTarget", "(" + port + player + ")" + vec)
+                    && hasMethod(task, "nearTargetWaypoint", "(" + port + player + ")" + vec)
+                    && hasMethod(task, "hasReachedPlayer", "(" + player + vec + ")Z")
+                    && hasMethod(task, "startCarrierReturn", "(" + server + ")V")
+                    && hasMethod(task, "save", "(" + registry + tag + ")" + tag)
+                    && hasMethod(task, "load", "(" + registry + tag + ")L" + owner + "AllayCourierTask;")
+                    && task.methods.stream().filter(m -> m.name.equals("forPackageToPlayer")).count() == 1
+                    && hasMethod(dispatch, "resolvePackageTarget", "(" + level + "Lnet/minecraft/world/item/ItemStack;" + vec
+                        + "Lnet/minecraft/resources/ResourceKey;Lnet/minecraft/core/BlockPos;Ljava/util/function/Predicate;)L" + owner + "AllayCourierTarget;")
+                    && List.of("canReceiveDelivery", "deliverPackage", "deliverPackageOnly").stream().allMatch(name ->
+                        hasMethod(helper, name, "(" + player + "Lnet/minecraft/world/item/ItemStack;)Z"))
+                    && task.methods.stream().filter(m -> m.name.equals("doFinishDeliveryAt")).anyMatch(m ->
+                        java.util.Arrays.stream(m.instructions.toArray()).filter(i -> i instanceof MethodInsnNode call
+                            && call.owner.equals(owner + "AllayCourierDeliveryService") && call.name.equals("finishDelivery")).count() == 1);
+        } catch (ClassNotFoundException | IOException | RuntimeException failed) {
+            LogUtils.getLogger().warn("FMP Biotech ports unavailable", failed);
+        }
+        return biotechReady;
+    }
     @Override public void onLoad(String mixinPackage) {}
     @Override public String getRefMapperConfig() { return null; }
     @Override public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (mixinClassName.contains(".Biotech")) return inspectBiotech();
         if (mixinClassName.contains(".Phantom103") && net.neoforged.fml.loading.LoadingModList.get().getMods().stream()
                 .noneMatch(mod -> mod.getModId().equals("createphantom") && mod.getVersion().toString().equals("1.0.3"))) return false;
         if (mixinClassName.endsWith("Phantom103PortReturnMixin") || mixinClassName.endsWith("Phantom103CarrierBeltMixin")) {
@@ -283,6 +322,14 @@ public final class OptionalMixins implements IMixinConfigPlugin {
         }
         if (mixinClassName.endsWith("EffortlessSourcesMixin") || mixinClassName.endsWith("EffortlessBuildMixin")) return inspectEffortless();
         if (mixinClassName.endsWith("GadgetSourcesMixin") || mixinClassName.endsWith("GadgetBuildMixin")) return inspectGadgets();
+        if (mixinClassName.endsWith("TaczAnimationSourcesMixin")) {
+            if (!inspectTaczClient()) return false;
+            try {
+                var node = MixinService.getService().getBytecodeProvider().getClassNode(targetClassName);
+                return hasMethod(node, "hasAmmoToConsume", "()Z")
+                        && node.fields.stream().anyMatch(f -> f.name.equals("currentGunItem") && f.desc.equals("Lnet/minecraft/world/item/ItemStack;"));
+            } catch (ClassNotFoundException | IOException unavailable) { return false; }
+        }
         if (mixinClassName.endsWith("TaczHudSourcesMixin")) return inspectTaczClient();
         if (mixinClassName.endsWith("TaczLegacyHudSourcesMixin") || mixinClassName.endsWith("TaczClientShootMixin"))
             return inspectTaczClient() && !taczSharedCount;
@@ -332,10 +379,14 @@ public final class OptionalMixins implements IMixinConfigPlugin {
             var wrapper = provider.getClassNode(root + "upgrades.crafting.CraftingUpgradeWrapper");
             var transfer = provider.getClassNode(root + "compat.recipeviewers.common.CraftingContainerRecipeTransferHandlerServer");
             sophisticatedReady = hasMethod(wrapper, "extractFromStorageOrPlayer", "(Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/item/ItemStack;)Z")
-                    && hasMethod(transfer, "setItemsWithStacks", "(Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/resources/ResourceLocation;Lnet/minecraft/world/item/crafting/RecipeType;Ljava/util/List;Ljava/util/List;Ljava/util/List;Z)V")
+                    && (hasMethod(transfer, "setItemsWithStacks", "(Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/resources/ResourceLocation;Lnet/minecraft/world/item/crafting/RecipeType;Ljava/util/List;Ljava/util/List;Ljava/util/List;Z)V")
+                        || hasMethod(transfer, "setItemsWithStacks", "(Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/resources/ResourceLocation;Lnet/minecraft/world/item/crafting/RecipeType;Ljava/util/List;Ljava/util/List;Ljava/util/List;Z)Z"))
                     && hasMethod(transfer, "getSlotWithStack", "(Lnet/p3pp3rf1y/sophisticatedcore/common/gui/StorageContainerMenuBase;Lnet/minecraft/world/item/ItemStack;Ljava/util/List;Ljava/util/List;)Lnet/minecraft/world/inventory/Slot;")
                     && hasMethod(transfer, "getSlotWithStack", "(Lnet/p3pp3rf1y/sophisticatedcore/common/gui/StorageContainerMenuBase;Ljava/lang/Iterable;Lnet/minecraft/world/item/ItemStack;)Lnet/minecraft/world/inventory/Slot;")
-                    && hasMethod(transfer, "lambda$clearAndPutItemsIntoGrid$0", "(Lnet/minecraft/resources/ResourceLocation;Lnet/p3pp3rf1y/sophisticatedcore/common/gui/UpgradeContainerBase;)V")
+                    && transfer.methods.stream().filter(m -> m.name.startsWith("lambda$clearAndPutItemsIntoGrid$")).count() == 1
+                    && transfer.methods.stream().anyMatch(m -> Set.of("lambda$clearAndPutItemsIntoGrid$0", "lambda$clearAndPutItemsIntoGrid$2").contains(m.name)
+                        && m.desc.equals("(Lnet/minecraft/resources/ResourceLocation;Lnet/p3pp3rf1y/sophisticatedcore/common/gui/UpgradeContainerBase;)V")
+                        && calls(transfer, m.name, m.desc, root.replace('.', '/') + "common/gui/ICraftingContainer", "setRecipeUsed", "(Lnet/minecraft/resources/ResourceLocation;)V") == 1)
                     && transfer.methods.stream().anyMatch(m -> m.name.equals("putIntoInventory") && java.util.Arrays.stream(m.instructions.toArray()).anyMatch(i -> i instanceof MethodInsnNode call && call.owner.equals("net/minecraft/world/entity/player/Inventory") && call.name.equals("add")))
                     && hasSophisticatedTransferPorts(transfer);
         } catch (ClassNotFoundException absent) { sophisticatedReady = false; }
@@ -355,7 +406,8 @@ public final class OptionalMixins implements IMixinConfigPlugin {
                 && calls(transfer, "clearAndPutItemsIntoGrid", "(" + player + id + recipeType + list + menu + map + ")" + list, menuOwner, "getSlot", "(I)" + slot) == 1
                 && calls(transfer, "putItemIntoGrid", "(" + menu + map + list + "I)V", menuOwner, "getSlot", "(I)" + slot) == 1
                 && calls(transfer, "putIntoInventory", "(" + player + list + storage + list + ")V", "net/minecraft/world/entity/player/Inventory", "add", "(" + stack + ")Z") == 1
-                && calls(transfer, "setItems", "(" + storage + player + id + recipeType + map + list + list + "Z)V", storageOwner, "broadcastChanges", "()V") == 1;
+                && (calls(transfer, "setItems", "(" + storage + player + id + recipeType + map + list + list + "Z)V", storageOwner, "broadcastChanges", "()V")
+                    + calls(transfer, "setItems", "(" + storage + player + id + recipeType + map + list + list + "Z)Z", storageOwner, "broadcastChanges", "()V")) == 1;
     }
     private static synchronized boolean inspectMaidTransport(boolean bee) {
         Boolean prior = bee ? maidBeeReady : maidPaperReady;

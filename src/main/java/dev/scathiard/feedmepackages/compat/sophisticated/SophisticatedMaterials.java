@@ -100,7 +100,7 @@ public final class SophisticatedMaterials {
         public boolean execute() {
             if (used || CURRENT.get() != null || !currentState()) return refused(Result.STALE);
             used = true; CURRENT.set(this);
-            try { context.transfer(recipe.id(), choice.grid(), maximum); }
+            try { if (!context.transfer(recipe.id(), choice.grid(), maximum)) return refused(Result.INVALID_DRAFT); }
             finally { CURRENT.remove(); }
             if (overflow) return refused(Result.NO_SPACE);
             if (!currentState()) return refused(Result.STALE);

@@ -183,6 +183,7 @@ public final class TemplateClientReview {
                             case "ui" -> "UiClientReview";
                             case "feedback" -> "FeedbackClientReview";
                             case "tacz" -> "TaczClientReview";
+                            case "tacz-reload" -> "TaczReloadClientReview";
                             case "wand" -> "WandClientReview";
                             case "gadgets" -> "GadgetsClientReview";
                             case "effortless" -> "EffortlessClientReview";

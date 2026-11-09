@@ -40,7 +40,7 @@
   "gui.create_feed_me_packages.status.multiple_terminals": "Only one supply pendant can be worn; remove the extras",
   "gui.create_feed_me_packages.configure": "Set replenishment threshold",
   "gui.create_feed_me_packages.return_label": "Return address",
-  "gui.create_feed_me_packages.return_hint": "Default return address; paper-plane / bee dispatch target",
+  "gui.create_feed_me_packages.return_hint": "Return destination address",
   "gui.create_feed_me_packages.return_editing": "Type then Enter to save; Esc to cancel",
   "gui.create_feed_me_packages.minimum_help": "Minimum; 0 disables",
   "gui.create_feed_me_packages.maximum_help": "Maximum; over it returns stock, full disables",
@@ -218,5 +218,6 @@
   "gui.create_feed_me_packages.compat.craftingtweaks_mismatch": "Crafting Tweaks API mismatch: cache crafting and cursor previews are paused. Taking items into inventory still works.",
   "gui.create_feed_me_packages.compat.paper_mismatch": "Paper courier API mismatch: FMP returns or maid transport are unavailable. See the log.",
   "gui.create_feed_me_packages.compat.bee_mismatch": "Mobile Packages API mismatch: FMP returns or maid transport are unavailable. See the log.",
+  "gui.create_feed_me_packages.compat.biotech_mismatch": "Allay Courier API mismatch: FMP receipt and returns are unavailable. See the log.",
   "gui.create_feed_me_packages.compat.phantom_mismatch": "Create Phantom API mismatch: FMP returns or maid transport are unavailable. See the log."
 }

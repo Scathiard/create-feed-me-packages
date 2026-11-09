@@ -29,7 +29,7 @@ public record ReturnEscrow(UUID id, CacheHandle handle, long revision, int slot,
                 || revision < 0 || slot < 0 || amount < 1
                 || (variant instanceof ItemVariantKey item && amount > 9L * item.stackSize())
                 || carrier.isEmpty() || carrier.getCount() != 1 || inventorySlot < -1 || maidOwner == null && inventorySlot > 40 || cacheSlot < -1
-                || (inventorySlot >= 0) == (cacheSlot >= 0) || !Set.of("paper", "bee", "phantom").contains(transport)
+                || (inventorySlot >= 0) == (cacheSlot >= 0) || !Set.of("paper", "bee", "phantom", "biotech").contains(transport)
                 || address.isEmpty() || address.length() > 256)
             throw new IllegalArgumentException("Invalid return escrow");
         carrier = carrier.copy();

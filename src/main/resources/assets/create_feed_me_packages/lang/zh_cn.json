@@ -40,7 +40,7 @@
   "gui.create_feed_me_packages.status.multiple_terminals": "只能佩戴一件供应链坠，请卸下多余的坠子",
   "gui.create_feed_me_packages.configure": "设置补货数量",
   "gui.create_feed_me_packages.return_label": "退货地址",
-  "gui.create_feed_me_packages.return_hint": "默认退货地址；纸飞机/运输蜂发运目标",
+  "gui.create_feed_me_packages.return_hint": "退货目的地地址",
   "gui.create_feed_me_packages.return_editing": "输入后回车保存，Esc 取消",
   "gui.create_feed_me_packages.minimum_help": "最低数量；0 不启用",
   "gui.create_feed_me_packages.maximum_help": "最高数量；超过则退货，满=不退货",
@@ -218,5 +218,6 @@
   "gui.create_feed_me_packages.compat.craftingtweaks_mismatch": "Crafting Tweaks 接口不匹配：缓存合成与鼠标预览已暂停，背包取物仍可用。",
   "gui.create_feed_me_packages.compat.paper_mismatch": "纸飞机接口不匹配：FMP 主动退货或女仆运输不可用，请查看日志。",
   "gui.create_feed_me_packages.compat.bee_mismatch": "运输蜂接口不匹配：FMP 主动退货或女仆运输不可用，请查看日志。",
+  "gui.create_feed_me_packages.compat.biotech_mismatch": "悦灵快递员接口不匹配：FMP 收件和主动退货不可用，请查看日志。",
   "gui.create_feed_me_packages.compat.phantom_mismatch": "幻翼物流接口不匹配：FMP 主动退货或女仆运输不可用，请查看日志。"
 }

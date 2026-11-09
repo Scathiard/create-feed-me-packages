@@ -38,7 +38,7 @@ public abstract class SophisticatedSourcesMixin {
         if (scope == null) return original.call(inventory, stack);
         scope.overflow(); return true;
     }
-    @WrapOperation(method = "lambda$clearAndPutItemsIntoGrid$0", at = @At(value = "INVOKE", target = "Lnet/p3pp3rf1y/sophisticatedcore/common/gui/ICraftingContainer;setRecipeUsed(Lnet/minecraft/resources/ResourceLocation;)V"), remap = false)
+    @WrapOperation(method = {"lambda$clearAndPutItemsIntoGrid$0", "lambda$clearAndPutItemsIntoGrid$2"}, at = @At(value = "INVOKE", target = "Lnet/p3pp3rf1y/sophisticatedcore/common/gui/ICraftingContainer;setRecipeUsed(Lnet/minecraft/resources/ResourceLocation;)V"), remap = false)
     private static void fmp$deferRecipe(@Coerce Object crafting, ResourceLocation recipe, Operation<Void> original) {
         if (SophisticatedMaterials.current() == null) original.call(crafting, recipe);
     }

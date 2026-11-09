@@ -90,6 +90,15 @@ public final class TaczClientSources {
             return "≥" + nativeText;
         } catch (ReflectiveOperationException | LinkageError e) { unavailable(e); return nativeText; }
     }
+    /** A local animation query only. Dummy/remote guns and actual ammunition settlement remain native. */
+    public static boolean animationAmmo(ItemStack gun) {
+        var mc = Minecraft.getInstance();
+        if (!ready() || mc.player == null || mc.cameraEntity != mc.player || gun == null || gun.isEmpty()
+                || gun != mc.player.getMainHandItem() || !api.gun.isInstance(gun.getItem())) return false;
+        try {
+            return !(boolean)api.dummy.invoke(gun.getItem(), gun) && !TaczMaterials.clientHints(gun).isEmpty();
+        } catch (ReflectiveOperationException | LinkageError failed) { unavailable(failed); return false; }
+    }
     private static boolean creativeBox(ItemStack stack) throws ReflectiveOperationException {
         return (boolean)api.creative.invoke(stack.getItem(), stack) || (boolean)api.allCreative.invoke(stack.getItem(), stack);
     }

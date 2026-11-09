@@ -32,7 +32,8 @@
     "withPolymorph",
     "withMouseTweaks",
     "withModernFix",
-    "withLithium"
+    "withLithium",
+    "withBiotech"
   ],
   "maxProfileLength": 88
 }

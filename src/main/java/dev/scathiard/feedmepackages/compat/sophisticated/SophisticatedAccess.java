@@ -20,7 +20,7 @@ public final class SophisticatedAccess {
     private SophisticatedAccess() {}
     private record Ports(List<Class<?>> menus, Class<?> crafting, Method first, Method recipeSlots, Method wrapper,
                          Method owner, Method id, Method open, Method setOpen, Method setTab, Method openTab,
-                         Method refill, Method recipeUsed, Method transfer, Method upgradeSlots) {}
+                         Method refill, Method recipeUsed, Method transfer, Method upgradeSlots, Method storageSlot) {}
     private static Ports ports;
     public static void initialize() {
         if (!installed() || !OptionalMixins.sophisticatedCompatible()) return;
@@ -40,7 +40,7 @@ public final class SophisticatedAccess {
                     common.getMethod("setOpenTabId", int.class), common.getMethod("getOpenContainer"),
                     wrapper.getMethod("shouldRefillCraftingGridNBT"), crafting.getMethod("setRecipeUsed", ResourceLocation.class),
                     transfer.getMethod("setItemsWithStacks", Player.class, ResourceLocation.class, RecipeType.class,
-                            List.class, List.class, List.class, boolean.class), crafting.getMethod("getSlots"));
+                            List.class, List.class, List.class, boolean.class), crafting.getMethod("getSlots"), common.getMethod("isStorageInventorySlot", int.class));
             FeedMePackages.LOGGER.info("FMP Sophisticated crafting ports ready");
         } catch (ReflectiveOperationException | LinkageError failed) {
             ports = null;
@@ -71,9 +71,10 @@ public final class SophisticatedAccess {
             invoke(ports.setOpen, crafting, true); invoke(ports.setTab, menu, upgrade);
         }
         public void recipeUsed(ResourceLocation recipe) { invoke(ports.recipeUsed, crafting, recipe); }
-        public void transfer(ResourceLocation recipe, List<ItemStack> stacks, boolean maximum) {
-            invoke(ports.transfer, null, player, recipe, RecipeType.CRAFTING, stacks,
+        public boolean transfer(ResourceLocation recipe, List<ItemStack> stacks, boolean maximum) {
+            Object accepted = invoke(ports.transfer, null, player, recipe, RecipeType.CRAFTING, stacks,
                     grid.stream().map(s -> s.index).toList(), inventory.stream().map(s -> s.index).toList(), maximum);
+            return !Boolean.FALSE.equals(accepted); // Historical void API returns null; newer native refusal must abort.
         }
     }
     public static Context resolve(Player player) {
@@ -88,6 +89,8 @@ public final class SophisticatedAccess {
         var grid = raw.stream().map(Slot.class::cast).toList();
         if (new HashSet<>(grid).size() != 9 || grid.stream().anyMatch(s -> s.index < 0 || menu.getSlot(s.index) != s || !s.mayPickup(player))) return null;
         var inventory = menu.slots.stream().filter(s -> !grid.contains(s) && s.isActive() && s.mayPickup(player))
+                .filter(s -> (boolean) invoke(ports.storageSlot, menu, s.index) || s.container == player.getInventory()
+                        && s.getContainerSlot() >= 0 && s.getContainerSlot() < 36)
                 .filter(s -> !(player instanceof ServerPlayer server) || s.container != player.getInventory()
                         || CraftingReservations.reservedInventory(server, s.getContainerSlot()) == 0).toList();
         if (inventory.size() > 512 || new HashSet<>(inventory).size() != inventory.size()) return null;
