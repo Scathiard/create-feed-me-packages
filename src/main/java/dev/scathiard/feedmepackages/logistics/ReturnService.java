@@ -32,6 +32,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.neoforged.neoforge.items.IItemHandlerModifiable;
 
 /** Return surplus in legal package-sized batches, with one coherent cache debit. */
 public final class ReturnService {
@@ -246,14 +247,21 @@ public final class ReturnService {
     }
 
     /** The backing native slots remain authoritative; player slot ordering and reservations stay unchanged. */
-    private record CarrierInventory(LivingEntity bearer) {
+    private record CarrierInventory(LivingEntity bearer, IItemHandlerModifiable maidSlots) {
+        CarrierInventory(LivingEntity bearer) {
+            // Native backpack-first order preserves existing backpack slot indices, then appends both hands.
+            this(bearer, bearer instanceof ServerPlayer ? null : MaidCompatibility.pickupInventory(bearer));
+        }
         private ServerPlayer player() { return bearer instanceof ServerPlayer player ? player : null; }
-        int size() { return player() != null ? player().getInventory().getContainerSize() : MaidCompatibility.inventory(bearer).getSlots(); }
-        ItemStack get(int slot) { return player() != null ? player().getInventory().getItem(slot) : MaidCompatibility.inventory(bearer).getStackInSlot(slot); }
-        long reserved(int slot) { return player() != null ? CraftingReservations.reservedInventory(player(), slot) : 0; }
+        int size() { return player() != null ? player().getInventory().getContainerSize() : maidSlots.getSlots(); }
+        ItemStack get(int slot) { return player() != null ? player().getInventory().getItem(slot) : maidSlots.getStackInSlot(slot); }
+        long reserved(int slot) {
+            if (player() != null) return CraftingReservations.reservedInventory(player(), slot);
+            return bearer.isUsingItem() && get(slot) == bearer.getItemInHand(bearer.getUsedItemHand()) ? get(slot).getCount() : 0;
+        }
         void debit(int slot) {
             if (player() != null) { get(slot).shrink(1); player().getInventory().setChanged(); }
-            else MaidCompatibility.inventory(bearer).setStackInSlot(slot, get(slot).copyWithCount(get(slot).getCount() - 1));
+            else maidSlots.setStackInSlot(slot, get(slot).copyWithCount(get(slot).getCount() - 1));
         }
         boolean refund(int original, ItemStack offered) {
             if (player() != null) {
@@ -268,11 +276,11 @@ public final class ReturnService {
                 }
                 inventory.setChanged(); return true;
             }
-            var inventory = MaidCompatibility.inventory(bearer);
-            // Prefer the exact source, then search only this maid's available backpack. No equipment or drops.
+            var inventory = maidSlots;
+            // Prefer the exact source, then this maid's backpack and hands. Never overwrite an active use.
             for (int pass = -1; pass < inventory.getSlots(); pass++) {
                 int slot = pass < 0 ? original : pass;
-                if (slot < 0 || slot >= inventory.getSlots() || pass >= 0 && slot == original) continue;
+                if (slot < 0 || slot >= inventory.getSlots() || pass >= 0 && slot == original || reserved(slot) > 0) continue;
                 var actual = inventory.getStackInSlot(slot);
                 if (!inventory.isItemValid(slot, offered) || !actual.isEmpty() && !ItemStack.isSameItemSameComponents(actual, offered)
                         || actual.getCount() >= Math.min(offered.getMaxStackSize(), inventory.getSlotLimit(slot))) continue;

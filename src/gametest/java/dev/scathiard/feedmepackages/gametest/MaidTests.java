@@ -89,6 +89,7 @@ public final class MaidTests {
         if (ModList.get().isLoaded("tacz")) tests.add(test("native_tacz_reload", MaidTests::tacz));
         if (ModList.get().isLoaded("cmpackagecouriers")) {
             tests.add(test("paper_pickup_return", h -> pickupReturn(h, false)));
+            for (var hand : InteractionHand.values()) tests.add(test("paper_return_" + hand.name().toLowerCase(), h -> pickupReturn(h, false, hand)));
             tests.add(test("paper_direct_flight", h -> flight(h, false, false)));
             tests.add(test("paper_swapped_in_flight", h -> flight(h, false, true)));
         }
@@ -101,6 +102,7 @@ public final class MaidTests {
             tests.add(test("phantom_return_to_maid", MaidTests::phantomReturnToMaid));
             tests.add(test("phantom_return_cache_full_bag", MaidTests::phantomReturnCache));
             tests.add(test("phantom_real_port_roundtrip", MaidTests::phantomPortRoundtrip));
+            for (var hand : InteractionHand.values()) tests.add(test("phantom_return_" + hand.name().toLowerCase(), h -> phantomPortRoundtrip(h, false, hand)));
             tests.add(test("phantom_return_after_unwear", h -> phantomPortRoundtrip(h, true)));
             tests.add(test("phantom_real_player_roundtrip", MaidTests::phantomPlayerRoundtrip));
             tests.add(test("phantom_task_persistence", MaidTests::phantomTaskPersistence));
@@ -114,6 +116,7 @@ public final class MaidTests {
         if (ModList.get().isLoaded("create_mobile_packages")) {
             tests.add(test("bee_return_inventory_priority", h -> carrierInventoryPriority(h, true)));
             tests.add(test("bee_pickup_return", h -> pickupReturn(h, true)));
+            for (var hand : InteractionHand.values()) tests.add(test("bee_return_" + hand.name().toLowerCase(), h -> pickupReturn(h, true, hand)));
             tests.add(test("bee_direct_flight", h -> flight(h, true, false)));
             tests.add(test("bee_swapped_in_flight", h -> flight(h, true, true)));
             // Transport bee return to its maid (plan B, user 2026-10-13).
@@ -531,6 +534,8 @@ public final class MaidTests {
         h.assertTrue(MaidAccess.resolve(f.maid).status()==AccessGate.Status.RETURN_HELD,"Uncertain maid return did not lock cache");
         f.ledger.rejectReturn(hold);
         for(int i=0;i<inv.getSlots();i++) inv.setStackInSlot(i,new ItemStack(Items.DIRT,64));
+        f.maid.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.IRON_SWORD));
+        f.maid.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.SHIELD));
         ReturnService.check(MaidAccess.endpoint(f.maid));
         h.assertTrue(MaidAccess.resolve(f.maid).status()==AccessGate.Status.RETURN_REFUND && f.stock()==100,
                 "Full maid inventory unlocked or duplicated held carrier");
@@ -550,6 +555,9 @@ public final class MaidTests {
         return amount;
     }
     private static void pickupReturn(GameTestHelper h,boolean bee) throws ReflectiveOperationException {
+        pickupReturn(h, bee, null);
+    }
+    private static void pickupReturn(GameTestHelper h,boolean bee, InteractionHand hand) throws ReflectiveOperationException {
         var f=setup(h,new ItemStack(Items.STONE),0);var target=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());
         f.maid.setPos(h.absoluteVec(new Vec3(1,1.2,1)));target.setPos(h.absoluteVec(new Vec3(4,1.2,4)));h.getLevel().addNewPlayer(target);
         UUID network=UUID.randomUUID();
@@ -567,7 +575,8 @@ public final class MaidTests {
         f.pendant.set(FmpRegistries.NETWORK.get(),network);
         var carrier=new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse(bee?"create_mobile_packages:robo_bee":"cmpackagecouriers:cardboard_plane_parts")));
         var before=f.record();var edit=before.state().edit();edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(16,64,1,-1,32));
-        if(bee){var key=ItemVariantKey.of(carrier,f.maid.registryAccess());edit.filter(1,key);edit.insert(1,key,1);}
+        if (hand != null) f.maid.setItemInHand(hand, carrier.copy());
+        else if(bee){var key=ItemVariantKey.of(carrier,f.maid.registryAccess());edit.filter(1,key);edit.insert(1,key,1);}
         else MaidCompatibility.inventory(f.maid).setStackInSlot(0,carrier.copy());
         f.ledger.replace(f.handle,before.state().revision(),before.withState(edit.finish()));
         MaidPickup.setEnabled(f.maid,true);
@@ -575,7 +584,7 @@ public final class MaidTests {
         nativePickup(f,new ItemStack(Items.STONE,60),false);nativePickup(f,new ItemStack(Items.STONE,35),false);
         var waiting=f.record();ReturnService.check(MaidAccess.endpoint(f.maid));
         h.assertTrue(f.stock()==95 && f.record()==waiting && f.ledger.returnEscrow(f.handle.cacheId())==null
-                && (bee?f.record().state().cells().get(1).amount():count(MaidCompatibility.inventory(f.maid),carrier))==1,
+                && maidItemCount(f.maid,carrier)+(bee?f.record().state().cells().get(1).amount():0)==1,
                 "Maid shipped below the 32-item return minimum or consumed a waiting carrier");
         nativePickup(f,new ItemStack(Items.STONE,5),false);
         h.assertTrue(f.stock()==100,"Real pickups did not reach source cache");
@@ -585,8 +594,8 @@ public final class MaidTests {
                         "The maid's original bee has not returned after delivering the goods"))
                 .thenExecute(()->{
                     h.assertTrue(f.ledger.returnEscrow(f.handle.cacheId())==null && f.owner.getInventory().countItem(carrier.getItem())==0
-                            && (bee?maidItemCount(f.maid,carrier)+f.record().state().cells().get(1).amount()==1:count(MaidCompatibility.inventory(f.maid),carrier)==0),"Maid return carrier accounting changed owner inventory");
-                    FeedMePackages.LOGGER.info("FMP_MAID_PICKUP_RETURN_PASSED transport={} nativePickup=100 source=64 destination=36 ownerOffline=true carrierSource={}",bee?"bee":"paper",bee?"cache":"backpack");
+                            && (bee?maidItemCount(f.maid,carrier)+f.record().state().cells().get(1).amount()==1:maidItemCount(f.maid,carrier)==0),"Maid return carrier accounting changed owner inventory");
+                    FeedMePackages.LOGGER.info("FMP_MAID_PICKUP_RETURN_PASSED transport={} nativePickup=100 source=64 destination=36 ownerOffline=true carrierSource={}",bee?"bee":"paper",hand != null ? hand : bee?"cache":"backpack");
                 }).thenSucceed();
     }
 
@@ -1235,11 +1244,15 @@ public final class MaidTests {
 
     private static void phantomPortRoundtrip(GameTestHelper h) { phantomPortRoundtrip(h, false); }
     private static void phantomPortRoundtrip(GameTestHelper h, boolean unwear) {
+        phantomPortRoundtrip(h, unwear, null);
+    }
+    private static void phantomPortRoundtrip(GameTestHelper h, boolean unwear, InteractionHand hand) {
         h.assertTrue(dev.scathiard.feedmepackages.compat.PhantomDispatch.ready(), "Phantom adapter unavailable");
         var f = setup(h, new ItemStack(Items.STONE), 100);
         f.maid.setPos(h.absoluteVec(new Vec3(1, 1.2, 1)));
         var carrier = new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse("createphantom:mini_phantom")));
-        MaidCompatibility.inventory(f.maid).setStackInSlot(0, carrier.copy());
+        if (hand == null) MaidCompatibility.inventory(f.maid).setStackInSlot(0, carrier.copy());
+        else f.maid.setItemInHand(hand, carrier.copy());
         f.pendant.set(FmpRegistries.NETWORK.get(), UUID.randomUUID());
         var before = f.record(); var edit = before.state().edit();
         edit.settings(0, new dev.scathiard.feedmepackages.domain.CellSettings(-1, 64, 1, -1));

@@ -45,6 +45,10 @@ public final class BiotechTests {
             tests.add(test("maid_moving_delivery", h -> maidDelivery(h, false)));
             tests.add(test("maid_saved_task_delivery", h -> maidDelivery(h, true)));
             tests.add(test("maid_return", h -> activeReturn(h, true)));
+            for (var hand : net.minecraft.world.InteractionHand.values()) {
+                tests.add(test("maid_return_" + hand.name().toLowerCase(), h -> activeReturn(h, true, false, false, hand)));
+                tests.add(test("maid_rejected_" + hand.name().toLowerCase(), h -> handRejection(h, hand)));
+            }
             tests.add(test("maid_return_saved_owner", h -> activeReturn(h, true, true, false)));
             tests.add(test("maid_authentication", BiotechTests::authentication));
             if (ModList.get().isLoaded("fluidlogistics")) tests.add(test("maid_fluid", h -> fluidDelivery(h, true)));
@@ -69,7 +73,9 @@ public final class BiotechTests {
     private static PackagePortBlockEntity port(GameTestHelper h, String address) {
         var block = BuiltInRegistries.BLOCK.get(ResourceLocation.parse("create_biotech:allay_port"));
         h.assertTrue(block != net.minecraft.world.level.block.Blocks.AIR, "Allay port registry missing");
-        var pos = new BlockPos(1, 1, 1); h.setBlock(pos, block);
+        // The north-facing port approaches 3.25 blocks outwards. Keep that path inside
+        // this 5x5 test's ticking area; at z=1 it can strand the entity in an unticked chunk.
+        var pos = new BlockPos(2, 1, 4); h.setBlock(pos, block);
         var port = (PackagePortBlockEntity)h.getBlockEntity(pos);
         port.addressFilter = address; port.acceptsPackages = true;
         try { call(Class.forName(ROOT + "block.allayport.AllayPortTargetRegistry"), "update", h.getLevel(), h.absolutePos(pos), address); }
@@ -152,11 +158,20 @@ public final class BiotechTests {
         return false;
     }
     private static void activeReturn(GameTestHelper h, boolean maid, boolean returning, boolean fault) {
+        activeReturn(h, maid, returning, fault, null);
+    }
+    private static void activeReturn(GameTestHelper h, boolean maid, boolean returning, boolean fault, net.minecraft.world.InteractionHand hand) {
         LivingEntity bearer; CacheHandle handle; CacheLedger ledger; ItemStack pendant;
         if (maid) {
             var f = MaidTests.setup(h, new ItemStack(Items.STONE), 20);
             bearer = f.maid(); handle = f.handle(); ledger = f.ledger(); pendant = f.pendant();
-            h.assertTrue(MaidCompatibility.insertInto(bearer, BiotechCompatibility.carrier()), "Fixture carrier missing");
+            if (hand == null) h.assertTrue(MaidCompatibility.insertInto(bearer, BiotechCompatibility.carrier()), "Fixture carrier missing");
+            else {
+                var inv = MaidCompatibility.inventory(bearer);
+                for (int i = 0; i < inv.getSlots(); i++) inv.setStackInSlot(i, new ItemStack(Items.DIRT, 64));
+                bearer.setItemInHand(hand, BiotechCompatibility.carrier());
+                bearer.setItemInHand(hand == net.minecraft.world.InteractionHand.MAIN_HAND ? net.minecraft.world.InteractionHand.OFF_HAND : net.minecraft.world.InteractionHand.MAIN_HAND, new ItemStack(Items.IRON_SWORD));
+            }
         } else {
             var player = TestPlayers.create(h, FmpRegistries.PENDANT.toStack()); player.setPos(h.absoluteVec(new Vec3(4, 2, 4)));
             ConsumptionTests.seed(player, 0, new ItemStack(Items.STONE), 20); bearer = player;
@@ -180,6 +195,9 @@ public final class BiotechTests {
         if (fault) h.assertTrue(admissionFaults == faultsBefore + 1, "After-admission failure injection was not reached exactly once");
         h.assertTrue(ledger.find(handle.cacheId()).state().cells().getFirst().amount() == 8 && ledger.returnEscrow(handle.cacheId()) == null,
                 "Active allay return did not debit surplus exactly once");
+        if (hand != null) h.assertTrue(bearer.getItemInHand(hand).isEmpty()
+                && bearer.getItemInHand(hand == net.minecraft.world.InteractionHand.MAIN_HAND ? net.minecraft.world.InteractionHand.OFF_HAND : net.minecraft.world.InteractionHand.MAIN_HAND).is(Items.IRON_SWORD),
+                "Hand carrier was not debited exactly once or the other held item moved");
         if (returning) try {
             var task = tasks().stream().filter(t -> t instanceof BiotechTaskLink link && bearer.getUUID().equals(link.fmp$source())).findFirst().orElseThrow();
             var mode = task.getClass().getDeclaredField("returnMode"); mode.setAccessible(true);
@@ -201,6 +219,39 @@ public final class BiotechTests {
                 h.assertTrue(countCarrier == 1 && carriers(port).getStackInSlot(0).isEmpty(), "Native return policy did not return exactly one courier to source maid");
             } else h.assertTrue(carriers(port).getStackInSlot(0).getCount() == 1, "Native player-launch dock policy lost or duplicated courier");
         });
+    }
+    private static int refusalCalls;
+    public static boolean rejectAdmission(net.minecraft.server.MinecraftServer server, Object task) { refusalCalls++; return false; }
+    private static void handRejection(GameTestHelper h, net.minecraft.world.InteractionHand hand) throws ReflectiveOperationException {
+        var f = MaidTests.setup(h, new ItemStack(Items.STONE), 20);
+        f.pendant().set(FmpRegistries.NETWORK.get(), UUID.randomUUID());
+        var old = f.record(); var edit = old.state().edit(); edit.settings(0, new CellSettings(-1, 8, 1, -1, 1));
+        f.ledger().replace(f.handle(), old.state().revision(), old.withState(edit.finish()));
+        String address = "hand-refusal-" + f.maid().getUUID(); port(h, address); f.ledger().setReturnAddress(f.handle().cacheId(), address);
+        var inv = MaidCompatibility.inventory(f.maid());
+        for (int i = 0; i < inv.getSlots(); i++) inv.setStackInSlot(i, new ItemStack(Items.DIRT, 64));
+        var other = hand == net.minecraft.world.InteractionHand.MAIN_HAND ? net.minecraft.world.InteractionHand.OFF_HAND : net.minecraft.world.InteractionHand.MAIN_HAND;
+        var sword = new ItemStack(Items.IRON_SWORD); f.maid().setItemInHand(other, sword);
+        f.maid().setItemInHand(hand, BiotechCompatibility.carrier());
+        f.maid().startUsingItem(hand);
+        h.assertTrue(f.maid().isUsingItem(), "Native hand-use guard fixture was not active");
+        ReturnService.check(MaidAccess.endpoint(f.maid()));
+        h.assertTrue(f.stock() == 20 && f.maid().getItemInHand(hand).getCount() == 1 && f.ledger().returnEscrow(f.handle().cacheId()) == null,
+                "Return took a carrier currently being used");
+        f.maid().stopUsingItem();
+        var field = BiotechCompatibility.class.getDeclaredField("METHODS"); field.setAccessible(true);
+        var ports = (Map<String, Method>)field.get(null);
+        Method original = ports.put("add", BiotechTests.class.getMethod("rejectAdmission", net.minecraft.server.MinecraftServer.class, Object.class));
+        int previous = refusalCalls;
+        try {
+            ReturnService.check(MaidAccess.endpoint(f.maid()));
+            ReturnService.check(MaidAccess.endpoint(f.maid()));
+        } finally { ports.put("add", original); }
+        h.assertTrue(refusalCalls == previous + 2, "Hand dispatch never reached native admission refusal");
+        h.assertTrue(f.stock() == 20 && f.ledger().returnEscrow(f.handle().cacheId()) == null
+                && f.maid().getItemInHand(hand).getCount() == 1 && f.maid().getItemInHand(hand).is(BiotechCompatibility.carrier().getItem())
+                && f.maid().getItemInHand(other) == sword, "Rejected hand return lost or duplicated carrier/cargo or changed the other hand");
+        f.ledger().setReturnAddress(f.handle().cacheId(), ""); h.succeed();
     }
     private static void rejection(GameTestHelper h) {
         var player = TestPlayers.create(h, FmpRegistries.PENDANT.toStack());
@@ -307,6 +358,9 @@ public final class BiotechTests {
                 for (String name : List.of("mission", "phase", "position", "targetAllayPortPos", "returnMode", "deliveryElapsedTicks")) {
                     var field = task.getClass().getDeclaredField(name); field.setAccessible(true); detail.add(name + "=" + field.get(task));
                 }
+                var position = task.getClass().getDeclaredField("position"); position.setAccessible(true);
+                detail.add("entityChunkTicking=" + ((net.minecraft.server.level.ServerLevel)port.getLevel())
+                        .isPositionEntityTicking(BlockPos.containing((Vec3)position.get(task))));
             }
         } catch (ReflectiveOperationException failed) { throw new IllegalStateException(failed); }
         return "port=" + port.getBlockPos() + " live=" + (port.getLevel().getBlockEntity(port.getBlockPos()) == port)
