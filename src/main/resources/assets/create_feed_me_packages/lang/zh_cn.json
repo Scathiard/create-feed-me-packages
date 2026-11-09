@@ -201,7 +201,7 @@
   "gui.create_feed_me_packages.fluid_take": "点击预览 1 桶；Shift 点击预览 8 桶。灌入容器后才扣库存。",
   "gui.create_feed_me_packages.fluid_deposit": "拿起单个容器，Alt 点击格子可存入其中的液体。",
   "gui.create_feed_me_packages.controls.fluid_pending": "在途：%s mB",
-  "gui.create_feed_me_packages.controls.fluid_reserved": "流体不使用此项",
+  "gui.create_feed_me_packages.controls.fluid_batch_limit": "单包上限：%s",
   "gui.create_feed_me_packages.controls.fluid_step": "滚轮：±1 桶；Shift：对齐 8 桶",
   "gui.create_feed_me_packages.result.read_only": "配置缩容：仅可取出",
   "gui.create_feed_me_packages.result.denied": "该物品禁止存入",

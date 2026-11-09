@@ -53,6 +53,8 @@ public final class SupplyService {
         int wanted = state.requestable(slot);
         if (wanted == 0 || before.state().orders().size() + before.fluids().state().orders().size() >= CacheState.MAX_ORDERS) return 0;
         var cell = state.cells().get(slot);
+        if (fluid && cell.settings().batch() > dev.scathiard.feedmepackages.domain.FluidCellControls.maximum(
+                dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.capacity())) return 0;
         PackageDispatch.Plan requests; long plannedTotal;
         try {
             requests = PackageDispatch.prepare(handle.networkId(), template, wanted, endpoint.address(), fluid);

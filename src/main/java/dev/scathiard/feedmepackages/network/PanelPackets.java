@@ -147,7 +147,15 @@ public final class PanelPackets {
     public record Snapshot(UUID window, UUID session, long serial, int acknowledged, CacheActions.Result result,
                            AccessGate.Status status, long revision, int level, int capacity, boolean personal,
                            boolean cacheFirst, boolean bound, String address, String returnAddress, String residualItem,
-                           List<CellView> cells, List<TerminalView> terminals, FluidPreviewView fluidPreview, int firstSlot, int totalSlots, int columnLimit, boolean maidPickup, boolean craftingEnabled, boolean returnAddressPreserved) implements CustomPacketPayload {
+                           List<CellView> cells, List<TerminalView> terminals, FluidPreviewView fluidPreview, int firstSlot, int totalSlots, int columnLimit, boolean maidPickup, boolean craftingEnabled, boolean returnAddressPreserved, int fluidPackageCapacity) implements CustomPacketPayload {
+        public Snapshot(UUID window, UUID session, long serial, int acknowledged, CacheActions.Result result,
+                        AccessGate.Status status, long revision, int level, int capacity, boolean personal,
+                        boolean cacheFirst, boolean bound, String address, String returnAddress, String residualItem,
+                        List<CellView> cells, List<TerminalView> terminals, FluidPreviewView fluidPreview,
+                        int firstSlot, int totalSlots, int columnLimit, boolean maidPickup, boolean craftingEnabled, boolean returnAddressPreserved) {
+            this(window,session,serial,acknowledged,result,status,revision,level,capacity,personal,cacheFirst,bound,
+                    address,returnAddress,residualItem,cells,terminals,fluidPreview,firstSlot,totalSlots,columnLimit,maidPickup,craftingEnabled,returnAddressPreserved,0);
+        }
         public Snapshot(UUID window, UUID session, long serial, int acknowledged, CacheActions.Result result,
                         AccessGate.Status status, long revision, int level, int capacity, boolean personal,
                         boolean cacheFirst, boolean bound, String address, String returnAddress, String residualItem,
@@ -173,6 +181,7 @@ public final class PanelPackets {
                     address,returnAddress,residualItem,cells,terminals,fluidPreview,firstSlot,totalSlots,columnLimit,false);
         }
         public Snapshot {
+            if (fluidPackageCapacity < 0) throw new IllegalArgumentException("Negative fluid package capacity");
             if (returnAddressPreserved && !returnAddress.isEmpty()) throw new IllegalArgumentException("Preserved invalid address must not enter the wire model");
             cells = List.copyOf(cells); terminals = List.copyOf(terminals); Objects.requireNonNull(fluidPreview);
             if (cells.size() > 36 || terminals.size() > MAX_TERMINALS || totalSlots<0 || totalSlots>dev.scathiard.feedmepackages.domain.CacheCapacity.MAX_SLOTS
@@ -210,7 +219,7 @@ public final class PanelPackets {
         b.writeVarInt(s.terminals.size());
         for (var t : s.terminals) { b.writeVarInt(t.slot); b.writeBoolean(t.personal); b.writeBoolean(t.disabled); text(b, t.network, 36); }
         b.writeVarInt(s.fluidPreview.slot); text(b, s.fluidPreview.template, 1024); b.writeVarInt(s.fluidPreview.amount); b.writeVarInt(s.fluidPreview.sequence);
-        b.writeVarInt(s.firstSlot);b.writeVarInt(s.totalSlots);b.writeVarInt(s.columnLimit);b.writeBoolean(s.maidPickup);b.writeBoolean(s.craftingEnabled);b.writeBoolean(s.returnAddressPreserved);
+        b.writeVarInt(s.firstSlot);b.writeVarInt(s.totalSlots);b.writeVarInt(s.columnLimit);b.writeBoolean(s.maidPickup);b.writeBoolean(s.craftingEnabled);b.writeBoolean(s.returnAddressPreserved);b.writeVarInt(s.fluidPackageCapacity);
         written(b, start, S2C_LIMIT);
     }
     private static Snapshot decodeSnapshot(RegistryFriendlyByteBuf b) {
@@ -225,7 +234,8 @@ public final class PanelPackets {
         var preview = new FluidPreviewView(b.readVarInt(), text(b, 1024), b.readVarInt(), b.readVarInt());
         int firstSlot=b.readVarInt(),totalSlots=b.readVarInt(),columns=b.readVarInt();
         boolean maidPickup = b.readBoolean(), craftingEnabled = b.readBoolean(), preservedAddress = b.readBoolean();
-        end(b); return new Snapshot(window, session, serial, ack, result, status, revision, level, capacity, personal, cacheFirst, bound, address, returnAddress, residual, cells, terminals, preview,firstSlot,totalSlots,columns,maidPickup,craftingEnabled,preservedAddress);
+        int fluidCapacity=b.readVarInt();
+        end(b); return new Snapshot(window, session, serial, ack, result, status, revision, level, capacity, personal, cacheFirst, bound, address, returnAddress, residual, cells, terminals, preview,firstSlot,totalSlots,columns,maidPickup,craftingEnabled,preservedAddress,fluidCapacity);
     }
     private static void returnAddress(RegistryFriendlyByteBuf buffer, String value) {
         if (!dev.scathiard.feedmepackages.domain.ReturnAddress.valid(value)) throw new EncoderException("Invalid return address");

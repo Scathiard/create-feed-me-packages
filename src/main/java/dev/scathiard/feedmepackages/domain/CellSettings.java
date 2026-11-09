@@ -1,6 +1,6 @@
 package dev.scathiard.feedmepackages.domain;
 
-/** Item counts. pendingLimit is retained for old saves only; it no longer limits requests. */
+/** Material units (items or mB). pendingLimit is retained for old saves only. */
 public record CellSettings(int lower, int upper, int batch, int pendingLimit, int returnBatch) {
     public CellSettings(int lower, int upper, int batch, int pendingLimit) {
         this(lower, upper, batch, pendingLimit, 1);
@@ -24,7 +24,7 @@ public record CellSettings(int lower, int upper, int batch, int pendingLimit, in
             return;
         }
         int nineStacks = Math.multiplyExact(9, filter.stackSize());
-        if (lower > capacity || upper > capacity || batch > nineStacks || returnBatch > nineStacks || pendingLimit > nineStacks)
+        if (lower > capacity || upper > capacity || batch > filter.batchLimit() || returnBatch > filter.batchLimit() || pendingLimit > nineStacks)
             throw new IllegalArgumentException("Cell controls outside capacity");
     }
 

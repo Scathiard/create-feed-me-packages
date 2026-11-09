@@ -66,7 +66,7 @@ public final class PanelNetwork {
         }
     }
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("17-final-settings");
+        var registrar = event.registrar("18-fluid-batches");
         registrar.playToServer(PanelPackets.Query.TYPE, PanelPackets.Query.CODEC, (packet, context) -> {
             var reply = query((ServerPlayer) context.player(), packet); if (reply != null) context.reply(reply);
         });
@@ -208,8 +208,8 @@ public final class PanelNetwork {
                     int reserved = (int)Math.min(Integer.MAX_VALUE, dev.scathiard.feedmepackages.interaction.FluidActions.reserved(access.handle().cacheId(), i));
                     cells.add(new PanelPackets.CellView(template, fluidCell.amount(), fluidCell.settings().lower(), fluidCell.settings().upper(),
                             record.fluids().state().pending(i), reserved, fluidCell.filter().stackSize(), record.fluids().hasResidual(fluidCell.filter()),
-                            dev.scathiard.feedmepackages.logistics.ReturnService.dispatchState(access.handle(), returnAddress, i, "fluid:" + template, fluidCell.settings().upper()),
-                            1, -1, fluidCell.filterRevision(), window.feedback.get(i), true, record.fluids().state().writable(i)));
+                            dev.scathiard.feedmepackages.logistics.ReturnService.dispatchState(access.handle(), returnAddress, i, "fluid:" + template, fluidCell.settings().upper(), fluidCell.settings().returnBatch()),
+                            fluidCell.settings().batch(), -1, fluidCell.filterRevision(), window.feedback.get(i), true, record.fluids().state().writable(i), fluidCell.settings().returnBatch()));
                     continue;
                 }
                 var cell = record.state().cells().get(i);
@@ -231,6 +231,7 @@ public final class PanelNetwork {
                 new PanelPackets.FluidPreviewView(fluid.slot(), fluid.template(), fluid.amount(), fluid.sequence()),
                 record==null?0:window.firstSlot,record==null?0:record.state().cells().size(),window.columnLimit,
                 access.active() && dev.scathiard.feedmepackages.compat.maid.MaidPickup.enabled(
-                        dev.scathiard.feedmepackages.compat.maid.MaidMenus.target(player.containerMenu)), record == null || record.craftingEnabled(), preservedAddress);
+                        dev.scathiard.feedmepackages.compat.maid.MaidMenus.target(player.containerMenu)), record == null || record.craftingEnabled(), preservedAddress,
+                dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.capacity());
     }
 }

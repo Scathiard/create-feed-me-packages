@@ -126,7 +126,14 @@ public final class FluidActions {
                     edit.filter(slot, null);
                 } else if (intent.action() == CacheActions.Action.RESET_REQUEST) edit.reset(slot);
                 else {
-                    try { edit.thresholds(slot, intent.first(), intent.second()); }
+                    try {
+                        var groups = dev.scathiard.feedmepackages.domain.CellSettings.fromGroups(cell.filter(), intent.first(), intent.second());
+                        var next = new dev.scathiard.feedmepackages.domain.CellSettings(groups.lower(), groups.upper(),
+                                cell.settings().batch(), -1, cell.settings().returnBatch());
+                        if (!dev.scathiard.feedmepackages.domain.FluidCellControls.accepts(next, cell.settings(),
+                                dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.capacity())) return Result.INVALID_REQUEST;
+                        edit.thresholds(slot, intent.first(), intent.second()); edit.settings(slot, next);
+                    }
                     catch (IllegalArgumentException invalid) { return Result.INVALID_REQUEST; }
                 }
                 ledger.replace(handle, before.state().revision(), before.withFluids(before.fluids().withState(edit.finish())));

@@ -2,6 +2,7 @@ package dev.scathiard.feedmepackages.gametest;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
 import com.simibubi.create.AllDataComponents;
 import dev.scathiard.feedmepackages.FeedMePackages;
+import dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages;
 import dev.scathiard.feedmepackages.logistics.ParcelAuthentication;
 import dev.scathiard.feedmepackages.logistics.ReturnService;
 import dev.scathiard.feedmepackages.logistics.SupplyService;
@@ -72,6 +73,7 @@ public final class TransportTests {
             tests.add(test("supply_fluid_"+name+"_flight",h->fluidNativeFlight(h,mobile)));
             tests.add(test("return_fluid_"+name+"_flight",h->returnFluidFlight(h,mobile)));
             tests.add(test("return_fluid_"+name+"_preview",h->returnFluidPreview(h,mobile)));
+            tests.add(test("return_fluid_"+name+"_minimum",h->returnFluidMinimum(h,mobile)));
         }
         return tests;
     }
@@ -915,6 +917,27 @@ public final class TransportTests {
                     h.assertTrue(returnStock(f, true) == 0 && returnTransitBoxes(player, mobile).isEmpty(), "Returned unsigned parcels were absorbed or duplicated");
                     FeedMePackages.LOGGER.info("FMP_FLUID_RETURN_FLIGHT_PASSED mobile={} amount=16000 packages=2 carriers=2", mobile);
                 }).thenSucceed();
+    }
+
+    private static void returnFluidMinimum(GameTestHelper h, boolean mobile) {
+        var f=returnFixture(h,mobile);var key=seedReturnFluid(f);var before=f.record();var edit=before.fluids().state().edit();
+        edit.extract(2,1);edit.settings(2,new dev.scathiard.feedmepackages.domain.CellSettings(-1,8000,1,-1,8000));
+        f.ledger().replace(f.handle(),before.state().revision(),before.withFluids(before.fluids().withState(edit.finish())));
+        ReturnService.check(f.player());
+        h.assertTrue(returnStock(f,true)==15999 && f.player().getInventory().getItem(0).getCount()==2
+                && returnTransitBoxes(f.player(),mobile).isEmpty(),"Sub-batch fluid return consumed cargo or carrier");
+        before=f.record();edit=before.fluids().state().edit();edit.insert(2,key,1);
+        f.ledger().replace(f.handle(),before.state().revision(),before.withFluids(before.fluids().withState(edit.finish())));
+        ReturnService.check(f.player());
+        var boxes=returnTransitBoxes(f.player(),mobile);
+        h.assertTrue(returnStock(f,true)==8000 && boxes.size()==1 && FluidPackages.read(boxes.getFirst()).getAmount()==8000
+                && f.player().getInventory().getItem(0).getCount()==1,"Exact 8-bucket minimum did not commit one native return");
+        before=f.record();edit=before.fluids().state().edit();edit.insert(2,key,7999);
+        f.ledger().replace(f.handle(),before.state().revision(),before.withFluids(before.fluids().withState(edit.finish())));
+        ReturnService.check(f.player());
+        h.assertTrue(returnStock(f,true)==15999 && f.player().getInventory().getItem(0).getCount()==1,"Sub-batch tail was shipped");
+        h.startSequence().thenWaitUntil(()->h.assertTrue(returnedFluid(f.player())==8000,"Native batched return did not arrive"))
+                .thenExecute(()->FeedMePackages.LOGGER.info("FMP_FLUID_BATCH_RETURN_PASSED mobile={} delivered=8000 heldTail=7999 carriers=1",mobile)).thenSucceed();
     }
 
     private static void returnFluidPreview(GameTestHelper h, boolean mobile) {

@@ -24,8 +24,10 @@ public final class FluidClientReview {
     private static int stage,ticks,changed,sourceX,sourceY,browserPages;
     private static CompletableFuture<Void> work;
     private static int dragX,dragY;
+    private static boolean reopening;
     /** Remaining input boundaries; no dependency on the earlier basic-fluid scenario's fixture state. */
     public static boolean inputTick() throws ReflectiveOperationException {
+        if(reopening)return false;
         ticks++;
         if(work!=null){if(!work.isDone())return false;work.join();work=null;}
         require(ticks-changed<500,"Fluid input timeout at stage "+stage);
@@ -174,7 +176,48 @@ public final class FluidClientReview {
             case 55 -> {
                 if(!ready(view))return false;
                 require(view.cells().get(0).minimum()==3000 && view.cells().get(0).maximum()==-1 && view.cells().get(0).amount()==9000,"Fine controls reverted on reopen");
-                FeedMePackages.LOGGER.info("FMP_FLUID_BUCKET_INPUT_PASSED wheel1000=true shiftAlign8000=true drag3000=true reopen=true stockUnchanged=true");return true;
+                FeedMePackages.LOGGER.info("FMP_FLUID_BUCKET_INPUT_PASSED wheel1000=true shiftAlign8000=true drag3000=true reopen=true stockUnchanged=true");next();
+            }
+            case 56 -> {if(!ready(view))return false;openSliderIfClosed();scrollField(0,1,false);next();}
+            case 57 -> {if(!ready(view)||view.cells().getFirst().batch()!=1000)return false;scrollField(0,1,true);next();}
+            case 58 -> {if(!ready(view)||view.cells().getFirst().batch()!=8000)return false;scrollField(1,1,true);next();}
+            case 59 -> {if(!ready(view)||view.cells().getFirst().returnBatch()!=8000)return false;scrollField(3,-1,false);next();}
+            case 60 -> {if(!ready(view)||view.cells().getFirst().maximum()!=16000)return false;scrollField(3,-1,true);next();}
+            case 61 -> {if(!ready(view)||view.cells().getFirst().maximum()!=11000)return false;scrollField(0,1,false);next();}
+            case 62 -> {
+                if(!ready(view)||view.cells().getFirst().batch()!=9000||view.cells().getFirst().maximum()!=12000)return false;
+                require(view.fluidPackageCapacity()==10000,"Panel did not receive native server package capacity");
+                scrollField(0,1,false);
+                require(MC.screen.keyPressed(256,0,0) && MC.screen==null,"Native Escape did not close the fluid control panel");next();
+            }
+            case 63 -> {
+                server(p->{var cell=CacheLedger.get(p.getServer()).find(AccessGate.resolve(p).handle().cacheId()).fluids().state().cells().getFirst();
+                    require(cell.amount()==9000 && cell.settings().equals(new dev.scathiard.feedmepackages.domain.CellSettings(3000,13000,10000,-1,8000)),
+                            "Closing before wheel debounce lost the final fluid batch or its linked endpoint: "+cell.settings()+" stock="+cell.amount());});next();
+            }
+            case 64 -> {
+                next();reopening=true;
+                try {MC.level.disconnect();MC.disconnect(new net.minecraft.client.gui.screens.TitleScreen());}
+                finally {reopening=false;}
+            }
+            case 65 -> {
+                next();reopening=true;
+                try {MC.createWorldOpenFlows().openWorld(TemplateClientReview.worldId(),()->{throw new IllegalStateException("Fluid batch world failed to reopen");});}
+                finally {reopening=false;}
+            }
+            case 66 -> {
+                if(MC.player==null||MC.level==null||MC.screen!=null||MC.player.tickCount<30)return false;
+                MC.setScreen(new InventoryScreen(MC.player));next();
+            }
+            case 67 -> {
+                if(!ready(view))return false;var cell=view.cells().getFirst();
+                require(cell.amount()==9000 && cell.minimum()==3000 && cell.maximum()==13000
+                        && cell.batch()==10000 && cell.returnBatch()==8000,"Native world save/reopen lost fluid batch settings or liquid");
+                openSliderIfClosed();next();
+            }
+            case 68 -> {
+                TemplateClientReview.capture("fluid-batch-controls-after-world-reopen");
+                FeedMePackages.LOGGER.info("FMP_FLUID_BATCH_CLIENT_PASSED wheel1000=true shiftAlign8000=true serverCap=10000 linkedEndpoints=true immediateClose=true worldSaveReopen=true stock=9000");return true;
             }
             default -> throw new IllegalStateException("Unknown fluid input phase");
         }
@@ -197,7 +240,10 @@ public final class FluidClientReview {
                 new com.sun.jna.platform.win32.WinDef.WPARAM(alt?0x12:0x10),new com.sun.jna.platform.win32.WinDef.LPARAM(flags));
     }
     private static void scrollThreshold(int direction,boolean shift) throws ReflectiveOperationException {
-        var field=dev.scathiard.feedmepackages.client.CellControlGeometry.field(TemplateClientReview.hostLayout().slider(),2);
+        scrollField(2,direction,shift);
+    }
+    private static void scrollField(int index,int direction,boolean shift) throws ReflectiveOperationException {
+        var field=dev.scathiard.feedmepackages.client.CellControlGeometry.field(TemplateClientReview.hostLayout().slider(),index);
         var wheel=TemplateClientReview.class.getDeclaredMethod("wheel",double.class,double.class,double.class);wheel.setAccessible(true);
         if(shift)windowModifier(false,true);
         try {

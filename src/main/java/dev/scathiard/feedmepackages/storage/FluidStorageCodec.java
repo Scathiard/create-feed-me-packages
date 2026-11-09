@@ -15,7 +15,7 @@ final class FluidStorageCodec {
     private FluidStorageCodec() {}
 
     static CompoundTag write(CacheFluids fluids, HolderLookup.Provider registries) {
-        var tag = new CompoundTag(); tag.putInt("version", 2);
+        var tag = new CompoundTag(); tag.putInt("version", 3);
         tag.put("cells", writeCells(fluids.state()));
         tag.put(CapacityCodec.KEY, CapacityCodec.write(fluids.state()));
         var orders = new ListTag();
@@ -39,7 +39,7 @@ final class FluidStorageCodec {
     static CacheFluids read(CompoundTag tag, CacheState<?> context, HolderLookup.Provider registries) {
         fields(tag, Set.of("version", "cells", "orders", "residuals", CapacityCodec.KEY)); require(tag, "version", Tag.TAG_INT);
         int version=tag.getInt("version");
-        if (version != 1 && version != 2) throw new IllegalArgumentException("Unsupported fluid storage version");
+        if (version < 1 || version > 3) throw new IllegalArgumentException("Unsupported fluid storage version");
         require(tag, "cells", Tag.TAG_COMPOUND); var cells = tag.getCompound("cells");
         fields(cells, Set.of("extent", "entries"));
         var orders = new HashMap<UUID, SupplyOrder<FluidVariantKey>>();
@@ -100,6 +100,7 @@ final class FluidStorageCodec {
             row.putLong("max", cell.maximum()); row.putLong("revision", cell.filterRevision());
             // Old min/max remain groups. Exact mB thresholds live in a separate additive column.
             var controls=new CompoundTag();controls.putInt("lower",cell.settings().lower());controls.putInt("upper",cell.settings().upper());
+            controls.putInt("batch",cell.settings().batch());controls.putInt("return_batch",cell.settings().returnBatch());
             row.put("volume_controls",controls);entries.add(row);
         }
         result.put("entries", entries); return result;
@@ -124,8 +125,11 @@ final class FluidStorageCodec {
             var settings=dev.scathiard.feedmepackages.domain.CellSettings.fromGroups(key,min,max);
             if(version>=2) {
                 require(row,"volume_controls",Tag.TAG_COMPOUND);var controls=row.getCompound("volume_controls");
-                fields(controls,Set.of("lower","upper"));require(controls,"lower",Tag.TAG_INT);require(controls,"upper",Tag.TAG_INT);
-                settings=new dev.scathiard.feedmepackages.domain.CellSettings(controls.getInt("lower"),controls.getInt("upper"),1,-1);
+                fields(controls,version >= 3 ? Set.of("lower","upper","batch","return_batch") : Set.of("lower","upper"));
+                require(controls,"lower",Tag.TAG_INT);require(controls,"upper",Tag.TAG_INT);
+                if (version >= 3) { require(controls,"batch",Tag.TAG_INT);require(controls,"return_batch",Tag.TAG_INT); }
+                settings=new dev.scathiard.feedmepackages.domain.CellSettings(controls.getInt("lower"),controls.getInt("upper"),
+                        version >= 3 ? controls.getInt("batch") : 1,-1,version >= 3 ? controls.getInt("return_batch") : 1);
             }
             cells.set(slot, new Cell<>(key, Math.toIntExact(row.getLong("amount")), min, max, row.getLong("revision"),settings));
         }

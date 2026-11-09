@@ -1219,14 +1219,20 @@ public final class LogisticsPanel {
         var cell = snapshot.cells().get(selected); var r = layout.slider();
         var parcel = new ItemStack(net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
                 ResourceLocation.fromNamespaceAndPath("create", "cardboard_package_10x8")));
-        CellControlArtwork.render(g, r, draft.value(), cellCapacity(), cell.pending(), parcel, cell.fluid());
+        int batchLimit = cell.fluid() ? dev.scathiard.feedmepackages.domain.FluidCellControls.maximum(snapshot.fluidPackageCapacity()) : 9 * cell.stackSize();
+        CellControlArtwork.render(g, r, draft.value(), cellCapacity(), cell.pending(), parcel, cell.fluid(), batchLimit);
         if (!r.contains(mouseX, mouseY)) return;
         tooltip = List.of();
         for (int field=0;field<5;field++) if (CellControlGeometry.field(r,field).contains(mouseX,mouseY)) {
             if (cell.fluid()) {
                 tooltip = field == 4 ? List.of(tr("controls.fluid_pending", cell.pending()), tr("controls.reset"))
-                        : field < 2 ? List.of(tr("controls.fluid_reserved"))
-                        : List.of(tr(field == 2 ? "controls.lower" : "controls.upper"), tr("controls.fluid_step"));
+                        : List.of(tr("controls."+new String[]{"batch","return_batch","lower","upper"}[field]), tr("controls.fluid_step"));
+                if (field < 4 && draft.value().conflicting()) {
+                    tooltip = new ArrayList<>(tooltip); tooltip.add(tr("controls.conflict"));
+                }
+                if (field < 2) {
+                    tooltip = new ArrayList<>(tooltip); tooltip.add(tr("controls.fluid_batch_limit", CellControlArtwork.fluidQuantity(batchLimit)));
+                }
                 break;
             }
             tooltip = field == 4 ? List.of(tr("controls.pending",cell.pending()),tr("controls.reset"),tr("controls.late"))
@@ -1709,18 +1715,17 @@ public final class LogisticsPanel {
         if (!layout.hidden() && layout.slider() != null && layout.slider().contains(x,y)) {
             var draft=controls(); if (draft==null || amount==0 || draggingSlider || draggingMaximum) return true;
             var value=draft.value(); boolean fluid=snapshot.cells().get(selected).fluid(); int step=Screen.hasShiftDown()?snapshot.cells().get(selected).stackSize():fluid?dev.scathiard.feedmepackages.fluid.FluidVariantKey.MILLIBUCKETS_PER_BUCKET:1;
-            int direction=amount>0?1:-1, cap=cellCapacity(), nine=9*snapshot.cells().get(selected).stackSize();
+            int direction=amount>0?1:-1, cap=cellCapacity(), nine=fluid
+                    ?dev.scathiard.feedmepackages.domain.FluidCellControls.maximum(snapshot.fluidPackageCapacity()):9*snapshot.cells().get(selected).stackSize();
             int field=-1; for(int i=0;i<4;i++) if(CellControlGeometry.field(layout.slider(),i).contains(x,y))field=i;
-            if(field<0 || fluid && field<2)return true;
+            if(field<0)return true;
             int next=switch(field) {
                 case 0 -> CellControlDraft.wheel(value.batch(),direction,step,1,nine,false);
                 case 1 -> CellControlDraft.wheel(value.returnBatch(),direction,step,1,nine,false);
                 case 2 -> CellControlDraft.wheel(Math.max(0,value.lower()),direction,step,0,value.upper()<0?cap:value.upper(),false);
                 default -> CellControlDraft.wheel(value.upper(),direction,step,Math.max(0,value.lower()),cap,true);
             };
-            if(fluid) draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(field==2?(next==0?-1:next):value.lower(),
-                    field==3?next:value.upper(),value.batch(),value.pendingLimit(),value.returnBatch()),tick);
-            else draft.changed(CellControlDraft.adjust(value,field,next,cap),tick);
+            draft.changed(CellControlDraft.adjust(value,field,next,cap,fluid?dev.scathiard.feedmepackages.domain.FluidCellControls.BUCKET:1),tick);
             return true; // Includes wheel-at-boundary and the blank area: never scroll the backing grid.
         }
         if(!layout.bounds().contains(x,y)) return false;
@@ -1856,7 +1861,8 @@ public final class LogisticsPanel {
         int lower=value.lower(),upper=value.upper();
         if(maximum) upper=next>=cap?-1:Math.max(next,Math.max(0,lower));
         else { lower=Math.min(next,upper<0?cap:upper); if(lower==0) lower=-1; }
-        if(cell.fluid()) draft.changed(new dev.scathiard.feedmepackages.domain.CellSettings(lower,upper,value.batch(),value.pendingLimit(),value.returnBatch()),tick);
+        if(cell.fluid()) draft.changed(CellControlDraft.adjust(value,maximum?3:2,maximum?upper:lower,cap,
+                dev.scathiard.feedmepackages.domain.FluidCellControls.BUCKET),tick);
         else draft.changed(CellControlDraft.adjust(value,maximum?3:2,maximum?upper:lower,cap),tick);
     }
     private static void flushPendingThresholds() {

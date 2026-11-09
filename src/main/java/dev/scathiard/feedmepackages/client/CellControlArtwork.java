@@ -18,6 +18,9 @@ public final class CellControlArtwork {
                 : String.format(java.util.Locale.ROOT,"%.2fB",amount / 1000.0);
     }
     public static void render(GuiGraphics g, PanelLayout.Rect r, CellSettings s, int capacity, int pending, ItemStack parcel, boolean fluid) {
+        render(g, r, s, capacity, pending, parcel, fluid, Integer.MAX_VALUE);
+    }
+    public static void render(GuiGraphics g, PanelLayout.Rect r, CellSettings s, int capacity, int pending, ItemStack parcel, boolean fluid, int batchLimit) {
         int x=r.x(), y=r.y();
         g.pose().pushPose(); g.pose().translate(0,0,250);
         g.fill(x,y,x+144,y+57,0xff000000); g.fill(x+1,y+1,x+143,y+56,0xffc6c6c6);
@@ -28,9 +31,9 @@ public final class CellControlArtwork {
         var box=field(r,4); g.blit(GAUGE,box.x(),box.y(),99,215,18,18,256,256);
         g.renderItem(parcel,box.x()+1,box.y()+1);
         number(g,fluid ? fluidQuantity(pending) : compactCount(pending),box.x()+1,box.y()+11,18);
-        int color=!fluid && s.conflicting()?0xffff7777:0xffeeeeee;
-        number(g,fluid ? "—" : Integer.toString(s.batch()),x+16,y+14,38,color);
-        number(g,fluid ? "—" : Integer.toString(s.returnBatch()),x+96,y+14,38,color);
+        int color=s.conflicting()?0xffff7777:0xffeeeeee;
+        number(g,fluid ? fluidQuantity(s.batch()) : Integer.toString(s.batch()),x+16,y+14,38,s.batch()>batchLimit?0xffff7777:color);
+        number(g,fluid ? fluidQuantity(s.returnBatch()) : Integer.toString(s.returnBatch()),x+96,y+14,38,s.returnBatch()>batchLimit?0xffff7777:color);
         number(g,s.lower()<0 ? "/" : fluid ? fluidQuantity(s.lower()) : Integer.toString(s.lower()),x+11,y+37,19);
         number(g,s.upper()<0 ? "/" : fluid ? fluidQuantity(s.upper()) : Integer.toString(s.upper()),x+115,y+37,19);
         int tx=x+TRACK_X,ty=y+TRACK_Y;

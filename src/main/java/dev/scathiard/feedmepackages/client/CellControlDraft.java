@@ -51,12 +51,17 @@ public final class CellControlDraft {
 
     /** Top-row batches may widen the interval, never contract it or toggle either direction off. */
     public static CellSettings adjust(CellSettings s, int field, int requested, int capacity) {
+        return adjust(s, field, requested, capacity, 1);
+    }
+    /** Stock endpoints retain their unit even when a batch pushes the other endpoint. */
+    public static CellSettings adjust(CellSettings s, int field, int requested, int capacity, int unit) {
+        if (unit < 1) throw new IllegalArgumentException("Invalid stock unit");
         int lower=s.lower(), upper=s.upper(), batch=s.batch(), returns=s.returnBatch();
         switch (field) {
             case 0 -> {
                 batch=Math.max(1,requested);
                 if(lower>0 && upper>=0 && batch>1) {
-                    int room=capacity-lower;
+                    int room=(capacity-lower)/unit*unit;
                     if(room<1 || returns>room)return s;
                     batch=Math.min(batch,room);
                     upper=Math.max(upper,lower+Math.max(batch,returns));
@@ -65,7 +70,7 @@ public final class CellControlDraft {
             case 1 -> {
                 returns=Math.max(1,requested);
                 if(lower>0 && upper>=0 && batch>1) {
-                    int room=upper-1;
+                    int room=(upper-unit)/unit*unit;
                     if(room<1 || batch>room)return s;
                     returns=Math.min(returns,room);
                     lower=Math.min(lower,upper-Math.max(batch,returns));
@@ -75,7 +80,7 @@ public final class CellControlDraft {
                 lower=requested<=0?-1:Math.min(requested,capacity);
                 if(lower>0 && upper>=0) {
                     int ceiling=upper-CellSettings.minimumStockGap(batch,returns);
-                    if(ceiling<1)return s;
+                    if(ceiling<unit)return s;
                     lower=Math.min(lower,ceiling);
                 }
             }
