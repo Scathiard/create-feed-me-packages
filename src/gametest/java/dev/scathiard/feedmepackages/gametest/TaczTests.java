@@ -414,14 +414,14 @@ public final class TaczTests {
     }
     static ItemStack gun(ServerPlayer player, String id) throws ReflectiveOperationException {
         var type = Class.forName("com.tacz.guns.api.item.builder.GunItemBuilder"); var builder = type.getMethod("create").invoke(null);
-        type.getMethod("setId", ResourceLocation.class).invoke(builder, ResourceLocation.fromNamespaceAndPath("tacz", id));
+        type.getMethod("setId", ResourceLocation.class).invoke(builder, ResourceLocation.parse(id.contains(":") ? id : "tacz:" + id));
         type.getMethod("setAmmoCount", int.class).invoke(builder, 0);
         type.getMethod("setAmmoInBarrel", boolean.class).invoke(builder, false);
         return (ItemStack)type.getMethod("build", HolderLookup.Provider.class).invoke(builder, player.registryAccess());
     }
     static ItemStack ammo(String id) throws ReflectiveOperationException {
         var type = Class.forName("com.tacz.guns.api.item.builder.AmmoItemBuilder"); var builder = type.getMethod("create").invoke(null);
-        type.getMethod("setId", ResourceLocation.class).invoke(builder, ResourceLocation.fromNamespaceAndPath("tacz", id));
+        type.getMethod("setId", ResourceLocation.class).invoke(builder, ResourceLocation.parse(id.contains(":") ? id : "tacz:" + id));
         return (ItemStack)type.getMethod("build").invoke(builder);
     }
     static Object script(ServerPlayer player, ItemStack gun) throws ReflectiveOperationException {

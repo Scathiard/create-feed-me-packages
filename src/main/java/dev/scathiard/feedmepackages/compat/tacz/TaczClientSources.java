@@ -11,7 +11,7 @@ import java.lang.reflect.Method;
 public final class TaczClientSources {
     private TaczClientSources() {}
     private record Api(Class<?> gun, Class<?> ammo, Class<?> box, Method inventory, Method dummy,
-                       Method ammoMatches, Method boxMatches, Method boxCount, Method creative, Method allCreative, Method needsAmmo) {}
+                       Method ammoMatches, Method boxMatches, Method boxCount, Method creative, Method allCreative, Method needsAmmo, Method gunId) {}
     private static Api api;
     private static boolean attempted, failed;
     public static boolean ready() {
@@ -25,7 +25,7 @@ public final class TaczClientSources {
                 api = new Api(gun, ammo, box, gun.getMethod("useInventoryAmmo", ItemStack.class), gun.getMethod("useDummyAmmo", ItemStack.class),
                         ammo.getMethod("isAmmoOfGun", ItemStack.class, ItemStack.class), box.getMethod("isAmmoBoxOfGun", ItemStack.class, ItemStack.class),
                         box.getMethod("getAmmoCount", ItemStack.class), box.getMethod("isCreative", ItemStack.class), box.getMethod("isAllTypeCreative", ItemStack.class),
-                        Class.forName("com.tacz.guns.api.entity.IGunOperator").getMethod("needCheckAmmo"));
+                        Class.forName("com.tacz.guns.api.entity.IGunOperator").getMethod("needCheckAmmo"), gun.getMethod("getGunId", ItemStack.class));
             } catch (ReflectiveOperationException | LinkageError e) { unavailable(e); }
         }
         return api != null && !failed;
@@ -94,9 +94,14 @@ public final class TaczClientSources {
     public static boolean animationAmmo(ItemStack gun) {
         var mc = Minecraft.getInstance();
         if (!ready() || mc.player == null || mc.cameraEntity != mc.player || gun == null || gun.isEmpty()
-                || gun != mc.player.getMainHandItem() || !api.gun.isInstance(gun.getItem())) return false;
+                || !api.gun.isInstance(gun.getItem())) return false;
+        var held = mc.player.getMainHandItem();
+        if (held.isEmpty() || held.getItem() != gun.getItem()) return false;
         try {
-            return !(boolean)api.dummy.invoke(gun.getItem(), gun) && !TaczMaterials.clientHints(gun).isEmpty();
+            // A slot update replaces the stack before the animation context catches up. Match the native
+            // gun ID, then query the actual held stack so stale ammo/components never become a source.
+            if (!api.gunId.invoke(gun.getItem(), gun).equals(api.gunId.invoke(held.getItem(), held))) return false;
+            return !(boolean)api.dummy.invoke(held.getItem(), held) && !TaczMaterials.clientHints(held).isEmpty();
         } catch (ReflectiveOperationException | LinkageError failed) { unavailable(failed); return false; }
     }
     private static boolean creativeBox(ItemStack stack) throws ReflectiveOperationException {
