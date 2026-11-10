@@ -143,7 +143,7 @@ final class MaidClientReview {
             case 26 -> {
                 var snapshot=TemplateClientReview.snapshot();
                 if(snapshot==null || snapshot.cells().isEmpty())break;
-                require(snapshot.cells().getFirst().amount()==13 && snapshot.address().startsWith("FMP@"),"Player page did not restore own cache");
+                require(snapshot.cells().getFirst().amount()==13 && snapshot.address().startsWith("@"),"Player page did not restore own cache");
                 TemplateClientReview.capture("maid-panel-player-isolation");
                 MC.screen.onClose();
                 MC.gameMode.interact(MC.player,MC.level.getEntity(maidId),InteractionHand.MAIN_HAND);next();

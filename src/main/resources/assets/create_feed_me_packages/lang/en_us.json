@@ -218,6 +218,6 @@
   "gui.create_feed_me_packages.compat.craftingtweaks_mismatch": "Crafting Tweaks API mismatch: cache crafting and cursor previews are paused. Taking items into inventory still works.",
   "gui.create_feed_me_packages.compat.paper_mismatch": "Paper courier API mismatch: FMP returns or maid transport are unavailable. See the log.",
   "gui.create_feed_me_packages.compat.bee_mismatch": "Mobile Packages API mismatch: FMP returns or maid transport are unavailable. See the log.",
-  "gui.create_feed_me_packages.compat.biotech_mismatch": "Allay Courier API mismatch: FMP receipt and returns are unavailable. See the log.",
+  "gui.create_feed_me_packages.compat.biotech_mismatch": "Allay extras unavailable: no maid delivery or active returns. Players still use general parcel receipt.",
   "gui.create_feed_me_packages.compat.phantom_mismatch": "Create Phantom API mismatch: FMP returns or maid transport are unavailable. See the log."
 }

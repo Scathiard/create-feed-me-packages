@@ -218,6 +218,6 @@
   "gui.create_feed_me_packages.compat.craftingtweaks_mismatch": "Crafting Tweaks 接口不匹配：缓存合成与鼠标预览已暂停，背包取物仍可用。",
   "gui.create_feed_me_packages.compat.paper_mismatch": "纸飞机接口不匹配：FMP 主动退货或女仆运输不可用，请查看日志。",
   "gui.create_feed_me_packages.compat.bee_mismatch": "运输蜂接口不匹配：FMP 主动退货或女仆运输不可用，请查看日志。",
-  "gui.create_feed_me_packages.compat.biotech_mismatch": "悦灵快递员接口不匹配：FMP 收件和主动退货不可用，请查看日志。",
+  "gui.create_feed_me_packages.compat.biotech_mismatch": "悦灵扩展未启用：女仆配送、主动退货不可用；玩家仍按通用规则收件。",
   "gui.create_feed_me_packages.compat.phantom_mismatch": "幻翼物流接口不匹配：FMP 主动退货或女仆运输不可用，请查看日志。"
 }

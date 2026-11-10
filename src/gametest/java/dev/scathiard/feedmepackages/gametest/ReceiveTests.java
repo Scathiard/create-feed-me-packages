@@ -87,11 +87,17 @@ public final class ReceiveTests {
     }
 
     @GameTest(template = "empty")
-    public static void unmatchedComponentRemainderReturnsButMatchedFullRemainderWaits(GameTestHelper helper) {
+    public static void legacyMixedResidualReturnsAndNewReceiptLeavesItIntact(GameTestHelper helper) {
         var f = setup(helper, FULL - 8); var named = new ItemStack(Items.STONE, 5); named.set(DataComponents.CUSTOM_NAME, Component.literal("Unmatched"));
         var box = PackageItem.containing(List.of(new ItemStack(Items.STONE, 16), named)); PackageItem.addAddress(box, SupplyService.address(f.player));
         ParcelAuthentication.apply(f.ledger, f.player.registryAccess(), box, f.box(1).get(FmpRegistries.PARCEL_SEAL.get()));
-        helper.assertTrue(ReceiveService.receive(f.player, box) && contents(f.residual()) == 13, "Mixed remainder setup failed");
+        // A pre-test.84 cache-owned remainder still resumes, even though new mixed parcels are refused.
+        var old = ParcelIntake.simulate(f.record().state(), box, f.key, f.order, false, f.player.registryAccess());
+        var seal = box.get(FmpRegistries.PARCEL_SEAL.get()); var rest = old.remainder();
+        ParcelAuthentication.apply(f.ledger, f.player.registryAccess(), rest, new ParcelSeal(seal.parcelId(), seal.cacheId(), seal.playerId(),
+                seal.requestId(), seal.variant(), seal.filterRevision(), seal.address(), true, ""));
+        f.ledger.replace(f.handle, f.record().state().revision(), f.record().withState(old.state()).withResidual(f.key, rest));
+        helper.assertTrue(contents(f.residual()) == 13, "Legacy mixed remainder setup failed");
         ReceiveService.resume(f.player); helper.assertTrue(contents(f.residual()) == 13, "Full inventory destroyed mixed remainder");
         f.extract(4); f.player.getInventory().setItem(0, ItemStack.EMPTY); ReceiveService.resume(f.player);
         var returned = f.player.getInventory().getItem(0); var settled = f.record();
@@ -101,9 +107,8 @@ public final class ReceiveTests {
         for (int tick = 0; tick < 10; tick++) ReceiveService.resume(f.player);
         helper.assertTrue(f.record() == settled && ItemStack.matches(returned, f.player.getInventory().getItem(0)), "Zero-move arrived parcel was recaptured");
         f.extract(4); ReceiveService.resume(f.player);
-        helper.assertTrue(f.record().state().cells().getFirst().amount() == FULL && contents(f.residual()) == 5 && f.player.getInventory().getItem(0).isEmpty(), "New capacity did not accept only the matching part");
-        ReceiveService.resume(f.player);
-        helper.assertTrue(f.residual().isEmpty() && contents(f.player.getInventory().getItem(0)) == 5, "Final unmatched contents remained inaccessible");
+        helper.assertTrue(f.record().state().cells().getFirst().amount() == FULL - 4 && f.residual().isEmpty()
+                && ItemStack.matches(returned, f.player.getInventory().getItem(0)), "New receipt policy recaptured a mixed unknown parcel");
         helper.succeed();
     }
 
@@ -178,7 +183,7 @@ public final class ReceiveTests {
     public static void invalidAndAmbiguousPackagesStayUntouched(GameTestHelper helper) {
         var f = setup(helper, 0);
         var ordinary = PackageItem.containing(List.of(new ItemStack(Items.STONE, 10)));
-        PackageItem.addAddress(ordinary, SupplyService.address(f.player)); reject(helper, f, ordinary);
+        PackageItem.addAddress(ordinary, "@SomeoneElse"); reject(helper, f, ordinary);
         var renamed = f.box(10); PackageItem.addAddress(renamed, "FMP@SomeoneElse"); reject(helper, f, renamed);
         var changed = f.box(10); changed.set(AllDataComponents.PACKAGE_CONTENTS, ItemContainerContents.fromItems(List.of(new ItemStack(Items.STONE, 20))));
         reject(helper, f, changed);
@@ -243,9 +248,12 @@ public final class ReceiveTests {
         var f = setup(helper, 0); var named = new ItemStack(Items.STONE, 5); named.set(DataComponents.CUSTOM_NAME, Component.literal("Exact variant"));
         var box = PackageItem.containing(List.of(new ItemStack(Items.STONE, 8), named)); PackageItem.addAddress(box, SupplyService.address(f.player));
         var route = f.box(1).get(FmpRegistries.PARCEL_SEAL.get()); ParcelAuthentication.apply(f.ledger, f.player.registryAccess(), box, route);
-        helper.assertTrue(ReceiveService.receive(f.player, box), "Mixed package not accepted");
-        var residue = PackageItem.getContents(f.residual()).getStackInSlot(1);
-        helper.assertTrue(f.record().state().cells().getFirst().amount() == 8 && ItemStack.matches(residue, named), "Distinct components silently collapsed");
+        reject(helper, f, box);
+        var key = ItemVariantKey.of(named, f.player.registryAccess()); var before = f.record(); var edit = before.state().edit(); edit.filter(1, key);
+        f.ledger.replace(f.handle, before.state().revision(), before.withState(edit.finish()));
+        helper.assertTrue(ReceiveService.receive(f.player, box), "Exact matching mixed package not accepted");
+        helper.assertTrue(f.record().state().cells().getFirst().amount() == 8 && f.record().state().cells().get(1).amount() == 5
+                && f.record().state().pending(0) == 56 && f.residual().isEmpty(), "Exact variants or order settlement collapsed");
         helper.succeed();
     }
 
@@ -483,7 +491,7 @@ public final class ReceiveTests {
         var f = fluidSetup(h, new FluidStack(Fluids.WATER, 1), 0, 1000);
         for (int failure = 0; failure < 7; failure++) {
             var box = f.box(1000); var seal = box.get(FmpRegistries.FLUID_PARCEL_SEAL.get());
-            if (failure == 0) box.remove(FmpRegistries.FLUID_PARCEL_SEAL.get());
+            if (failure == 0) { box.remove(FmpRegistries.FLUID_PARCEL_SEAL.get()); PackageItem.addAddress(box, "@SomeoneElse"); }
             if (failure == 1) PackageItem.addAddress(box, "not-the-owner");
             if (failure == 2) box.setCount(2);
             if (failure == 3) {
@@ -537,11 +545,14 @@ public final class ReceiveTests {
         var stranger = TestPlayers.create(h, pendant.copy());
         h.assertTrue(!ReceiveService.receive(stranger, box) && box.getCount() == 1, "A new holder intercepted someone else's incoming parcel");
         TestPlayers.necklace(stranger).setStackInSlot(0, ItemStack.EMPTY);
-        h.assertTrue(ReceiveService.receive(f.player(), box) && f.amount() == 16000 && FluidPackages.read(f.residual()).getAmount() == 125,
-                "A full cache lost its authenticated fluid remainder");
+        rejectFluid(h, f, box);
+        var prior = f.record(); var space = prior.fluids().state().edit(); space.extract(0, 1);
+        f.ledger().replace(f.handle(), prior.state().revision(), prior.withFluids(prior.fluids().withState(space.finish())));
+        h.assertTrue(ReceiveService.receive(f.player(), box) && f.amount() == 16000 && FluidPackages.read(f.residual()).getAmount() == 124,
+                "Partial receipt lost its authenticated fluid remainder");
         TestPlayers.necklace(f.player()).setStackInSlot(0, ItemStack.EMPTY); TestPlayers.necklace(stranger).setStackInSlot(0, pendant);
         var before = f.record(); var edit = before.fluids().state().edit();
-        h.assertTrue(edit.extract(0, 125) == 125, "Fixture failed to free exactly the residual volume");
+        h.assertTrue(edit.extract(0, 124) == 124, "Fixture failed to free exactly the residual volume");
         f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(edit.finish())));
         ReceiveService.resume(stranger);
         h.assertTrue(f.amount() == 16000 && f.residual().isEmpty(),
@@ -602,7 +613,7 @@ public final class ReceiveTests {
         h.assertTrue(FluidPackages.status() == FluidPackages.Status.READY, "Installed FluidLogistics interface unavailable"); return true;
     }
 
-    private record FluidFixture(ServerPlayer player, CacheLedger ledger, CacheHandle handle, FluidVariantKey key, UUID request) {
+    record FluidFixture(ServerPlayer player, CacheLedger ledger, CacheHandle handle, FluidVariantKey key, UUID request) {
         CacheRecord record() { return ledger.find(handle.cacheId()); }
         long amount() { return record().fluids().state().cells().get(0).amount(); }
         ItemStack residual() { return record().fluids().residual(key); }
@@ -613,7 +624,7 @@ public final class ReceiveTests {
         }
     }
 
-    private static FluidFixture fluidSetup(GameTestHelper h, FluidStack sample, int initial, int request) {
+    static FluidFixture fluidSetup(GameTestHelper h, FluidStack sample, int initial, int request) {
         var player = TestPlayers.create(h, FmpRegistries.PENDANT.toStack());
         var handle = AccessGate.resolve(player).handle(); var ledger = CacheLedger.get(player.getServer()); var before = ledger.find(handle.cacheId());
         var key = FluidVariantKey.of(sample, player.registryAccess()); var order = UUID.randomUUID(); var edit = before.fluids().state().edit();

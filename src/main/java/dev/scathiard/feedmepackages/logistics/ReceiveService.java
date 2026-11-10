@@ -3,7 +3,6 @@ package dev.scathiard.feedmepackages.logistics;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.interaction.InventoryTransfer;
 import dev.scathiard.feedmepackages.registry.FmpRegistries;
-import dev.scathiard.feedmepackages.service.AccessGate;
 import dev.scathiard.feedmepackages.storage.*;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
@@ -16,9 +15,19 @@ import java.util.*;
 public final class ReceiveService {
     private ReceiveService() {}
     private static final Map<ServerPlayer, UUID> WARNED_RESIDUALS = new WeakHashMap<>();
-    private record Plan(CacheRecord replacement) {}
+    private record Plan(CacheRecord replacement, ItemStack remainder) {
+        Plan(CacheRecord replacement) { this(replacement, ItemStack.EMPTY); }
+    }
 
     private static Plan simulate(LivingEntity player, CacheHandle handle, ItemStack box, boolean residual) {
+        if (!residual && player instanceof ServerPlayer serverPlayer) {
+            var record = CacheLedger.get(player.getServer()).find(handle.cacheId());
+            if (!PlayerParcelIntake.eligible(record, box, player.registryAccess())) return null;
+            if (!box.has(FmpRegistries.PARCEL_SEAL.get()) && !box.has(FmpRegistries.FLUID_PARCEL_SEAL.get())) {
+                var ordinary = PlayerParcelIntake.ordinary(serverPlayer, record, box);
+                return ordinary == null ? null : new Plan(ordinary.record(), ordinary.remainder());
+            }
+        }
         if (box.has(FmpRegistries.FLUID_PARCEL_SEAL.get())) {
             var candidate = dev.scathiard.feedmepackages.fluid.FluidReceipt.simulate(player, handle, box, residual);
             return candidate == null ? null : new Plan(candidate);
@@ -62,27 +71,34 @@ public final class ReceiveService {
     public static boolean receive(ServerPlayer player, ItemStack source) {
         return receive(LogisticsEndpoint.player(player), source);
     }
-    /** Preview the same authenticated contents/residual plan as receive, without transferring ownership. */
+    /** Preview a complete handoff. An ordinary partial parcel must first occupy a real inventory slot. */
     public static boolean canReceive(LogisticsEndpoint endpoint, ItemStack source) {
-        if (source == null || source.isEmpty()
-                || !source.has(FmpRegistries.PARCEL_SEAL.get()) && !source.has(FmpRegistries.FLUID_PARCEL_SEAL.get())) return false;
+        if (source == null || !com.simibubi.create.content.logistics.box.PackageItem.isPackage(source)) return false;
         var access = endpoint.access();
         if (!access.active() || dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(access.handle().cacheId())
                 || dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId())) return false;
-        return simulate(endpoint.entity(), access.handle(), source, false) != null;
+        var plan = simulate(endpoint.entity(), access.handle(), source, false);
+        return plan != null && plan.remainder().isEmpty();
     }
     public static boolean receive(LogisticsEndpoint endpoint, ItemStack source) {
+        return receive(endpoint, source, -1);
+    }
+
+    /** inventorySlot >= 0 gives an ordinary partial receipt a real destination for the remainder. */
+    private static boolean receive(LogisticsEndpoint endpoint, ItemStack source, int inventorySlot) {
         var player = endpoint.entity();
-        if (source.isEmpty() || !source.has(FmpRegistries.PARCEL_SEAL.get()) && !source.has(FmpRegistries.FLUID_PARCEL_SEAL.get())) return false;
+        if (!com.simibubi.create.content.logistics.box.PackageItem.isPackage(source)) return false;
         var access = endpoint.access(); if (!access.active()) return false;
         if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(access.handle().cacheId())
                 || dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId())) return false;
         var ledger = CacheLedger.get(player.getServer()); var before = ledger.find(access.handle().cacheId());
         Plan plan = simulate(player, access.handle(), source, false); if (plan == null) return false;
+        if (inventorySlot < 0 && !plan.remainder().isEmpty()) return false;
         var again = endpoint.access();
         if (!again.active() || !again.handle().equals(access.handle()) || ledger.find(access.handle().cacheId()) != before) return false;
         // No callbacks between the state replacement and relinquishing the original stack.
         ledger.replace(access.handle(), before.state().revision(), plan.replacement()); source.setCount(0);
+        if (inventorySlot >= 0) ((ServerPlayer) player).getInventory().setItem(inventorySlot, plan.remainder());
         LogisticsSignals.received(before.state(), plan.replacement().state());
         LogisticsSignals.received(before.fluids().state(), plan.replacement().fluids().state());
         if (player instanceof ServerPlayer serverPlayer) serverPlayer.getInventory().setChanged();
@@ -122,7 +138,7 @@ public final class ReceiveService {
         // Bounded original inventory + offhand; no hidden slots, no recursion into backpacks.
         for (int slot = 0; slot < serverPlayer.getInventory().getContainerSize(); slot++) {
             ItemStack stack = serverPlayer.getInventory().getItem(slot);
-            if (receive(endpoint, stack)) serverPlayer.getInventory().setItem(slot, ItemStack.EMPTY);
+            receive(endpoint, stack, slot);
         }
     }
 

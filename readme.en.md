@@ -39,7 +39,9 @@ For example, set a minimum of two stacks of logs. Whenever the cache falls below
 
 Open **cell controls** using the corner dot. Scroll to adjust by one item, or Shift-scroll by one native stack; the bottom thresholds also have slider handles. The top fields set the minimum restock batch and pending limit. A minimum batch of 64 requests at least 64 even when only one item is missing, and waits if stock or allowance is insufficient. The center package shows outstanding items; clicking resets only this cell. Requests never expire automatically.
 
-Delivered packages are unpacked straight into the cache. You don't have to empty them into your inventory first, and a dedicated receiving entry still works when that inventory is full. Anything that won't fit in the cache stays in a residual package until there's room. There's a limit to those leftovers, too, so they aren't an infinite warehouse.
+Player requests use the native `@playername` address. A delivered package enters the cache when every material matches an existing filter and each matching cell is below its return threshold and capacity. Manually sent matching packages qualify too. If even one material has no matching filter, the whole package is left for you to handle.
+
+Anything that will not fit stays in a package until there is room. Existing full-inventory receiving hooks remain available, but some transports reject delivery or drop the package before reaching those hooks. In that case, free an inventory slot first.
 
 Stored items keep data such as enchantments, with different variants kept in separate cells. Items that can't be saved safely are rejected, not silently turned into plain versions.
 

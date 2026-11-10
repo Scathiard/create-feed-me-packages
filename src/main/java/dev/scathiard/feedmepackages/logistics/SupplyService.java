@@ -9,7 +9,7 @@ import java.util.UUID;
 
 public final class SupplyService {
     private SupplyService() {}
-    public static String address(ServerPlayer player) { return "FMP@" + player.getGameProfile().getName(); }
+    public static String address(ServerPlayer player) { return "@" + player.getGameProfile().getName(); }
 
     public static void tick(ServerPlayer player) { tick(LogisticsEndpoint.player(player)); }
     public static void tick(LogisticsEndpoint endpoint) {

@@ -307,17 +307,21 @@ public final class SupplyTests {
                 SupplyService.tick(f.player()); requested[0] = true;
             }
             var box = takeOutput(h, pos); if (box.isEmpty()) return;
-            // Stock arriving by another route can fill the cache before the requested native parcel.
+            // Stock arriving by another route fills the cache; new receipt must leave this parcel alone.
             var before = f.record(); var full = before.fluids().state().edit();
             h.assertTrue(full.insert(0, f.key(), 16000) == 16000, "Full-cache fixture rejected water");
             f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(full.finish())));
-            h.assertTrue(ReceiveService.receive(f.player(), box) && f.record().anyResidual(), "Full cache lost the native fluid parcel");
+            var original = box.copy(); before = f.record();
+            h.assertTrue(!ReceiveService.receive(f.player(), box) && before == f.record() && ItemStack.matches(original, box), "Full cache took a new fluid parcel");
+            var space = before.fluids().state().edit(); space.extract(0, 1);
+            f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(space.finish())));
+            h.assertTrue(ReceiveService.receive(f.player(), box) && f.record().anyResidual(), "Partial cache lost the native fluid parcel");
             before = f.record(); var reset = before.fluids().state().edit(); reset.reset(0);
             f.ledger().replace(f.handle(), before.state().revision(), before.withFluids(before.fluids().withState(reset.finish())));
             var chest = (ChestBlockEntity) h.getBlockEntity(itemPos.south()); chest.setItem(0, new ItemStack(Items.STONE, 64));
             SupplyService.tick(f.player());
             h.assertTrue(f.record().fluids().state().orders().isEmpty() && f.record().fluids().state().cells().get(0).amount() == 16000
-                    && dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(f.record().fluids().residual(f.key())).getAmount() == 8000
+                    && dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages.read(f.record().fluids().residual(f.key())).getAmount() == 7999
                     && source(h, pos).getFluidInTank(0).getAmount() == 0 && f.record().state().pending(1) == 64
                     && f.record().state().cells().get(1).amount() == 0 && chest.getItem(0).isEmpty(),
                     "Manual reset evaded the residual pause, started a stocked item request or duplicated native extraction"); h.succeed();

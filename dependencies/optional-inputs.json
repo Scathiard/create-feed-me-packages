@@ -162,6 +162,18 @@
       "project": "https://www.curseforge.com/minecraft/mc-mods/create-biotech",
       "sha256": "ddf15b6fb623b0173d95cd138c0fb2465ff350af534254bc2580c63d2e25b78a",
       "path": "dependencies/optional/create-biotech/1.3.1/create_biotech-1.21.1-1.3.1.jar"
+    },
+    {
+      "version": "2.0.0-beta.2",
+      "source": "H:/MC/PCL/.minecraft/versions/1.21.1-NeoForge_21.1.249/mods/create_biotech-1.21.1-2.0.0-beta.2.jar",
+      "sha256": "43773d511466422c614a93df82113fcd571c261757efe03a1830fea33d3f1034",
+      "path": "dependencies/optional/create-biotech/2.0.0-beta.2/create_biotech-1.21.1-2.0.0-beta.2.jar"
+    },
+    {
+      "version": "2.3.1",
+      "source": "H:/MC/PCL/.minecraft/versions/1.21.1-NeoForge_21.1.249/mods/cmpackagecouriers-neoforge-2.3.1.jar",
+      "sha256": "96fe86385386af42bc661f82bd189476b63ecdd3e38bfb33607bbb022759df61",
+      "path": "dependencies/optional/package-couriers/2.3.1/cmpackagecouriers-neoforge-2.3.1.jar"
     }
   ]
 }
