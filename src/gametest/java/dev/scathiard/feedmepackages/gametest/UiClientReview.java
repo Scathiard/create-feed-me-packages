@@ -11,10 +11,8 @@ import top.theillusivec4.curios.api.CuriosApi;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * Screenshot-only client review (mode {@code ui}, user 2026-10-13): the controls page and the logistics panel in
- * both languages, the pendant hover tooltip, and the pendant icon as the GUI really draws it. It asserts nothing
- * about behaviour - it drives the real vanilla / FMP screens through the real client, so every picture shows the
- * shipped code and not a mock.
+ * Real client review (mode {@code ui}): controls, panel and tooltips in both languages, crafting toggle,
+ * and unbound one-key collection through actual mouse/key input and server inventory settlement.
  */
 public final class UiClientReview {
     private static final Minecraft MC = Minecraft.getInstance();
@@ -103,7 +101,54 @@ public final class UiClientReview {
                 require(!dev.scathiard.feedmepackages.client.ClientMaterials.craftingStacks().isEmpty(), "ON failed to restore client crafting sources");
                 TemplateClientReview.capture("crafting-toggle-restored"); next();
             }
-            case 21 -> { return true; }
+            case 21 -> {
+                onServer(player -> {
+                    require(dev.scathiard.feedmepackages.service.AccessGate.resolve(player).handle().networkId() == null,
+                            "Unbound collection fixture unexpectedly has a network");
+                    player.getInventory().setItem(8, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.OAK_LOG, 5));
+                    player.getInventory().setItem(9, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.COBBLESTONE, 3));
+                    player.containerMenu.broadcastChanges();
+                }); next();
+            }
+            case 22 -> {
+                if (!panelReady()) return false;
+                require(!TemplateClientReview.snapshot().bound(), "Client still considers the pendant bound");
+                TemplateClientReview.capture("collect-unbound-before");
+                var r = TemplateClientReview.hostLayout().transferButton(); TemplateClientReview.click(r.x()+6,r.y()+6); next();
+            }
+            case 23 -> {
+                onServer(player -> {
+                    require(ConsumptionTests.stock(player,0)==13 && player.getInventory().getItem(8).isEmpty(),
+                            "Unbound collect button failed to move the five matching logs");
+                    require(player.getInventory().getItem(9).is(net.minecraft.world.item.Items.COBBLESTONE)
+                            && player.getInventory().getItem(9).getCount()==3, "Collect changed unmatched items");
+                    player.getInventory().setItem(8, new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.OAK_LOG, 2));
+                    player.containerMenu.broadcastChanges();
+                }); next();
+            }
+            case 24 -> {
+                if (!panelReady() || TemplateClientReview.snapshot().cells().getFirst().amount()!=13) return false;
+                var binding = dev.scathiard.feedmepackages.client.ClientBootstrap.PALLET_COLLECT;
+                var previous = binding.getKey();
+                try {
+                    binding.setKey(com.mojang.blaze3d.platform.InputConstants.Type.KEYSYM.getOrCreate(75));
+                    var input = new net.neoforged.neoforge.client.event.ScreenEvent.KeyPressed.Pre(MC.screen,75,0,0);
+                    net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(input);
+                    require(input.isCanceled(), "Unbound collection shortcut was not accepted");
+                } finally { binding.setKey(previous); }
+                next();
+            }
+            case 25 -> {
+                onServer(player -> require(ConsumptionTests.stock(player,0)==15 && player.getInventory().getItem(8).isEmpty()
+                        && player.getInventory().getItem(9).getCount()==3, "Unbound shortcut did not preserve item totals"));
+                next();
+            }
+            case 26 -> {
+                if (!panelReady() || TemplateClientReview.snapshot().cells().getFirst().amount()!=15) return false;
+                TemplateClientReview.capture("collect-unbound-after");
+                dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP_UNBOUND_COLLECT_PASSED mouse=5 key=2 unmatched=3 stock=15");
+                return true;
+            }
             default -> { }
         }
         return false;
