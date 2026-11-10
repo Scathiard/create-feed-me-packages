@@ -112,13 +112,13 @@ public final class LogisticsPanel {
 
     // --- Panel UI Color Palette (ARGB) ------------------------------------------------------------------------
     private static final int COLOR_TEXT_DEFAULT = 0xFF000000;
-    private static final int COLOR_ADDRESS_HOVER = 0xFF7045AA;
-    private static final int COLOR_STATUS_WARNING = 0xFF714940;
+    private static final int COLOR_ADDRESS_HOVER = 0xFF70462A;
+    private static final int COLOR_STATUS_WARNING = 0xFF714A40;
     private static final int COLOR_WAITING_DOT = 0xFFE6C178;
     private static final int COLOR_FEEDBACK_ALERT = 0xFFFFB16B;
     private static final int COLOR_SCROLL_RAIL = 0xFF302F2C;
     private static final int COLOR_SCROLL_THUMB = 0xFFC0A366;
-    private static final int COLOR_STOCK_ZERO_OR_RETURN_IDLE = 0xFF968E81;
+    private static final int COLOR_STOCK_ZERO_OR_RETURN_IDLE = 0xFF969081;
     private static final int COLOR_STOCK_AMOUNT = 0xFFF5E8C6;
     private static final int COLOR_READ_ONLY_BAR = 0xFFAA7777;
     private static final int COLOR_RESIDUAL_OR_PENDING = 0xFF82C665;
@@ -126,7 +126,7 @@ public final class LogisticsPanel {
     private static final int COLOR_RETURN_SENT = 0xFFE0955A;
     private static final int COLOR_CONFIGURE_DOT = 0xFFE0C27E;
     private static final int COLOR_RETURN_PLACEHOLDER = 0xFF8A7E68;
-    private static final int COLOR_RETURN_EDITING = 0xFF4A3D28;
+    private static final int COLOR_RETURN_EDITING = 0xFF4A3B28;
     private static final int COLOR_COMPACT_BUTTON_TEXT = 0xFFF0E3C3;
     private static final int COLOR_TOGGLE_DOT_ON = 0xFF76ED77;
     private static final int COLOR_TOGGLE_DOT_OFF = 0xFF696969;

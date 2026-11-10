@@ -22,7 +22,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
  *   <li>Touhou Little Maid ({@code touhou_little_maid})</li>
  * </ul>
  */
-final class MixinConsumptionShapes {
+public final class MixinConsumptionShapes {
     private static Boolean sbwReady;
     private static Boolean effortlessReady;
     private static Boolean gadgetsReady;

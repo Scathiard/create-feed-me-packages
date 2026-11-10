@@ -29,7 +29,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
  *   <li>Quark screen overlay exemptions</li>
  * </ul>
  */
-final class MixinCraftingShapes {
+public final class MixinCraftingShapes {
     static final List<String> CRAFTING_TWEAK_MESSAGES = List.of(
             "RotateMessage",
             "BalanceMessage",

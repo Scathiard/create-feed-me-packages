@@ -1102,7 +1102,7 @@ public final class MaidTests {
         PackageItem.addAddress(box,f.ledger().returnAddress(f.handle().cacheId()));
         for(String member:modern ? List.of("phantom103FlightReady","phantom103PortReady","phantom103BeltReady")
                 : List.of("phantom102FlightReady","phantom102PortReturnReady")) {
-            var field=dev.scathiard.feedmepackages.mixin.OptionalMixins.class.getDeclaredField(member);field.setAccessible(true);
+            var field=dev.scathiard.feedmepackages.mixin.MixinTransportShapes.class.getDeclaredField(member);field.setAccessible(true);
             Object saved=field.get(null);
             try {
                 field.set(null,false);

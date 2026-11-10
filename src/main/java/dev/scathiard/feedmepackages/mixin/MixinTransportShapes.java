@@ -25,7 +25,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
  *   <li>Create: Factory Logistics ({@code create_factory_logistics})</li>
  * </ul>
  */
-final class MixinTransportShapes {
+public final class MixinTransportShapes {
     private static Boolean biotechReady;
     private static boolean factoryReady;
     private static Boolean maidPaperReady;

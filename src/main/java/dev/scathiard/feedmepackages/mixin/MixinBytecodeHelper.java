@@ -12,7 +12,7 @@ import org.spongepowered.asm.service.MixinService;
  * <p>All methods inspect raw {@link ClassNode} structures via {@link MixinService} without loading
  * optional mod classes into the JVM classloader.
  */
-final class MixinBytecodeHelper {
+public final class MixinBytecodeHelper {
     private MixinBytecodeHelper() {}
 
     static ClassNode getClassNode(String className) throws ClassNotFoundException, IOException {

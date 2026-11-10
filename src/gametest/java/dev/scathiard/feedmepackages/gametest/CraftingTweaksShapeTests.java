@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.gametest;
 
+import dev.scathiard.feedmepackages.mixin.MixinCraftingShapes;
 import dev.scathiard.feedmepackages.mixin.OptionalMixins;
 import dev.scathiard.feedmepackages.registry.FmpRegistries;
 import dev.scathiard.feedmepackages.interaction.*;
@@ -35,7 +36,7 @@ public final class CraftingTweaksShapeTests {
         h.succeed();
     }
     public static void missingAccountingRemovesVirtualSources(GameTestHelper h) throws Exception {
-        var field=OptionalMixins.class.getDeclaredField("craftingTweaksReady");field.setAccessible(true);var previous=field.get(null);
+        var field=MixinCraftingShapes.class.getDeclaredField("craftingTweaksReady");field.setAccessible(true);var previous=field.get(null);
         var p=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());ConsumptionTests.seed(p,0,new ItemStack(Items.OAK_LOG),8);
         try{
             field.set(null,false);
