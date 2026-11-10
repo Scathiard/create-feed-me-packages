@@ -479,15 +479,7 @@ public final class LogisticsPanel {
 
     /** Native maid pages have a left tab strip; reserve it as part of the host, not as free cache space. */
     private static int panelAnchorX() {
-        int anchor = screen.getGuiLeft();
-        if (maidPanel()) {
-            for (var child : screen.children())
-                if (child instanceof AbstractWidget widget && widget.visible && widget.getX() < anchor
-                        && widget.getY() < screen.getGuiTop() + screen.getYSize()
-                        && widget.getY() + widget.getHeight() > screen.getGuiTop())
-                    anchor = widget.getX();
-        }
-        return anchor;
+        return maidPanel() ? MaidPanelAnchor.left(screen) : screen.getGuiLeft();
     }
 
     private static boolean current(Screen candidate) {

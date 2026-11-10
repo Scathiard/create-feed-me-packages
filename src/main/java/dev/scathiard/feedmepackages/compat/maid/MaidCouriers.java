@@ -34,6 +34,14 @@ public final class MaidCouriers {
                        Method id, Method setRemoved, Method setReturnHome) {}
     /** The native bee carrier item, handed back to the maid when her bee comes home. */
     private static ItemStack beeItem = ItemStack.EMPTY;
+    private static Method beeRange(Class<?> helper) throws NoSuchMethodException {
+        try { return helper.getMethod("isWithinRange", Level.class, BlockPos.class, BlockPos.class); }
+        catch (NoSuchMethodException oldInterface) { return helper.getMethod("isWithinRange", BlockPos.class, BlockPos.class); }
+    }
+    private static boolean beeInRange(Level level, BlockPos source, BlockPos target) throws ReflectiveOperationException {
+        return (boolean) (bee.inRange.getParameterCount() == 3 ? bee.inRange.invoke(null, level, source, target)
+                : bee.inRange.invoke(null, source, target));
+    }
     public static void initialize() {
         if (initialized) return; initialized = true;
         if (ModList.get().isLoaded("cmpackagecouriers")) try {
@@ -59,7 +67,7 @@ public final class MaidCouriers {
                         robo.getMethod("getTarget"), field(robo, "target"), robo.getMethod("getCurrentPos"),
                         robo.getMethod("setItemStack", ItemStack.class), robo.getMethod("invalidateTarget"),
                         Class.forName(root + "network_settings.NetworkHelper").getMethod("getPlayerUUIDs", UUID.class),
-                        Class.forName(root + "CMPHelper").getMethod("isWithinRange", Level.class, BlockPos.class, BlockPos.class),
+                        beeRange(Class.forName(root + "CMPHelper")),
                         port.getMethod("getLogisticsNetworkId"), send,
                         robo.getMethod("getId"), robo.getMethod("setRemoved", ServerLevel.class),
                         robo.getMethod("setReturnToHomeAfterDelivery", boolean.class));
@@ -186,7 +194,7 @@ public final class MaidCouriers {
             UUID network = (UUID) bee.portNetwork.invoke(port);
             var maid = destination(level.getServer(), box, network, true);
             if (maid == null || maid.level() != level || !member(maid, network)
-                    || !(boolean) bee.inRange.invoke(null, level, maid.blockPosition(), block.getBlockPos())) return false;
+                    || !beeInRange(level, maid.blockPosition(), block.getBlockPos())) return false;
             // This native method owns carrier consumption, missing-bee requests, cooldown and removing cargo.
             bee.sendDrone.invoke(port, box, slot); return true;
         } catch (ReflectiveOperationException broken) { throw MaidCompatibility.failure(broken); }

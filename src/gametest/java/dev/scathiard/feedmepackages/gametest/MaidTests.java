@@ -111,7 +111,8 @@ public final class MaidTests {
             tests.add(test("phantom_identity_at_admission", MaidTests::phantomIdentityAtAdmission));
             tests.add(test("phantom_port_pre_admission_failure", h -> phantomPortFault(h, false)));
             tests.add(test("phantom_port_post_admission_failure", h -> phantomPortFault(h, true)));
-            tests.add(test("phantom_belt_post_admission_failure", MaidTests::phantomBeltFault));
+            if (!dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.classic())
+                tests.add(test("phantom_belt_post_admission_failure", MaidTests::phantomBeltFault));
         }
         if (ModList.get().isLoaded("create_mobile_packages")) {
             tests.add(test("bee_return_inventory_priority", h -> carrierInventoryPriority(h, true)));
@@ -571,6 +572,7 @@ public final class MaidTests {
             var tx=new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse("cmpackagecouriers:location_transmitter")));
             tx.getItem().getClass().getMethod("setEnabled",ItemStack.class,boolean.class).invoke(null,tx,true);
             tx.getItem().inventoryTick(tx,h.getLevel(),target,0,false);
+            NativeDeliveryTests.registerLegacyPaperTarget(target);
         }
         f.pendant.set(FmpRegistries.NETWORK.get(),network);
         var carrier=new ItemStack(BuiltInRegistries.ITEM.get(ResourceLocation.parse(bee?"create_mobile_packages:robo_bee":"cmpackagecouriers:cardboard_plane_parts")));
@@ -988,8 +990,14 @@ public final class MaidTests {
                         if (beePresent(beeManager(h), beeId(ownedBee[0]))) return;
                         var controllerField = ownedBee[0].getClass().getDeclaredField("behaviorController"); controllerField.setAccessible(true);
                         Object controller = controllerField.get(ownedBee[0]);
-                        var landedField = controller.getClass().getDeclaredField("lastLandedPort"); landedField.setAccessible(true);
-                        h.assertTrue(landedField.get(controller) == port[0], "This exact carrier landed at a different port instead of its source");
+                        try {
+                            var landedField = controller.getClass().getDeclaredField("lastLandedPort"); landedField.setAccessible(true);
+                            h.assertTrue(landedField.get(controller) == port[0], "This exact carrier landed at a different port instead of its source");
+                        } catch (NoSuchFieldException olderController) {
+                            var finalPosition=(Vec3)ownedBee[0].getClass().getMethod("getCurrentPos").invoke(ownedBee[0]);
+                            var homePosition=Vec3.atCenterOf(((net.minecraft.world.level.block.entity.BlockEntity)port[0]).getBlockPos());
+                            h.assertTrue(finalPosition.distanceToSqr(homePosition)<4,"The removed original bee was not at its source port: "+finalPosition+" / "+homePosition);
+                        }
                         // Other native flights can land at these ports between concurrently running tests.
                         // The original UUID's final landing is the proof of ownership, not a global bee count.
                         h.assertTrue(bees.getStackInSlot(0).getCount() >= 1, "Native source port did not recover this carrier");
@@ -1088,12 +1096,13 @@ public final class MaidTests {
         h.assertTrue(dev.scathiard.feedmepackages.compat.PhantomDispatch.ready(),"Native Phantom API unavailable");
         var f=sourceReturnFixture(h);
         boolean modern=dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.modern();
-        var gate=modern ? dev.scathiard.feedmepackages.compat.maid.phantom.v103.Phantom103Flight.class.getDeclaredField("enabled")
+        boolean classic=dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.classic();
+        var gate=classic ? dev.scathiard.feedmepackages.mixin.MixinTransportShapes.class.getDeclaredField("phantom100FlightReady") : modern ? dev.scathiard.feedmepackages.compat.maid.phantom.v103.Phantom103Flight.class.getDeclaredField("enabled")
                 : dev.scathiard.feedmepackages.compat.maid.phantom.v102.Phantom102Gate.class.getDeclaredField("verdict");gate.setAccessible(true);
         dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.enabled();Object prior=gate.get(null);
         int before=livePhantomTasks().size();
         try {
-            gate.set(null,modern ? Boolean.FALSE : "disabled reason=test-shape-mismatch");ReturnService.check(MaidAccess.endpoint(f.maid()));
+            gate.set(null,modern || classic ? Boolean.FALSE : "disabled reason=test-shape-mismatch");ReturnService.check(MaidAccess.endpoint(f.maid()));
             h.assertTrue(f.stock()==100&&f.ledger().returnEscrow(f.handle().cacheId())==null
                     &&livePhantomTasks().size()==before,"Source maid dispatched despite unavailable recovery capability");
             h.assertTrue(MaidCompatibility.inventory(f.maid()).getStackInSlot(0).getCount()==1,"Disabled route charged its carrier");
@@ -1101,7 +1110,7 @@ public final class MaidTests {
         var box=handoverBox(f,new ItemStack(Items.STONE,36));
         PackageItem.addAddress(box,f.ledger().returnAddress(f.handle().cacheId()));
         for(String member:modern ? List.of("phantom103FlightReady","phantom103PortReady","phantom103BeltReady")
-                : List.of("phantom102FlightReady","phantom102PortReturnReady")) {
+                : classic ? List.of("phantom100FlightReady","phantom102PortReturnReady") : List.of("phantom102FlightReady","phantom102PortReturnReady")) {
             var field=dev.scathiard.feedmepackages.mixin.MixinTransportShapes.class.getDeclaredField(member);field.setAccessible(true);
             Object saved=field.get(null);
             try {

@@ -27,6 +27,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
  */
 public final class MixinTransportShapes {
     private static Boolean biotechReady;
+    static String biotechRoot = "com.nobodiiiii.createbiotech.content.allay.";
     private static boolean factoryReady;
     private static Boolean maidPaperReady;
     private static Boolean maidBeeReady;
@@ -42,8 +43,45 @@ public final class MixinTransportShapes {
     private static Boolean phantom103FlightReady;
     private static Boolean phantom103PortReady;
     private static Boolean phantom103BeltReady;
+    private static boolean phantom100FlightReady;
+
+    static boolean phantom100FlightCompatible() { return phantom100FlightReady; }
+
+    static boolean inspectPhantom100Flight(String targetClassName) {
+        try {
+            var task = getClassNode(targetClassName);
+            String server = "Lnet/minecraft/server/MinecraftServer;";
+            String level = "Lnet/minecraft/server/level/ServerLevel;";
+            String root = "Lcom/yision/phantom/logistics/courier/AirCourierTask";
+            phantom100FlightReady = hasMethod(task, "tickLanding", "(" + server + level + ")V")
+                    && hasMethod(task, "resolveTarget", "(" + server + ")" + root + "$ResolvedTarget;")
+                    && hasMethod(task, "doFinishDeliveryAt", "(" + server + level + ")V")
+                    && hasMethod(task, "startCarrierReturn", "(" + server + ")V")
+                    && hasMethod(task, "save", "(Lnet/minecraft/core/HolderLookup$Provider;Lnet/minecraft/nbt/CompoundTag;)Lnet/minecraft/nbt/CompoundTag;")
+                    && hasMethod(task, "load", "(Lnet/minecraft/core/HolderLookup$Provider;Lnet/minecraft/nbt/CompoundTag;)" + root + ";")
+                    && !hasMethod(task, "resolveFlightTarget", "(" + server + ")" + root + "$FlightTarget;")
+                    && List.of("landingTarget", "cruiseTarget", "completionDistance").stream().allMatch(name ->
+                            task.methods.stream().flatMap(m -> Arrays.stream(m.instructions.toArray()))
+                                    .anyMatch(i -> i instanceof MethodInsnNode call
+                                            && call.owner.equals("com/yision/phantom/logistics/courier/flight/AirCourierFlightTargets")
+                                            && call.name.equals(name)
+                                            && call.desc.equals("(Lcom/yision/phantom/logistics/courier/flight/AirCourierFlightProfile;Lcom/yision/phantom/block/phantomport/PhantomPortBlockEntity;Lnet/minecraft/server/level/ServerPlayer;)"
+                                                    + (name.equals("completionDistance") ? "D" : "Lnet/minecraft/world/phys/Vec3;"))));
+            return phantom100FlightReady;
+        } catch (ClassNotFoundException | IOException unavailable) { return false; }
+    }
 
     private MixinTransportShapes() {}
+
+    static boolean inspectLegacyPaper(String targetClassName) {
+        try {
+            var node = getClassNode(targetClassName);
+            return hasMethod(getClassNode("com.kreidev.cmpackagecouriers.CourierTarget"), "getEntity", "()Lnet/minecraft/world/entity/Entity;")
+                    && calls(node, "addPlane", "(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/phys/Vec3;FFLnet/minecraft/world/item/ItemStack;Z)Z",
+                    "com/kreidev/cmpackagecouriers/CourierTarget", "getActiveTarget",
+                    "(Ljava/lang/String;)Lcom/kreidev/cmpackagecouriers/CourierTarget;") == 1;
+        } catch (ClassNotFoundException | IOException absent) { return false; }
+    }
 
     static boolean biotechCompatible() {
         return Boolean.TRUE.equals(biotechReady);
@@ -102,21 +140,25 @@ public final class MixinTransportShapes {
             return biotechReady;
         }
         biotechReady = false;
-        boolean versionMatches = LoadingModList.get().getMods().stream()
-                .anyMatch(m -> m.getModId().equals("create_biotech") && m.getVersion().toString().equals("1.3.1"));
-        if (!versionMatches) {
+        if (LoadingModList.get().getMods().stream().noneMatch(m -> m.getModId().equals("create_biotech"))) {
             return false;
         }
         try {
-            String root = "com.nobodiiiii.createbiotech.content.allay.logistics.courier.";
-            var task = getClassNode(root + "AllayCourierTask");
+            ClassNode task;
+            try {
+                task = getClassNode(biotechRoot + "logistics.courier.AllayCourierTask");
+            } catch (ClassNotFoundException legacyNamespace) {
+                biotechRoot = "com.yision.allay.";
+                task = getClassNode(biotechRoot + "logistics.courier.AllayCourierTask");
+            }
+            String root = biotechRoot + "logistics.courier.";
             var dispatch = getClassNode(root + "AllayCourierDispatchService");
             var helper = getClassNode(root + "AllayCourierHelper");
             String server = "Lnet/minecraft/server/MinecraftServer;";
             String player = "Lnet/minecraft/server/level/ServerPlayer;";
             String level = "Lnet/minecraft/server/level/ServerLevel;";
             String vec = "Lnet/minecraft/world/phys/Vec3;";
-            String port = "Lcom/nobodiiiii/createbiotech/content/allay/block/allayport/AllayPortBlockEntity;";
+            String port = "L" + biotechRoot.replace('.', '/') + "block/allayport/AllayPortBlockEntity;";
             String registry = "Lnet/minecraft/core/HolderLookup$Provider;";
             String tag = "Lnet/minecraft/nbt/CompoundTag;";
             String owner = root.replace('.', '/');
@@ -144,8 +186,10 @@ public final class MixinTransportShapes {
     }
 
     static boolean isPhantom103Loaded() {
-        return LoadingModList.get().getMods().stream()
-                .anyMatch(mod -> mod.getModId().equals("createphantom") && mod.getVersion().toString().equals("1.0.3"));
+        try {
+            return hasMethod(getClassNode("com.yision.phantom.logistics.courier.AirCourierTask"), "prepareFlightTarget",
+                    "(Lnet/minecraft/server/MinecraftServer;)Lcom/yision/phantom/logistics/courier/AirCourierTask$FlightTarget;");
+        } catch (ClassNotFoundException | IOException unavailable) { return false; }
     }
 
     static boolean inspectPhantom103PortOrBelt(String targetClassName, String mixinClassName) {

@@ -33,7 +33,7 @@ public final class NativeDeliveryTests {
     static final String BEE = "de.theidler.create_mobile_packages.";
     static final String PAPER = "com.kreidev.cmpackagecouriers.";
     static final String PHANTOM = "com.yision.phantom.";
-    static final String BIO = "com.nobodiiiii.createbiotech.content.allay.";
+    static final String BIO = dev.scathiard.feedmepackages.mixin.OptionalMixins.biotechRoot();
     enum Transport { MOBILE, PAPER, PHANTOM, BIOTECH }
     @GameTestGenerator public static Collection<TestFunction> cases() {
         var tests = new ArrayList<TestFunction>();
@@ -180,6 +180,19 @@ public final class NativeDeliveryTests {
             }catch(RuntimeException | AssertionError error){done[0]=true;online.close();throw error;}
         });
     }
+    // 2.0.x registers transmitter targets on the CLIENT only. A headless server has no client tick;
+    // model that native registration here and separately verify the real integrated-client path.
+    static void registerLegacyPaperTarget(ServerPlayer player) {
+        try {
+            var target=Class.forName(PAPER+"CourierTarget");
+            target.getMethod("getActiveTarget",String.class);
+            var value=target.getConstructor(String.class,net.minecraft.world.entity.Entity.class)
+                    .newInstance(player.getName().getString(),player);
+            target.getMethod("addOrUpdateTarget",target).invoke(null,value);
+        } catch(NoSuchMethodException modern) {
+            // Current native transmitters register on the server.
+        } catch(ReflectiveOperationException failed) {throw new IllegalStateException(failed);}
+    }
     static final class Delivery {
         final GameTestHelper h; final ReceiveTests.Fixture f; final Transport transport;
         Object port; ItemStack transmitter; 
@@ -199,7 +212,10 @@ public final class NativeDeliveryTests {
                 ((ItemStackHandler)call(port,"getCarrierInventory")).setStackInSlot(0,item("create_biotech:allay_courier"));
             }
         }
-        void refresh(){if(transmitter!=null)transmitter.getItem().inventoryTick(transmitter,h.getLevel(),f.player(),0,false);}
+        void refresh(){if(transmitter!=null) {
+            transmitter.getItem().inventoryTick(transmitter,h.getLevel(),f.player(),0,false);
+            registerLegacyPaperTarget(f.player());
+        }}
         void send(ItemStack box) {
             switch(transport) {
                 case MOBILE -> {h.assertTrue((boolean)call(port,"addItemStack",box.copy(),false),"Bee port refused native parcel");box.setCount(0);}

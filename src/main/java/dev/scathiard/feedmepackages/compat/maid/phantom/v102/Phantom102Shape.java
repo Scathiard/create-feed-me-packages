@@ -4,7 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * The shape Create Phantom 1.0.2 must have for FMP to touch it at all (T2-a, plan section 14). Every value here was
+ * The required ports of the Phantom 1.0.1/1.0.2 flight family. Every value here was
  * measured against the real shipped jar with {@code javap -p -s}; nothing is inferred.
  *
  * <p>Pure Java on purpose: the verdict must be unit-testable without Minecraft, and the caller supplies the values
@@ -14,8 +14,6 @@ import java.util.Map;
 public final class Phantom102Shape {
     private Phantom102Shape() {}
     public static final String MOD_ID = "createphantom";
-    public static final String VERSION = "1.0.2";
-    public static final String SHA256 = "7c62765341613a982886fafc644ad1e7face09cf6da76496b97062ba04454c27";
 
     /** Member (methods) and field descriptors exactly as measured. */
     public static Map<String, String> members() {
@@ -65,10 +63,8 @@ public final class Phantom102Shape {
      * Verdict for the values actually found. {@code actualMemberDescriptors} maps the same keys as
      * {@link #members()} to the descriptors found in the loaded artifact; a missing key means "member absent".
      */
-    public static String verdict(boolean modLoaded, String version, String sha256, Map<String, String> actualMemberDescriptors) {
+    public static String verdict(boolean modLoaded, Map<String, String> actualMemberDescriptors) {
         if (!modLoaded) return "disabled reason=mod-not-loaded";
-        if (!VERSION.equals(version)) return "disabled reason=version-mismatch";
-        if (!SHA256.equals(sha256)) return "disabled reason=sha256-mismatch";
         for (var expected : members().entrySet()) {
             String actual = actualMemberDescriptors == null ? null : actualMemberDescriptors.get(expected.getKey());
             if (actual == null) return "disabled reason=missing-member " + expected.getKey();

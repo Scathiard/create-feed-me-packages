@@ -26,14 +26,29 @@ runLayout.primaryFlags.each { flag, suffix -> if (project.hasProperty(flag)) run
 if (project.hasProperty('withJei')) runProfile += "-jei${project.findProperty('jei_runtime_version') ?: jei_version}"
 runProfile += '-' + runLayout.profileSuffix
 runLayout.extraFlags.each { flag -> if (project.hasProperty(flag)) runProfile += '-' + flag.substring(4).toLowerCase() }
-if (project.hasProperty('mobile_runtime_version')) {
-    if (!project.hasProperty('withMobile') || project.property('mobile_runtime_version').toString() != '0.7.8')
-        throw new GradleException('The explicit Mobile Packages runtime input is pinned to 0.7.8 and requires withMobile')
-    runProfile += '-mobile078'
+// The test matrix selects real published inputs; this is not a runtime mod-version gate.
+def transportInputs = new groovy.json.JsonSlurper().parse(file('dependencies/optional-inputs.json')).artifacts
+def transportInput = { family, version ->
+    def artifactVersion = family == 'bee' && version.startsWith('0.') ? "${minecraft_version}-${version}" : version
+    def input = transportInputs.find { it.transport == family && it.version == artifactVersion }
+    if (input == null) throw new GradleException("Unpinned ${family} test input: ${version}")
+    def jar = file(input.path)
+    if (!jar.isFile()) throw new GradleException("Missing transport test input: ${input.path}")
+    def digest = java.security.MessageDigest.getInstance('SHA-256')
+    jar.withInputStream { stream -> new java.security.DigestInputStream(stream, digest).transferTo(java.io.OutputStream.nullOutputStream()) }
+    if (java.util.HexFormat.of().formatHex(digest.digest()) != input.sha256)
+        throw new GradleException("Transport input hash mismatch: ${input.path}")
+    jar
 }
-['fluid_runtime_version': ['withFluid', '1.3.2'], 'phantom_runtime_version': ['withPhantom', '1.0.3'],
- 'tacz_runtime_version': ['withTacz', '1.2.0'], 'biotech_runtime_version': ['withBiotech', '2.0.0-beta.2'],
- 'couriers_runtime_version': ['withCouriers', '2.3.1']].each { key, input ->
+['mobile_runtime_version': ['withMobile', 'bee'], 'couriers_runtime_version': ['withCouriers', 'paper'],
+ 'phantom_runtime_version': ['withPhantom', 'phantom'], 'biotech_runtime_version': ['withBiotech', 'biotech']].each { key, input ->
+    if (project.hasProperty(key)) {
+        if (!project.hasProperty(input[0])) throw new GradleException("${key} requires ${input[0]}")
+        transportInput(input[1], project.property(key).toString())
+        runProfile += '-' + key.split('_')[0] + project.property(key).toString().replace('.', '')
+    }
+}
+['fluid_runtime_version': ['withFluid', '1.3.2'], 'tacz_runtime_version': ['withTacz', '1.2.0']].each { key, input ->
     if (project.hasProperty(key)) {
         if (!project.hasProperty(input[0]) || project.property(key).toString() != input[1])
             throw new GradleException("${key} requires ${input[0]} and the pinned ${input[1]} input")
@@ -274,11 +289,7 @@ dependencies {
         if (project.hasProperty('withSophisticated')) localRuntime files(new File(optionalInput, 'sophisticated-backpacks/1.21.1-3.26.20.2244/sophisticatedbackpacks-1.21.1-3.26.20.2244.jar'))
         if (project.hasProperty('withStorage')) localRuntime files(new File(optionalInput, 'sophisticated-storage/1.21.1-1.6.16.2222/sophisticatedstorage-1.21.1-1.6.16.2222.jar'))
     }
-    if (project.hasProperty('withBiotech')) {
-        def biotechVersion = project.findProperty('biotech_runtime_version') ?: '1.3.1'
-        if (!(biotechVersion in ['1.3.1', '2.0.0-beta.2'])) throw new GradleException('Unpinned Biotech test version')
-        localRuntime files(new File(optionalInput, "create-biotech/${biotechVersion}/create_biotech-1.21.1-${biotechVersion}.jar"))
-    }
+    if (project.hasProperty('withBiotech')) localRuntime files(transportInput('biotech', project.findProperty('biotech_runtime_version') ?: '1.3.1'))
     compileOnly "mezz.jei:jei-1.21.1-common-api:${jei_version}"
     compileOnly "mezz.jei:jei-1.21.1-neoforge-api:${jei_version}"
     if (project.hasProperty('withJei')) {
@@ -290,27 +301,9 @@ dependencies {
             localRuntime files(jei)
         } else localRuntime "mezz.jei:jei-1.21.1-neoforge:${project.findProperty('jei_runtime_version') ?: jei_version}"
     }
-    if (project.hasProperty('withMobile')) {
-        def mobile = project.hasProperty('mobile_runtime_version')
-                ? new File(referenceOutput, 'transport-compat/create_mobile_packages-1.21.1-0.7.8.jar')
-                : file('reference-build-safe/research/transports/1.21.1-0.7.7/create_mobile_packages-1.21.1-0.7.7.jar')
-        if (!mobile.isFile()) throw new GradleException('Missing pinned isolated Mobile Packages input')
-        localRuntime files(mobile)
-    }
-    if (project.hasProperty('withCouriers')) {
-        def couriersVersion = project.findProperty('couriers_runtime_version') ?: '2.3.0'
-        if (!(couriersVersion in ['2.3.0', '2.3.1'])) throw new GradleException('Unpinned Package Couriers test version')
-        localRuntime files(couriersVersion == '2.3.1'
-                ? new File(optionalInput, 'package-couriers/2.3.1/cmpackagecouriers-neoforge-2.3.1.jar')
-                : file('reference-build-safe/research/transports/2.3.0/cmpackagecouriers-neoforge-2.3.0.jar'))
-    }
-    if (project.hasProperty('withPhantom')) {
-        def phantom = project.hasProperty('phantom_runtime_version')
-                ? new File(optionalInput, 'createphantom/1.0.3/createphantom-1.0.3.jar')
-                : new File(referenceOutput, 'phantom-compat/createphantom-1.0.2.jar')
-        if (!phantom.isFile()) throw new GradleException('Missing locked Create Phantom research input')
-        localRuntime files(phantom)
-    }
+    if (project.hasProperty('withMobile')) localRuntime files(transportInput('bee', project.findProperty('mobile_runtime_version') ?: '0.7.7'))
+    if (project.hasProperty('withCouriers')) localRuntime files(transportInput('paper', project.findProperty('couriers_runtime_version') ?: '2.3.0'))
+    if (project.hasProperty('withPhantom')) localRuntime files(transportInput('phantom', project.findProperty('phantom_runtime_version') ?: '1.0.2'))
     if (project.hasProperty('fmpPhantomPublished')) {
         localRuntime files('release/stable/v0.2.3/create-feed-me-packages-0.2.3.jar')
         localRuntime files(new File(referenceOutput, 'phantom-compat/fmp-phantom-test-probe.jar'))

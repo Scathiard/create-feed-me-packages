@@ -22,7 +22,7 @@ import java.util.*;
 /** Locked native ports. No task queue, flight physics, carrier manufacture, or fake player. */
 public final class BiotechCompatibility {
     private BiotechCompatibility() {}
-    static final String ROOT = "com.nobodiiiii.createbiotech.content.allay.";
+    private static String root;
     private static final Map<String, Method> METHODS = new HashMap<>();
     private static final Map<String, Field> FIELDS = new HashMap<>();
     private static Constructor<?> playerTarget, resolvedTarget, deliveryResult;
@@ -34,21 +34,22 @@ public final class BiotechCompatibility {
     public static void initialize() {
         if (!OptionalMixins.biotechCompatible()) {
             if (net.neoforged.fml.ModList.get().isLoaded("create_biotech"))
-                FeedMePackages.LOGGER.warn("FMP Allay Courier adapter requires the verified Biotech 1.3.1 interfaces; this input is unsupported");
+                FeedMePackages.LOGGER.warn("FMP Allay Courier adapter disabled: required native interfaces unavailable");
             return;
         }
         try {
-            var dispatch = Class.forName(ROOT + "logistics.courier.AllayCourierDispatchService");
-            var task = Class.forName(ROOT + "logistics.courier.AllayCourierTask");
-            var manager = Class.forName(ROOT + "logistics.courier.AllayCourierTaskManager");
-            var saved = Class.forName(ROOT + "logistics.courier.AllayCourierTaskSavedData");
-            var target = Class.forName(ROOT + "logistics.courier.AllayCourierTarget");
+            root = OptionalMixins.biotechRoot();
+            var dispatch = Class.forName(root + "logistics.courier.AllayCourierDispatchService");
+            var task = Class.forName(root + "logistics.courier.AllayCourierTask");
+            var manager = Class.forName(root + "logistics.courier.AllayCourierTaskManager");
+            var saved = Class.forName(root + "logistics.courier.AllayCourierTaskSavedData");
+            var target = Class.forName(root + "logistics.courier.AllayCourierTarget");
             portTarget = Class.forName(target.getName() + "$AllayPortTarget");
             var player = Class.forName(target.getName() + "$PlayerTarget");
-            var port = Class.forName(ROOT + "block.allayport.AllayPortBlockEntity");
-            var mode = Class.forName(ROOT + "logistics.courier.AllayCourierReturnMode");
-            var mission = Class.forName(ROOT + "entity.courier.AllayCourierEntity$Mission");
-            var delivery = Class.forName(ROOT + "logistics.courier.AllayCourierDeliveryService");
+            var port = Class.forName(root + "block.allayport.AllayPortBlockEntity");
+            var mode = Class.forName(root + "logistics.courier.AllayCourierReturnMode");
+            var mission = Class.forName(root + "entity.courier.AllayCourierEntity$Mission");
+            var delivery = Class.forName(root + "logistics.courier.AllayCourierDeliveryService");
             playerTarget = player.getConstructor(UUID.class, ResourceKey.class);
             resolvedTarget = task.getDeclaredClasses().length == 0 ? null : Class.forName(task.getName() + "$ResolvedTarget")
                     .getDeclaredConstructor(ServerLevel.class, port, ServerPlayer.class);
@@ -59,14 +60,14 @@ public final class BiotechCompatibility {
             bind("resolve", dispatch, "resolvePackageTarget", ServerLevel.class, ItemStack.class, Vec3.class, ResourceKey.class, BlockPos.class);
             bind("findPlayer", dispatch, "findPlayer", ServerLevel.class, String.class, ItemStack.class, Vec3.class);
             bind("distance", dispatch, "withinDeliveryDistance", ServerLevel.class, ServerLevel.class, Vec3.class, Vec3.class);
-            bind("canTarget", Class.forName(ROOT + "logistics.courier.AllayCourierDimensionRules"), "canTarget", ServerLevel.class, ResourceKey.class);
+            bind("canTarget", Class.forName(root + "logistics.courier.AllayCourierDimensionRules"), "canTarget", ServerLevel.class, ResourceKey.class);
             bind("portTask", task, "forPackageToAllayPort", UUID.class, ItemStack.class, ServerLevel.class, ResourceKey.class,
                     BlockPos.class, UUID.class, Vec3.class, Vec3.class, ResourceKey.class, BlockPos.class, UUID.class, UUID.class, mode);
             bind("playerTask", task, "forPackageToPlayer", UUID.class, ItemStack.class, ServerLevel.class, UUID.class,
                     ResourceKey.class, Vec3.class, Vec3.class, ResourceKey.class, BlockPos.class, UUID.class, UUID.class, mode);
             bind("add", manager, "addTask", MinecraftServer.class, task);
             bind("hasTask", saved, "hasTask", UUID.class);
-            bind("plain", Class.forName(ROOT + "item.allaycourier.AllayCourierItem"), "isPlainCarrier", ItemStack.class);
+            bind("plain", Class.forName(root + "item.allaycourier.AllayCourierItem"), "isPlainCarrier", ItemStack.class);
             bind("targetPort", task, "resolveTargetAllayPort", ServerLevel.class);
             bind("reset", task, "resetForReturn", mission);
             bind("remove", task, "markRemoved");
@@ -81,7 +82,7 @@ public final class BiotechCompatibility {
             }
             savedData = manager.getDeclaredField("savedData"); savedData.setAccessible(true);
             ready = true;
-            FeedMePackages.LOGGER.info("FMP Biotech 1.3.1 native player/maid courier ports ready");
+            FeedMePackages.LOGGER.info("FMP Biotech native player/maid courier ports ready: {}", root);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
             ready = false;
             FeedMePackages.LOGGER.warn("FMP Biotech courier adapter disabled: native ports changed", incompatible);

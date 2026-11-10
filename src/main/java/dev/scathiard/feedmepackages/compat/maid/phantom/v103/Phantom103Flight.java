@@ -20,22 +20,13 @@ import java.util.UUID;
 public final class Phantom103Flight {
     private Phantom103Flight() {}
     private static final String ROOT = "com.yision.phantom.logistics.courier.";
-    private static final String SHA256 = "3ac4adeefcdf4d5ee840fca3f841b63b82cb8c34d9d841bbdb2eba4fc16e2703";
     private static Boolean enabled;
     public static synchronized boolean enabled() {
         if (enabled != null) return enabled;
         enabled = false;
-        if (!ModList.get().getModContainerById("createphantom")
-                .map(mod -> mod.getModInfo().getVersion().toString().equals("1.0.3")).orElse(false)) return false;
-        try {
-            var path = ModList.get().getModFileById("createphantom").getFile().getFilePath();
-            var digest = java.security.MessageDigest.getInstance("SHA-256");
-            try (var stream = new java.security.DigestInputStream(java.nio.file.Files.newInputStream(path), digest)) {
-                stream.transferTo(java.io.OutputStream.nullOutputStream());
-            }
-            enabled = SHA256.equals(java.util.HexFormat.of().formatHex(digest.digest()));
-        } catch (Exception unavailable) { FeedMePackages.LOGGER.warn("FMP phantom103 artifact check failed", unavailable); }
-        FeedMePackages.LOGGER.info("FMP phantom103 gate: {}", enabled ? "enabled" : "disabled: unverified artifact");
+        if (!dev.scathiard.feedmepackages.mixin.OptionalMixins.phantom103FlightCompatible()) return false;
+        enabled = Holder.API != null;
+        FeedMePackages.LOGGER.info("FMP phantom103 interfaces: {}", enabled ? "enabled" : "unavailable");
         return enabled;
     }
 
@@ -55,7 +46,8 @@ public final class Phantom103Flight {
                     field(task,"targetDimension"), field(task,"sourcePlayerId"), field(task,"sourcePhantomPortPos"),
                     flight, state.getField("AVAILABLE").get(null), state.getField("UNAVAILABLE").get(null));
         } catch (ReflectiveOperationException | LinkageError unavailable) {
-            throw new IllegalStateException("Verified Phantom 1.0.3 recipient interface changed", unavailable);
+            FeedMePackages.LOGGER.warn("FMP Phantom recipient interface unavailable", unavailable);
+            return null;
         }
     }
     private static Field field(Class<?> type, String name) throws NoSuchFieldException {

@@ -30,15 +30,10 @@ import java.util.*;
 /** Native ports, tasks and ticks, with all quantities checked at the real receiving endpoints. */
 @GameTestHolder(FeedMePackages.MOD_ID)
 public final class BiotechTests {
-    private static final String ROOT = "com.nobodiiiii.createbiotech.content.allay.";
+    private static final String ROOT = dev.scathiard.feedmepackages.mixin.OptionalMixins.biotechRoot();
     @FunctionalInterface interface Body { void run(GameTestHelper h) throws ReflectiveOperationException; }
     @GameTestGenerator public static Collection<TestFunction> installed() {
         if (!ModList.get().isLoaded("create_biotech")) return List.of();
-        var version = ModList.get().getModContainerById("create_biotech").orElseThrow().getModInfo().getVersion().toString();
-        if (!version.equals("1.3.1")) {
-            FeedMePackages.LOGGER.info("FMP_BIOTECH_TESTS adapter cases not applicable to {}; native player cycles are in NativeDeliveryTests", version);
-            return List.of();
-        }
         var tests = new ArrayList<TestFunction>();
         tests.add(test("player_full_inventory", BiotechTests::playerDelivery));
         tests.add(test("player_partial_receipt", h -> playerDelivery(h, true)));

@@ -121,10 +121,15 @@
       "path": "dependencies/optional/fluidlogistics/1.3.2/fluidlogistics-1.3.2-mc1.21.1.jar"
     },
     {
-      "source": "User test instance, read-only copy on 2026-11-07",
+      "source": "https://modrinth.com/mod/createphantom/version/IU6Bklxo",
       "version": "1.0.3",
       "sha256": "3ac4adeefcdf4d5ee840fca3f841b63b82cb8c34d9d841bbdb2eba4fc16e2703",
-      "path": "dependencies/optional/createphantom/1.0.3/createphantom-1.0.3.jar"
+      "path": "dependencies/optional/createphantom/1.0.3/createphantom-1.0.3.jar",
+      "transport": "phantom",
+      "id": "IU6Bklxo",
+      "type": "release",
+      "url": "https://cdn.modrinth.com/data/T3CecRuS/versions/IU6Bklxo/createphantom-1.0.3.jar",
+      "sha512": "1ed427186f96300df7d9add3e191c9e17610c3f9e821e1c8958f85a3eb66b06b80ee6110b4e79c2c5ccc0b49bf8c1d802dd383aa998c16a8c680468ff633418f"
     },
     {
       "source": "https://modrinth.com/mod/timeless-and-classics-zero/version/O2Pfsh6w",
@@ -158,22 +163,307 @@
     },
     {
       "version": "1.3.1",
-      "source": "H:\\MC\\PCL\\.minecraft\\versions\\1.21.1-NeoForge_21.1.249\\mods\\create_biotech-1.21.1-1.3.1.jar",
+      "source": "https://modrinth.com/mod/create-biotech/version/Y7ktTdpL",
       "project": "https://www.curseforge.com/minecraft/mc-mods/create-biotech",
       "sha256": "ddf15b6fb623b0173d95cd138c0fb2465ff350af534254bc2580c63d2e25b78a",
-      "path": "dependencies/optional/create-biotech/1.3.1/create_biotech-1.21.1-1.3.1.jar"
+      "path": "dependencies/optional/create-biotech/1.3.1/create_biotech-1.21.1-1.3.1.jar",
+      "transport": "biotech",
+      "id": "Y7ktTdpL",
+      "type": "release",
+      "url": "https://cdn.modrinth.com/data/UW0IjVT0/versions/Y7ktTdpL/create_biotech-1.21.1-1.3.1.jar",
+      "sha512": "a461355ca302e0e0190f71bd4ff3980ec557e232c868052acf37e039b3061a63666c8c38fb1f1b11009b9cc3b6910dba8c589ca86a52cb5b203afa2c95fc9f7c"
     },
     {
       "version": "2.0.0-beta.2",
-      "source": "H:/MC/PCL/.minecraft/versions/1.21.1-NeoForge_21.1.249/mods/create_biotech-1.21.1-2.0.0-beta.2.jar",
+      "source": "https://modrinth.com/mod/create-biotech/version/jwN6zZrY",
       "sha256": "43773d511466422c614a93df82113fcd571c261757efe03a1830fea33d3f1034",
-      "path": "dependencies/optional/create-biotech/2.0.0-beta.2/create_biotech-1.21.1-2.0.0-beta.2.jar"
+      "path": "dependencies/optional/create-biotech/2.0.0-beta.2/create_biotech-1.21.1-2.0.0-beta.2.jar",
+      "transport": "biotech",
+      "id": "jwN6zZrY",
+      "type": "beta",
+      "url": "https://cdn.modrinth.com/data/UW0IjVT0/versions/jwN6zZrY/create_biotech-1.21.1-2.0.0-beta.2.jar",
+      "sha512": "f76d9db6237c4009904acd45083654861c9816c066297ff2b1e4a0ba62ba806719d8331c7a85d9d93a474e076393bba26ed869f929a69a11947e85d48f74cd78"
     },
     {
       "version": "2.3.1",
       "source": "H:/MC/PCL/.minecraft/versions/1.21.1-NeoForge_21.1.249/mods/cmpackagecouriers-neoforge-2.3.1.jar",
       "sha256": "96fe86385386af42bc661f82bd189476b63ecdd3e38bfb33607bbb022759df61",
       "path": "dependencies/optional/package-couriers/2.3.1/cmpackagecouriers-neoforge-2.3.1.jar"
+    },
+    {
+      "transport": "biotech",
+      "version": "2.0.0-beta.1",
+      "id": "JC65E9ie",
+      "type": "beta",
+      "source": "https://modrinth.com/mod/create-biotech/version/JC65E9ie",
+      "url": "https://cdn.modrinth.com/data/UW0IjVT0/versions/JC65E9ie/create_biotech-1.21.1-2.0.0-beta.1.jar",
+      "path": "dependencies/optional/create-biotech/2.0.0-beta.1/create_biotech-1.21.1-2.0.0-beta.1.jar",
+      "sha256": "04d67dc5d1d4fb4b8b501f79117a8b747cb896cdfe0a2b83ce40121e181bf07f",
+      "sha512": "93839813ce606c0d3a614bff59da948e1853bcc527147cebdfb7cd369f118e1754686828fdee00b7e4ddfa9db9a9c95985552a01a0597180780eee14c4b67c0d"
+    },
+    {
+      "transport": "biotech",
+      "version": "1.3.0.1",
+      "id": "f1Q5FOfN",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-biotech/version/f1Q5FOfN",
+      "url": "https://cdn.modrinth.com/data/UW0IjVT0/versions/f1Q5FOfN/create_biotech-1.21.1-1.3.0.1.jar",
+      "path": "dependencies/optional/create-biotech/1.3.0.1/create_biotech-1.21.1-1.3.0.1.jar",
+      "sha256": "477ed86b7013a41dbae6cfa55c52f58454d34cbecd85667a188223ad35915fa0",
+      "sha512": "f20eab66974568d5578d7d0d5e9e427b7abe63d8437e349bdddde3da4d2dc4ebb3d3cf31036718142ee248c9186b19797acefe05c86956d1e8700549cdab2b64"
+    },
+    {
+      "transport": "biotech",
+      "version": "1.3.0",
+      "id": "JRgVjTTE",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-biotech/version/JRgVjTTE",
+      "url": "https://cdn.modrinth.com/data/UW0IjVT0/versions/JRgVjTTE/create_biotech-1.21.1-1.3.0.jar",
+      "path": "dependencies/optional/create-biotech/1.3.0/create_biotech-1.21.1-1.3.0.jar",
+      "sha256": "7f61aad5582ee8f39fe120b7e4d6e4a15dce341d2cd87d474db3f2b4adf0de96",
+      "sha512": "523250e9ca5a93ffee8557eee6477bd916d7412c63ee9ab45d9d6555f25236676e2db2b2a835c58af582b86628cacc1c3c7450046df47fba9115480c1d6a9ceb"
+    },
+    {
+      "transport": "paper",
+      "version": "2.3.1",
+      "id": "aG9jHA8l",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-more-package-couriers/version/aG9jHA8l",
+      "url": "https://cdn.modrinth.com/data/GRqrodjM/versions/aG9jHA8l/cmpackagecouriers-neoforge-2.3.1.jar",
+      "path": "dependencies/optional/create-more-package-couriers/2.3.1/cmpackagecouriers-neoforge-2.3.1.jar",
+      "sha256": "96fe86385386af42bc661f82bd189476b63ecdd3e38bfb33607bbb022759df61",
+      "sha512": "1b118ec4dd64a85499edee1342e148a2179bac0c63cdacc4aa4509aaed4e967e0640a45f443c3f6f2073bf08b414f0b483b362007872198bc95677d3c2ab790e"
+    },
+    {
+      "transport": "paper",
+      "version": "2.3.0",
+      "id": "rv1JwLWn",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-more-package-couriers/version/rv1JwLWn",
+      "url": "https://cdn.modrinth.com/data/GRqrodjM/versions/rv1JwLWn/cmpackagecouriers-neoforge-2.3.0.jar",
+      "path": "dependencies/optional/create-more-package-couriers/2.3.0/cmpackagecouriers-neoforge-2.3.0.jar",
+      "sha256": "76e728a765ee04a53e566eda6b302a05ff855965dcf0230cc33f3dd2c1836e8b",
+      "sha512": "b5a96cbeb8fd6db72a3cfe2f60c68b13503f207aad080a8d9011364212a051801cf9ed2b25ecccd8423b660a156815203ab8bcd6c8b6152ccc699aa1f91e12ff"
+    },
+    {
+      "transport": "paper",
+      "version": "2.2.4",
+      "id": "9TvwOjDb",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-more-package-couriers/version/9TvwOjDb",
+      "url": "https://cdn.modrinth.com/data/GRqrodjM/versions/9TvwOjDb/cmpackagecouriers-neoforge-2.2.4.jar",
+      "path": "dependencies/optional/create-more-package-couriers/2.2.4/cmpackagecouriers-neoforge-2.2.4.jar",
+      "sha256": "746387d19b35eceb39677efed3d8e8742894281ae9df3fdbc1320e2d20df94d8",
+      "sha512": "052b91002b9d1865f88f763c3db5ee7e9468a863a780178a9c59d49950f317de05f1fb6736a427568ddcf63abf5a915e2cd5be4f6f9a795d5f82bee9fd29ab61"
+    },
+    {
+      "transport": "paper",
+      "version": "2.2.3",
+      "id": "bnno535w",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-more-package-couriers/version/bnno535w",
+      "url": "https://cdn.modrinth.com/data/GRqrodjM/versions/bnno535w/cmpackagecouriers-neoforge-2.2.3.jar",
+      "path": "dependencies/optional/create-more-package-couriers/2.2.3/cmpackagecouriers-neoforge-2.2.3.jar",
+      "sha256": "da112751b2c98f919f670c8ea5b8f30663183accfe08fd43f6b9febdfbb46809",
+      "sha512": "7f03ca80710e17c4df29f6278be0e8107088d96ac2b43978906d6d1ab061b4c975e06c74992ab7d73e842269f9ae4e0ba61dc001f3df256de11ea56bd6ceeaab"
+    },
+    {
+      "transport": "paper",
+      "version": "2.2.2",
+      "id": "8iuP1gsn",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-more-package-couriers/version/8iuP1gsn",
+      "url": "https://cdn.modrinth.com/data/GRqrodjM/versions/8iuP1gsn/cmpackagecouriers-neoforge-2.2.2.jar",
+      "path": "dependencies/optional/create-more-package-couriers/2.2.2/cmpackagecouriers-neoforge-2.2.2.jar",
+      "sha256": "1432e5bdf7dda76352b9d9d83bef4d033492baa9b7b9e427266eff6fbd6b9b6a",
+      "sha512": "fc936d77bdaa92ce66fb80e98f27df3d4e0d91dd72469bec06d7f62e167abadaa70161c6a1c2989426101015333f42aca8064cc569ab40dca6a3490ea5fe47d7"
+    },
+    {
+      "transport": "paper",
+      "version": "2.2.1",
+      "id": "gXrKvUJg",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-more-package-couriers/version/gXrKvUJg",
+      "url": "https://cdn.modrinth.com/data/GRqrodjM/versions/gXrKvUJg/cmpackagecouriers-neoforge-2.2.1.jar",
+      "path": "dependencies/optional/create-more-package-couriers/2.2.1/cmpackagecouriers-neoforge-2.2.1.jar",
+      "sha256": "994c76d68363cd9a2f79c9f35a58d32991cc6b58dfedec0c46a67dc0016cfffb",
+      "sha512": "c25b7cd0f956f206c7c0fbbfada56d06f80c50af177e56b3bf6f07588cd049ac7ba6ebdf213e660ad2720cb8331c2f1d402e249f81464847d6b7b08ebfbde574"
+    },
+    {
+      "transport": "paper",
+      "version": "2.2.0",
+      "id": "wQQLU4oc",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-more-package-couriers/version/wQQLU4oc",
+      "url": "https://cdn.modrinth.com/data/GRqrodjM/versions/wQQLU4oc/cmpackagecouriers-neoforge-2.2.0.jar",
+      "path": "dependencies/optional/create-more-package-couriers/2.2.0/cmpackagecouriers-neoforge-2.2.0.jar",
+      "sha256": "c4a8aa9f2846c17a230a6d6bd61f90a72a99f8eb99902f9f58171e6103e4580b",
+      "sha512": "1819c72a257580c8a23eb03a735fa3a6e8421128723c78ae64b2e86bd8cac3c0d1461d16ecafaa30baa88e6374ad8c13226e27098b22f59064c8734d171854d5"
+    },
+    {
+      "transport": "paper",
+      "version": "2.1.0",
+      "id": "jATNMdpR",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-more-package-couriers/version/jATNMdpR",
+      "url": "https://cdn.modrinth.com/data/GRqrodjM/versions/jATNMdpR/cmpackagecouriers-neoforge-2.1.0.jar",
+      "path": "dependencies/optional/create-more-package-couriers/2.1.0/cmpackagecouriers-neoforge-2.1.0.jar",
+      "sha256": "34175a22b632843ee4e6785da35cd5b210a268d7ed6afe3da5806b701d953226",
+      "sha512": "0cc32cac1a40a65e3223c14b3df9b7ff98f14c4e06c53d81e586f6049885001a3f2d2ed731df397c3b40b1feefd869beaf51d1f105f213a0e06f1dbde65600a7"
+    },
+    {
+      "transport": "paper",
+      "version": "2.0.1",
+      "id": "LqfXid2V",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-more-package-couriers/version/LqfXid2V",
+      "url": "https://cdn.modrinth.com/data/GRqrodjM/versions/LqfXid2V/cmpackagecouriers-neoforge-2.0.1.jar",
+      "path": "dependencies/optional/create-more-package-couriers/2.0.1/cmpackagecouriers-neoforge-2.0.1.jar",
+      "sha256": "5608b1cada8b821be4ee7d811c795a74e4658ef41caf2e16d778f13b3140a7f8",
+      "sha512": "06ed55db9e3aa86370bed5e9c5a8fd1db19be0b19b1b7a97e47b1b13f1ce405e5931b479b1f1c04ee53e30431af63af3ca222e7c5f4024b8276d0581510aeced"
+    },
+    {
+      "transport": "paper",
+      "version": "2.0.0",
+      "id": "GRvADKBB",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-more-package-couriers/version/GRvADKBB",
+      "url": "https://cdn.modrinth.com/data/GRqrodjM/versions/GRvADKBB/cmpackagecouriers-neoforge-2.0.0.jar",
+      "path": "dependencies/optional/create-more-package-couriers/2.0.0/cmpackagecouriers-neoforge-2.0.0.jar",
+      "sha256": "27f8b34b1ee8e4deaf18f53250f08ae2f4c94f249a677d84b9198657b097901e",
+      "sha512": "fc40c1df6b8168124c6e2b9152ae3ace869dbd02af04b4d31e3db3e7eda3e35dd6a600d5175057e67ddaa6014ff1d5dd13aadabe5aba83599becc85c548836d8"
+    },
+    {
+      "transport": "bee",
+      "version": "1.21.1-0.7.8",
+      "id": "xSPt2JXH",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-mobile-packages/version/xSPt2JXH",
+      "url": "https://cdn.modrinth.com/data/1vXRfEHZ/versions/xSPt2JXH/create_mobile_packages-1.21.1-0.7.8.jar",
+      "path": "dependencies/optional/create-mobile-packages/1.21.1-0.7.8/create_mobile_packages-1.21.1-0.7.8.jar",
+      "sha256": "74a03a7d8112fd9a93d163ce73f34f43b4a0e44f2df6c595cc7ba1a24b40d095",
+      "sha512": "f99ccd6762ac89e000c8d479d3bdb5b6fc85c371f03272c2886c1fba9c2b856b7f2caaf3e2a84281af88c264823af1d74dc0323f60f3670ab6c5e1c3bf5dc0f0"
+    },
+    {
+      "transport": "bee",
+      "version": "1.21.1-0.7.7",
+      "id": "DFi1qAly",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-mobile-packages/version/DFi1qAly",
+      "url": "https://cdn.modrinth.com/data/1vXRfEHZ/versions/DFi1qAly/create_mobile_packages-1.21.1-0.7.7.jar",
+      "path": "dependencies/optional/create-mobile-packages/1.21.1-0.7.7/create_mobile_packages-1.21.1-0.7.7.jar",
+      "sha256": "353bd6cd1e75f9e85241fb4e7147153d83a983569cb67ca9a6cc4d3fe2da7a80",
+      "sha512": "10be7be0fea95e635993dedf7467f3a257cf6887ad19060d99a1a2a092471bf7202099f326f09abf1a3aaec526cd8d51329cea5401fe2c780c775bddbdaf1b99"
+    },
+    {
+      "transport": "bee",
+      "version": "1.21.1-0.7.6",
+      "id": "2rAbaFXC",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-mobile-packages/version/2rAbaFXC",
+      "url": "https://cdn.modrinth.com/data/1vXRfEHZ/versions/2rAbaFXC/create_mobile_packages-1.21.1-0.7.6.jar",
+      "path": "dependencies/optional/create-mobile-packages/1.21.1-0.7.6/create_mobile_packages-1.21.1-0.7.6.jar",
+      "sha256": "e230eabb8c90f40c38d6527107655d9bd6fa907ce209ece7c9ed331a8362764a",
+      "sha512": "f1eb6b2f5f730813ab0d028bddbfad7a7d19dd48ee50ed7191d9b06bc7add7de8890af013e29951f4a5e3f1cf3a43a721257b0a31a709339a714cbbf37c0df23"
+    },
+    {
+      "transport": "bee",
+      "version": "1.21.1-0.7.5",
+      "id": "EpecHXdd",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-mobile-packages/version/EpecHXdd",
+      "url": "https://cdn.modrinth.com/data/1vXRfEHZ/versions/EpecHXdd/create_mobile_packages-1.21.1-0.7.5.jar",
+      "path": "dependencies/optional/create-mobile-packages/1.21.1-0.7.5/create_mobile_packages-1.21.1-0.7.5.jar",
+      "sha256": "adbd6f3066458a37f6156d742ef81d3ce4dfe6b62f90d11a3c37995972312dca",
+      "sha512": "b7d6729cf2e63f16416379e4622d350d2270f57e410b12b7921e5f0bf12140fd837e8b80de389ba07c88af8baebf717be620faf6c85a9f972cb76432ea70ccce"
+    },
+    {
+      "transport": "bee",
+      "version": "1.21.1-0.7.4",
+      "id": "vrSxdmxm",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-mobile-packages/version/vrSxdmxm",
+      "url": "https://cdn.modrinth.com/data/1vXRfEHZ/versions/vrSxdmxm/create_mobile_packages-1.21.1-0.7.4.jar",
+      "path": "dependencies/optional/create-mobile-packages/1.21.1-0.7.4/create_mobile_packages-1.21.1-0.7.4.jar",
+      "sha256": "782a4691cb32bdeea865d6754204bfe9ab8703435a17460aaa6ac251c109a510",
+      "sha512": "8c7c2eea47455cbc27de25688926261ea58b9f61ae86d1d39cdfa834a22d4a5b474415d8d4b9766b5f69cb8cc8b1c8a00005a082f6df668bbecd1bd9621bb359"
+    },
+    {
+      "transport": "bee",
+      "version": "1.21.1-0.7.3",
+      "id": "p6cqlruu",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-mobile-packages/version/p6cqlruu",
+      "url": "https://cdn.modrinth.com/data/1vXRfEHZ/versions/p6cqlruu/create_mobile_packages-1.21.1-0.7.3.jar",
+      "path": "dependencies/optional/create-mobile-packages/1.21.1-0.7.3/create_mobile_packages-1.21.1-0.7.3.jar",
+      "sha256": "92eaf8db79095d5709b379d72f50e6b37fb218fcff4743f6fb76f1b1060a3b48",
+      "sha512": "f1092b3ab2009126b0b97e21c7d148b34274e17871eaff2cae3804a857857d9002b047bcb345d3638d03bdbb8e9cbcc6c4cc9982c03b08edd75da9e25581360f"
+    },
+    {
+      "transport": "bee",
+      "version": "1.21.1-0.7.2",
+      "id": "Qgx95FcJ",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-mobile-packages/version/Qgx95FcJ",
+      "url": "https://cdn.modrinth.com/data/1vXRfEHZ/versions/Qgx95FcJ/create_mobile_packages-1.21.1-0.7.2.jar",
+      "path": "dependencies/optional/create-mobile-packages/1.21.1-0.7.2/create_mobile_packages-1.21.1-0.7.2.jar",
+      "sha256": "53a6e8d81bed884d0f31ad6d65726f927c76a5beeea0692df05ad0642b8528e6",
+      "sha512": "77c83e9eb2e30485930fe9e46ec80a2e74bdf02a4df97d83abcdac5646374bda6cf8fab9ad30c9aa89f738aeca74bfa7dc10ba0dae2f8e19e07b53b6dc8fa7d0"
+    },
+    {
+      "transport": "bee",
+      "version": "1.21.1-0.7.1",
+      "id": "DlHvAXY8",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-mobile-packages/version/DlHvAXY8",
+      "url": "https://cdn.modrinth.com/data/1vXRfEHZ/versions/DlHvAXY8/create_mobile_packages-1.21.1-0.7.1.jar",
+      "path": "dependencies/optional/create-mobile-packages/1.21.1-0.7.1/create_mobile_packages-1.21.1-0.7.1.jar",
+      "sha256": "2985e3be4c257c6565913ad3eb424fe938c9f2f80945ba19b48712dacaf90008",
+      "sha512": "7f85a78c676259734f4c4d00d9cc3d93280edfbb367f8b06f0b5fa4fd8b7b17006170d20c8049f3afbce51971e825ab1f378168fb73db34001cab6f5d99f4d9b"
+    },
+    {
+      "transport": "bee",
+      "version": "1.21.1-0.7.0",
+      "id": "AXLWkdx1",
+      "type": "release",
+      "source": "https://modrinth.com/mod/create-mobile-packages/version/AXLWkdx1",
+      "url": "https://cdn.modrinth.com/data/1vXRfEHZ/versions/AXLWkdx1/create_mobile_packages-1.21.1-0.7.0.jar",
+      "path": "dependencies/optional/create-mobile-packages/1.21.1-0.7.0/create_mobile_packages-1.21.1-0.7.0.jar",
+      "sha256": "e5dcfc6aec85e1518fe510b4cef810b75eefc9201c862dc25c829e2ca1242ae1",
+      "sha512": "6e0c80d1d478af9a55dc97fdcb41ddf47f3121b4d10528bdab1bee037e4cbc97649f685e7332775598f0c898f6782aada552c89462d4ab8cc081d38152c4c24b"
+    },
+    {
+      "transport": "phantom",
+      "version": "1.0.2",
+      "id": "yzWx1UfX",
+      "type": "release",
+      "source": "https://modrinth.com/mod/createphantom/version/yzWx1UfX",
+      "url": "https://cdn.modrinth.com/data/T3CecRuS/versions/yzWx1UfX/createphantom-1.0.2.jar",
+      "path": "dependencies/optional/createphantom/1.0.2/createphantom-1.0.2.jar",
+      "sha256": "7c62765341613a982886fafc644ad1e7face09cf6da76496b97062ba04454c27",
+      "sha512": "1d1eb298b8843a7242ae832830b85fd3ba8b35845139cffd45d6c9a77ab6ad7b712f2bcb07bf3a1cb312a52dab538d13e5e1967cd62824c1941c06fa5b9fe410"
+    },
+    {
+      "transport": "phantom",
+      "version": "1.0.1",
+      "id": "HLDBIKtJ",
+      "type": "release",
+      "source": "https://modrinth.com/mod/createphantom/version/HLDBIKtJ",
+      "url": "https://cdn.modrinth.com/data/T3CecRuS/versions/HLDBIKtJ/createphantom-1.0.1.jar",
+      "path": "dependencies/optional/createphantom/1.0.1/createphantom-1.0.1.jar",
+      "sha256": "57c9c04675a0c5aa7e3d528c86e26b684617c2d18184ac2bd9bed144d1913d3f",
+      "sha512": "b48633325ab93039078c3020a2d00e95b9fd57d8e335d7822bc09487b2c122c818758f9c766c16392b13f787d00cccde971a1509d31cd2d2ab247c2461230cce"
+    },
+    {
+      "transport": "phantom",
+      "version": "1.0.0",
+      "id": "IPo7v81g",
+      "type": "beta",
+      "source": "https://modrinth.com/mod/createphantom/version/IPo7v81g",
+      "url": "https://cdn.modrinth.com/data/T3CecRuS/versions/IPo7v81g/createphantom-1.0.0.jar",
+      "path": "dependencies/optional/createphantom/1.0.0/createphantom-1.0.0.jar",
+      "sha256": "c09c4d6600e32b5096d3ef7f6b5a1b8d8195013949053cb9a01b1e71f21bcba9",
+      "sha512": "78978c5b9bca9d79eeb37f15ac6565091946658d0d8a414fc003189b2f444d046cac9dc6d1df6280f20f5c53c0a64833bb3af7cf58f3ba40dff1b439eb9c8eed"
     }
   ]
 }

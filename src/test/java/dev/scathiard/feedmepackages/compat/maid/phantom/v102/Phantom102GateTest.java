@@ -37,26 +37,23 @@ class Phantom102GateTest {
         assertEquals("Lnet/minecraft/server/level/ServerPlayer;", members.get("field AirCourierTask$FlightTarget#player"));
     }
 
-    @Test void anExactArtifactEnablesTheGate() {
-        String verdict = Phantom102Shape.verdict(true, Phantom102Shape.VERSION, Phantom102Shape.SHA256, exact());
+    @Test void requiredInterfacesEnableTheGate() {
+        String verdict = Phantom102Shape.verdict(true, exact());
         assertEquals("enabled", verdict);
         assertEquals("FMP phantom102 gate: enabled", Phantom102Shape.logLine(verdict));
     }
 
     @Test void everyMismatchDisablesTheGateWithAStableReason() {
-        assertEquals("disabled reason=mod-not-loaded", Phantom102Shape.verdict(false, Phantom102Shape.VERSION, Phantom102Shape.SHA256, exact()));
-        assertEquals("disabled reason=version-mismatch", Phantom102Shape.verdict(true, "1.0.3", Phantom102Shape.SHA256, exact()));
-        assertEquals("disabled reason=sha256-mismatch", Phantom102Shape.verdict(true, Phantom102Shape.VERSION, "deadbeef", exact()));
+        assertEquals("disabled reason=mod-not-loaded", Phantom102Shape.verdict(false, exact()));
         Map<String, String> missing = exact();
         missing.remove("AirCourierTask#doFinishDeliveryAt");
         assertEquals("disabled reason=missing-member AirCourierTask#doFinishDeliveryAt",
-                Phantom102Shape.verdict(true, Phantom102Shape.VERSION, Phantom102Shape.SHA256, missing));
+                Phantom102Shape.verdict(true, missing));
         Map<String, String> changed = exact();
         changed.put("AirCourierTask$FlightTarget#playerTarget", "(Lnet/minecraft/server/level/ServerPlayer;)Z");
         assertEquals("disabled reason=descriptor-mismatch AirCourierTask$FlightTarget#playerTarget",
-                Phantom102Shape.verdict(true, Phantom102Shape.VERSION, Phantom102Shape.SHA256, changed));
-        assertEquals("FMP phantom102 gate: disabled reason=sha256-mismatch",
-                Phantom102Shape.logLine(Phantom102Shape.verdict(true, Phantom102Shape.VERSION, "x", exact())));
+                Phantom102Shape.verdict(true, changed));
+
     }
 
     @Test void aTaskWithoutAnyMarkerStaysAnOrdinaryPlayerTask() {

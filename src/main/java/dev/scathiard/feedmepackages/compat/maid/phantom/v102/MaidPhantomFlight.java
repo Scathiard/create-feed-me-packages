@@ -26,6 +26,7 @@ public final class MaidPhantomFlight {
     private static Method cruiseHeight;
     private static Method completionDistance;
     private static Constructor<?> flightTarget;
+    private static Constructor<?> resolvedTarget;
 
     /** True once the native profile and target record were resolved. Never throws. */
     public static synchronized boolean available() {
@@ -39,15 +40,39 @@ public final class MaidPhantomFlight {
                 forwardOffset = profileType.getMethod("playerForwardOffset");
                 cruiseHeight = profileType.getMethod("playerCruiseHeight");
                 completionDistance = profileType.getMethod("playerCompletionDistance");
-                Class<?> targetType = Class.forName(root + "AirCourierTask$FlightTarget");
-                flightTarget = targetType.getDeclaredConstructor(ServerLevel.class, ServerPlayer.class, Vec3.class, Vec3.class, double.class);
-                flightTarget.setAccessible(true);
+                if (dev.scathiard.feedmepackages.compat.maid.phantom.PhantomMaidCompat.classic()) {
+                    resolvedTarget = Class.forName(root + "AirCourierTask$ResolvedTarget").getDeclaredConstructor(ServerLevel.class,
+                            Class.forName("com.yision.phantom.block.phantomport.PhantomPortBlockEntity"), ServerPlayer.class);
+                    resolvedTarget.setAccessible(true);
+                } else {
+                    Class<?> targetType = Class.forName(root + "AirCourierTask$FlightTarget");
+                    flightTarget = targetType.getDeclaredConstructor(ServerLevel.class, ServerPlayer.class, Vec3.class, Vec3.class, double.class);
+                    flightTarget.setAccessible(true);
+                }
             } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
                 profile = null;
                 flightTarget = null;
             }
         }
-        return profile != null && flightTarget != null;
+        return profile != null && (flightTarget != null || resolvedTarget != null);
+    }
+
+    public static Object classicTarget(LivingEntity maid) {
+        if (!available() || resolvedTarget == null) return null;
+        try { return resolvedTarget.newInstance((ServerLevel) maid.level(), null, null); }
+        catch (ReflectiveOperationException failed) { throw new IllegalStateException(failed); }
+    }
+
+    public static Vec3 cruise(LivingEntity maid) {
+        if (!available()) return null;
+        try { return landing(maid).add(0, (double) cruiseHeight.invoke(profile) - (double) targetHeight.invoke(profile), 0); }
+        catch (ReflectiveOperationException failed) { throw new IllegalStateException(failed); }
+    }
+
+    public static double completionDistance() {
+        if (!available()) throw new IllegalStateException("Native flight profile unavailable");
+        try { return (double) completionDistance.invoke(profile); }
+        catch (ReflectiveOperationException failed) { throw new IllegalStateException(failed); }
     }
 
     /** The native landing point for a moving target: her feet, the native height, and the native forward offset. */

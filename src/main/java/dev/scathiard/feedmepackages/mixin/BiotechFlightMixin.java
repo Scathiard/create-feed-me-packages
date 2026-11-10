@@ -16,7 +16,7 @@ import org.spongepowered.asm.mixin.injection.*;
 import org.spongepowered.asm.mixin.injection.callback.*;
 
 @Pseudo
-@Mixin(targets = "com.nobodiiiii.createbiotech.content.allay.logistics.courier.AllayCourierTask", remap = false)
+@Mixin(targets = {"com.nobodiiiii.createbiotech.content.allay.logistics.courier.AllayCourierTask", "com.yision.allay.logistics.courier.AllayCourierTask"}, remap = false)
 public abstract class BiotechFlightMixin implements BiotechTaskLink {
     @Unique private UUID fmp$target, fmp$source, fmp$owner;
     public UUID fmp$target() { return fmp$target; }
@@ -56,7 +56,7 @@ public abstract class BiotechFlightMixin implements BiotechTaskLink {
         if (BiotechMaidFlight.targetsMaid(this)) cir.setReturnValue(BiotechMaidFlight.reached(this, landing));
     }
     @Coerce
-    @WrapOperation(method = "doFinishDeliveryAt", at = @At(value = "INVOKE", target = "Lcom/nobodiiiii/createbiotech/content/allay/logistics/courier/AllayCourierDeliveryService;finishDelivery(Lnet/minecraft/server/MinecraftServer;Lnet/minecraft/world/item/ItemStack;Lcom/nobodiiiii/createbiotech/content/allay/entity/courier/AllayCourierEntity$Mission;Lcom/nobodiiiii/createbiotech/content/allay/logistics/courier/AllayCourierReturnMode;Lnet/minecraft/resources/ResourceKey;Lnet/minecraft/core/BlockPos;Ljava/util/UUID;Ljava/util/UUID;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/phys/Vec3;)Lcom/nobodiiiii/createbiotech/content/allay/logistics/courier/AllayCourierDeliveryService$DeliveryResult;"), remap = false)
+    @WrapOperation(method = "doFinishDeliveryAt", at = {@At(value = "INVOKE", target = "Lcom/nobodiiiii/createbiotech/content/allay/logistics/courier/AllayCourierDeliveryService;finishDelivery(Lnet/minecraft/server/MinecraftServer;Lnet/minecraft/world/item/ItemStack;Lcom/nobodiiiii/createbiotech/content/allay/entity/courier/AllayCourierEntity$Mission;Lcom/nobodiiiii/createbiotech/content/allay/logistics/courier/AllayCourierReturnMode;Lnet/minecraft/resources/ResourceKey;Lnet/minecraft/core/BlockPos;Ljava/util/UUID;Ljava/util/UUID;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/phys/Vec3;)Lcom/nobodiiiii/createbiotech/content/allay/logistics/courier/AllayCourierDeliveryService$DeliveryResult;"), @At(value = "INVOKE", target = "Lcom/yision/allay/logistics/courier/AllayCourierDeliveryService;finishDelivery(Lnet/minecraft/server/MinecraftServer;Lnet/minecraft/world/item/ItemStack;Lcom/yision/allay/entity/courier/AllayCourierEntity$Mission;Lcom/yision/allay/logistics/courier/AllayCourierReturnMode;Lnet/minecraft/resources/ResourceKey;Lnet/minecraft/core/BlockPos;Ljava/util/UUID;Ljava/util/UUID;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/phys/Vec3;)Lcom/yision/allay/logistics/courier/AllayCourierDeliveryService$DeliveryResult;")}, remap = false)
     private Object fmp$delivery(MinecraftServer server, ItemStack box, @Coerce Object mission, @Coerce Object mode, ResourceKey<Level> dimension,
             BlockPos port, UUID subLevel, UUID player, ServerLevel level, Vec3 position, Vec3 landing, Operation<Object> original) {
         return BiotechMaidFlight.targetsMaid(this) ? BiotechMaidFlight.deliver(this, server, level, landing)

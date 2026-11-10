@@ -84,6 +84,12 @@ public final class OptionalMixins implements IMixinConfigPlugin {
         return MixinTransportShapes.biotechCompatible();
     }
 
+    public static String biotechRoot() {
+        return MixinTransportShapes.biotechRoot;
+    }
+
+    public static boolean phantom100FlightCompatible() { return MixinTransportShapes.phantom100FlightCompatible(); }
+
     public static boolean factoryCompatible() {
         return MixinTransportShapes.factoryCompatible();
     }
@@ -193,8 +199,14 @@ public final class OptionalMixins implements IMixinConfigPlugin {
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         // 1. Transport & Courier Mixins
+        if (mixinClassName.endsWith("PaperLegacyAddressMixin")) {
+            return MixinTransportShapes.inspectLegacyPaper(targetClassName);
+        }
         if (mixinClassName.contains(".Biotech")) {
-            return MixinTransportShapes.inspectBiotech();
+            return MixinTransportShapes.inspectBiotech() && targetClassName.startsWith(MixinTransportShapes.biotechRoot);
+        }
+        if (mixinClassName.endsWith("Phantom100FlightMixin")) {
+            return MixinTransportShapes.inspectPhantom100Flight(targetClassName);
         }
         if (mixinClassName.contains(".Phantom103") && !MixinTransportShapes.isPhantom103Loaded()) {
             return false;

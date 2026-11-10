@@ -9,7 +9,7 @@ import org.spongepowered.asm.mixin.injection.*;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Pseudo
-@Mixin(targets = "com.nobodiiiii.createbiotech.content.allay.logistics.courier.AllayCourierHelper", remap = false)
+@Mixin(targets = {"com.nobodiiiii.createbiotech.content.allay.logistics.courier.AllayCourierHelper", "com.yision.allay.logistics.courier.AllayCourierHelper"}, remap = false)
 public abstract class BiotechReceiveMixin {
     @Inject(method = "canReceiveDelivery", at = @At("HEAD"), cancellable = true, remap = false)
     private static void fmp$capacity(ServerPlayer player, ItemStack box, CallbackInfoReturnable<Boolean> cir) {

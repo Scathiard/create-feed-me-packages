@@ -3,11 +3,6 @@ package dev.scathiard.feedmepackages.compat.maid.phantom.v102;
 import dev.scathiard.feedmepackages.FeedMePackages;
 import net.neoforged.fml.ModList;
 
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.DigestInputStream;
-import java.security.MessageDigest;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -48,10 +43,7 @@ public final class Phantom102Gate {
         try {
             boolean loaded = ModList.get().isLoaded(Phantom102Shape.MOD_ID);
             if (!loaded) return "disabled reason=mod-not-loaded";
-            String version = ModList.get().getModContainerById(Phantom102Shape.MOD_ID)
-                    .map(container -> container.getModInfo().getVersion().toString()).orElse(null);
-            String sha256 = artifactSha256();
-            return Phantom102Shape.verdict(true, version, sha256, actualMembers());
+            return Phantom102Shape.verdict(true, actualMembers());
         } catch (Throwable failure) {
             FeedMePackages.LOGGER.warn("FMP phantom102 gate probe failed; feature stays disabled", failure);
             return "disabled reason=probe-failed";
@@ -66,20 +58,6 @@ public final class Phantom102Gate {
             logged = true;
             FeedMePackages.LOGGER.info(Phantom102Shape.logLine(verdict()));
         }
-    }
-
-    private static String artifactSha256() throws Exception {
-        var file = ModList.get().getModFileById(Phantom102Shape.MOD_ID);
-        if (file == null) return null;
-        Path path = file.getFile().getFilePath();
-        if (path == null || !Files.isRegularFile(path)) return null;
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        try (InputStream in = Files.newInputStream(path); DigestInputStream stream = new DigestInputStream(in, digest)) {
-            stream.transferTo(java.io.OutputStream.nullOutputStream());
-        }
-        StringBuilder hex = new StringBuilder();
-        for (byte value : digest.digest()) hex.append(String.format("%02x", value));
-        return hex.toString();
     }
 
     /** Descriptors actually found, keyed exactly like {@link Phantom102Shape#members()}. Unresolvable = absent. */

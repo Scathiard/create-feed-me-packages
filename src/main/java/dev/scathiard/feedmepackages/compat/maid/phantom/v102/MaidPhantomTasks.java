@@ -69,16 +69,20 @@ public final class MaidPhantomTasks {
                 mission = task.getMethod("mission");
                 box = task.getMethod("box");
                 position = task.getMethod("position");
-                returningUndeliveredPackage = task.getDeclaredField("returningUndeliveredPackage");
-                returningUndeliveredPackage.setAccessible(true);
+                if (!PhantomMaidCompat.classic()) {
+                    returningUndeliveredPackage = task.getDeclaredField("returningUndeliveredPackage");
+                    returningUndeliveredPackage.setAccessible(true);
+                }
                 targetDimension = task.getDeclaredField("targetDimension");
                 targetDimension.setAccessible(true);
                 targetPhantomPortPos = task.getDeclaredField("targetPhantomPortPos");
                 targetPhantomPortPos.setAccessible(true);
                 doFinishDelivery = task.getDeclaredMethod("doFinishDelivery", MinecraftServer.class, ServerLevel.class);
                 doFinishDelivery.setAccessible(true);
-                tryReturnUndeliveredPackage = task.getDeclaredMethod("tryReturnUndeliveredPackage", MinecraftServer.class);
-                tryReturnUndeliveredPackage.setAccessible(true);
+                if (!PhantomMaidCompat.classic()) {
+                    tryReturnUndeliveredPackage = task.getDeclaredMethod("tryReturnUndeliveredPackage", MinecraftServer.class);
+                    tryReturnUndeliveredPackage.setAccessible(true);
+                }
                 startCarrierReturn = task.getDeclaredMethod("startCarrierReturn", MinecraftServer.class);
                 startCarrierReturn.setAccessible(true);
             } catch (ReflectiveOperationException | RuntimeException | LinkageError incompatible) {
@@ -100,11 +104,11 @@ public final class MaidPhantomTasks {
                 && mission != null
                 && box != null
                 && position != null
-                && returningUndeliveredPackage != null
+                && (PhantomMaidCompat.classic() || returningUndeliveredPackage != null)
                 && targetDimension != null
                 && targetPhantomPortPos != null
                 && doFinishDelivery != null
-                && tryReturnUndeliveredPackage != null
+                && (PhantomMaidCompat.classic() || tryReturnUndeliveredPackage != null)
                 && startCarrierReturn != null;
     }
 
@@ -113,7 +117,7 @@ public final class MaidPhantomTasks {
         if (!available() || server == null || task == null) return null;
         try {
             if (!(targetPlayerId.invoke(task) instanceof UUID uuid)) return null;
-            if (Boolean.TRUE.equals(returningUndeliveredPackage.get(task))) return null;
+            if ((returningUndeliveredPackage != null && Boolean.TRUE.equals(returningUndeliveredPackage.get(task)))) return null;
             if (targetPhantomPortPos.get(task) != null) return null;
             if (!(mission.invoke(task) instanceof Enum<?> current) || !current.name().equals("PACKAGE_TO_PLAYER")) return null;
             if (!(box.invoke(task) instanceof ItemStack item) || item.isEmpty()) return null;
@@ -137,7 +141,7 @@ public final class MaidPhantomTasks {
             if (!(mission.invoke(task) instanceof Enum<?> current)) return false;
             String name = current.name();
             if (!name.equals("CARRIER_RETURN") && !name.equals("CARRIER_RETURN_TO_PLAYER")) return false;
-            if (Boolean.TRUE.equals(returningUndeliveredPackage.get(task))) return false;
+            if ((returningUndeliveredPackage != null && Boolean.TRUE.equals(returningUndeliveredPackage.get(task)))) return false;
             return box.invoke(task) instanceof ItemStack item && item.isEmpty();
         } catch (ReflectiveOperationException | RuntimeException failure) {
             return false;
@@ -157,7 +161,7 @@ public final class MaidPhantomTasks {
         try {
             if (!(mission.invoke(task) instanceof Enum<?> current)
                     || !current.name().equals("CARRIER_RETURN_TO_PLAYER")) return false;
-            if (Boolean.TRUE.equals(returningUndeliveredPackage.get(task))) return false;
+            if ((returningUndeliveredPackage != null && Boolean.TRUE.equals(returningUndeliveredPackage.get(task)))) return false;
             return box.invoke(task) instanceof ItemStack item && item.isEmpty();
         } catch (ReflectiveOperationException | RuntimeException failure) {
             return false;
@@ -298,7 +302,7 @@ public final class MaidPhantomTasks {
     public static boolean undeliveredReturn(Object task) {
         if (!available() || task == null) return false;
         try {
-            return Boolean.TRUE.equals(returningUndeliveredPackage.get(task));
+            return (returningUndeliveredPackage != null && Boolean.TRUE.equals(returningUndeliveredPackage.get(task)));
         } catch (ReflectiveOperationException | RuntimeException failure) {
             return false;
         }
@@ -387,7 +391,7 @@ public final class MaidPhantomTasks {
     public static boolean returnUndelivered(Object task, MinecraftServer server) {
         if (!available() || task == null || server == null) return false;
         try {
-            return Boolean.TRUE.equals(tryReturnUndeliveredPackage.invoke(task, server));
+            return tryReturnUndeliveredPackage != null && Boolean.TRUE.equals(tryReturnUndeliveredPackage.invoke(task, server));
         } catch (ReflectiveOperationException | RuntimeException failure) {
             return false;
         }
