@@ -494,6 +494,7 @@ tasks.register('phantomProbeJar', Jar) {
             include 'dev/scathiard/feedmepackages/gametest/BiotechTests*.class'
             include 'dev/scathiard/feedmepackages/gametest/ConsumptionTests*.class'
             include 'dev/scathiard/feedmepackages/gametest/SophisticatedTests*.class'
+            include 'dev/scathiard/feedmepackages/gametest/CraftingRetrievalContractTests*.class'
             include 'dev/scathiard/feedmepackages/gametest/InteractionTests*.class'
             include 'data/create_feed_me_packages/structure/empty.nbt'
             include 'data/create_feed_me_packages/recipe/test_remainder.json'
