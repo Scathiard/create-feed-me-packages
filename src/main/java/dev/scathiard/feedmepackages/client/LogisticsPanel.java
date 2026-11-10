@@ -1092,7 +1092,7 @@ public final class LogisticsPanel {
     }
 
     private static boolean collectEnabled() {
-        return LogisticsPanel.active() && snapshot != null && snapshot.bound();
+        return LogisticsPanel.active();
     }
 
     private static void renderCell(GuiGraphics g, PanelLayout.CellBox box) {
