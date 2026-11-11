@@ -2,7 +2,6 @@
 
 # 机械动力：喂我发包！
 
-> main 正在开发尚未发布的 0.3：集中兼容与体验优化已接入，正在完成发布前修复与验证。下文介绍已发布版本；当前源码不等于正式发行包。
 
 [![CurseForge](https://img.shields.io/badge/CurseForge-%E4%B8%8B%E8%BD%BD-F16436?logo=curseforge&logoColor=white)](https://www.curseforge.com/minecraft/mc-mods/create-feed-me-packages) [![Modrinth](https://img.shields.io/badge/Modrinth-%E4%B8%8B%E8%BD%BD-00AF5C?logo=modrinth&logoColor=white)](https://modrinth.com/mod/create-feed-me-packages)
 
@@ -10,9 +9,10 @@
 
 ## 项目介绍
 
-工厂已经能自动生产建材了，出门盖房子却还得一趟趟回去搬。**机械动力：喂我发包！** 想省掉的就是这段路。
+工厂已经能自动生产建材了，出门盖房子却还得一趟趟回去搬。**机械动力：喂我发包！** 帮你省掉这段路！
 
-戴上供应链坠，连好工厂的物流网络，告诉它你想常备哪些物资。用掉一部分，坠子就向工厂请求补货。打包机装箱，纸飞机或运输蜂送来，包裹里的材料自动收进背包左侧的随身缓存。临时要合成东西，也能直接从里面取料。
+戴上供应链坠，连好工厂的物流网络，告诉它你想常备哪些物资。用掉一部分，坠子就向工厂请求补货。打包机装箱，运输员送来，包裹里的材料自动收进背包左侧的随身缓存。临时要合成东西，也能直接从里面取料。
+你将会需要额外安装有远程配送能力的模组，否则你就只能请你的朋友来当快递员了。
 
 这套玩法借鉴了《戴森球计划》的随身物流。放到 Minecraft 里，我们希望补给也能成为你那套机械动力工厂的一部分。模组适用于 **Minecraft 1.21.1 / NeoForge**，需要 **Create** 和 **Curios**。
 
