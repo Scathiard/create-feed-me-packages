@@ -13,13 +13,13 @@ Your factory can produce building supplies automatically, but you still have to 
 Wear a Supply Chain Pendant, connect it to your factory's logistics network, and choose what to keep stocked. As you use supplies, the pendant requests replacements. Your packagers box them up, couriers bring them over, and the contents go into a cache beside your inventory. You can also draw from it to craft what you need on the spot.
 You'll need an extra mod with remote delivery, unless your friends are willing to be your couriers.
 
-The idea comes from personal logistics in *Dyson Sphere Program*. Here, we want keeping yourself supplied to be another job for the Create factory you've built. The mod runs on **Minecraft 1.21.1 / NeoForge** and requires **Create** and **Curios**.
+The idea comes from logistics bots in *Dyson Sphere Program*. Here, we want automatic resupply to be another job for the Create factory you've built. The mod runs on **Minecraft 1.21.1 / NeoForge** and requires **Create** and **Curios**.
 
 ## Where it helps
 
 - Keep common blocks and machines on your restocking list when building away from base, with fewer trips back to storage.
 - Use cached ingredients while expanding your factory, without sending a manual request through a portable terminal.
-- Keep arrows and other consumables in the cache and let your factory replenish them, leaving inventory space for things you find along the way.
+- Keep arrows, food, and other consumables in the cache and let your factory replenish them, leaving inventory space for things you find along the way.
 - Hand a pendant, its supplies, and its restocking settings to a friend.
 
 ## Features
@@ -32,35 +32,33 @@ You can wear one pendant at a time. Taking it off stops cache access, restocking
 
 ### A separate cache with automatic restocking
 
-Equip a pendant and cache cells appear to the left of your inventory, in both Survival and Creative. Put an item into an empty cell to choose what goes there, then click the small dot in the corner to set how much to keep stocked.
+Equip a pendant and cache cells appear to the left of your inventory. Put an item into an empty cell, or press the shortcut key (Middle Mouse Button by default) over an item or fluid in JEI or EMI, to choose what goes there; then click the small dot in the corner to set how much to keep stocked.
 
-For example, set a minimum of two stacks of logs. Whenever the cache falls below that amount, the pendant requests the difference from your network. Only cached stock counts toward this minimum, not items in your normal inventory.
+If you want to keep two stacks of logs stocked, set the restock minimum to two stacks. Whenever the cache falls below that amount, the pendant requests the difference from your network. Only cached stock counts toward this minimum, not items in your normal inventory.
 
-Open **cell controls** using the corner dot to adjust restock and return thresholds and minimum batch sizes together. Scroll to adjust by one item, or Shift-scroll to the next whole stack; sliders gently snap near stack multiples. A minimum batch of 64 requests at least 64 even when only one item is missing, and waits if the network has too little stock. The center package shows outstanding items; clicking resets only this cell. Requests never expire automatically.
+Open **cell controls** using the corner dot to configure the restock minimum, return maximum, minimum restock batch size, and minimum return batch size in one place. Both slider dragging (snapping at whole-stack multiples) and mouse wheel adjustment (scroll ±1, hold Shift ±1 stack) are supported. If you set the minimum restock batch size to 64, it requests at least 64 even when only 1 item is missing, waiting if the network has less in stock. The center package icon shows pending items; clicking it resets pending packages, and pending counts never expire automatically.
 
-Player requests use the native `@playername` address. A delivered package enters the cache when every material matches an existing filter and each matching cell is below its return threshold and capacity. Manually sent matching packages qualify too. If even one material has no matching filter, the whole package is left for you to handle.
+Restock requests default to the `@playername` address. Any package addressed to the player whose contents all match existing cache filters—while the target cells are not full and below their return limits—is unpacked straight into the cache without emptying it into your inventory first; manually sent matching packages work the same way. Anything that doesn't fit yet stays in the package until room is freed.
 
-Anything that will not fit stays in a package until there is room. Existing full-inventory receiving hooks remain available, but some transports reject delivery or drop the package before reaching those hooks. In that case, free an inventory slot first.
-
-Stored items keep data such as enchantments, with different variants kept in separate cells. Items that can't be saved safely are rejected, not silently turned into plain versions.
+Stored items keep data such as enchantments, with different variants kept in separate cells. Items that can't be saved safely are rejected, not silently turned into plain versions. **Collect All** on the panel pulls inventory items matching existing filters into the cache even when no network is bound; folding the panel only hides the UI without pausing background logistics.
 
 ### Automatic returns
 
-When you've finished building, put the spare materials back in the cache. Set how much you want to keep, a minimum return batch, and a return address. Eligible surplus gets packed for a paper courier, bee, phantom, or Allay to carry back.
+When you've finished building, put the spare materials back in the cache. Set how much you want to keep, a minimum return batch size, and a return address. Once the surplus meets those conditions, it gets packed for a paper plane, robo-bee, phantom courier, or allay courier to carry back.
 
-Returns need the corresponding carrier item. Without a suitable carrier, or if dispatch cannot start, the materials stay in the cache. Flight, return trips, and carrier recovery follow each transport mod's own rules.
+Returns require the corresponding courier carrier. Without a suitable carrier, or if dispatch cannot start, the materials stay in the cache without being dispatched.
 
-### Pocket Pallet and fluids
+### Pocket Pallet and fluid cache
 
-The **Pocket Pallet** brings cached supplies within reach. Select a material to place blocks, interact with the world, eat, drink, or use potions. You can also pour bucketed fluids or use fluids stored directly in the cache. Both the arc and grid menus support search, and you can change the selection keybind.
+Hold the **Pocket Pallet** to use supplies straight from the cache without pulling them into your inventory first. Hold the shortcut key (Middle Mouse Button by default) to open the arc or grid menu (with search and view switching), release to confirm your selection, and right-click to place blocks, eat food, drink potions, or pour fluids directly from the cache.
 
-Caches can store fluids, receive FluidLogistics packages, and automatically request or return fluids by quantity. One fluid stack group holds 8 buckets. Using buckets, bottles, or other containers in the panel still follows the fluid's own container rules.
+Cache cells can also store fluids directly (8 buckets per stack group). You can fill or drain fluids directly in the panel using fluid containers such as empty buckets or glass bottles, following the fluid's own container rules. With Create: Fluid Logistics installed, the cache can also receive fluid packages and automatically request fluid refills or pack and return surplus fluids by quantity.
 
-### A supply chain for maids
+### Touhou Little Maid personal logistics
 
-A maid wearing an ordinary Supply Chain Pendant can request supplies, return surplus, and use cached food and ammunition. Owners can manage her cache, filters, and logistics settings directly from the maid screen.
+Maids from Touhou Little Maid can wear a Supply Chain Pendant to request refills, return surplus supplies, and consume food, arrows, and gun ammo directly from the cache while eating or fighting.
 
-With automatic storage enabled, newly picked-up items matching existing filters enter her cache, where surplus can trigger returns. The switch does not collect items already in her backpack or equipment.
+You can manage a maid's cache and logistics settings directly on the left side of the maid GUI. When **Auto-Store** is enabled, items newly picked up by the maid that match existing filters are stored into the cache automatically, and any surplus over the return maximum is packed for automatic return.
 
 ### Five levels of capacity
 
@@ -74,17 +72,15 @@ Your factory has a part in upgrades, too. Make Upgrade Links through Create sequ
 | 4 | 30 | 16 stacks |
 | 5 | 36 | 32 stacks |
 
-Stacks follow the item's own stack limit. A level 1 cell holds 128 logs, 32 ender pearls, or 2 milk buckets.
+Stacks follow the item's own stack limit (or 8 buckets per stack group for fluids). A level 1 cell holds 128 logs, 32 ender pearls, 2 milk buckets, or 16 buckets of pure fluid.
 
-Modpack authors can configure cell counts, capacity, integration toggles, and admission lists. Stock exceeding reduced limits remains available for withdrawal; restoring the configuration restores normal access.
+Cell counts, per-cell stack limits for levels 1–5, mod integration toggles, and item/fluid allowlists and denylists can be configured in the world's `serverconfig`. When capacity limits are lowered in config, existing stock exceeding the new limit is kept in a read-only state and can still be withdrawn normally.
 
-### Crafting and ammunition
+### Crafting, ammunition, and building
 
-You don't need to rummage through the cache whenever a recipe is short on ingredients. Vanilla 2×2 inventory crafting, 3×3 workbench crafting, the recipe book, and JEI or EMI recipe transfer can all use cached materials when your inventory doesn't have enough. Crafting upgrades in Sophisticated Backpacks and Sophisticated Storage can draw from the cache too. Each pendant has a panel toggle for crafting access.
+You don't need to rummage through the cache whenever a recipe is short on ingredients. Vanilla 2×2 inventory crafting, 3×3 workbench crafting, the recipe book, JEI and EMI recipe transfer, crafting upgrades in Sophisticated Backpacks and Sophisticated Storage, and Create: Storage backpack crafting can all draw missing ingredients from the cache when your inventory doesn't have enough. A **Crafting Access Toggle** at the bottom of the panel lets you enable or disable cache crafting access per pendant.
 
-Vanilla bows and crossbows, TaCZ, and Superb Warfare can draw cached ammo when your inventory runs out. Superb Warfare also supports vehicle weapons operated by a player; ammo loaded into a vehicle stays there. Construction Wand, Building Gadgets 2, and Effortless Building can use cached building materials. Support for other items and machines depends on their own integration.
-
-The panel remembers whether you left it folded or open. Folding only hides the interface; logistics keep running. Collect All stores matching items from your inventory into existing cache filters, even without a bound network.
+Vanilla bows and crossbows, TaCZ (both official and unofficial port builds), and Superb Warfare (both handheld guns and vehicle weapons actively operated by the player) can draw ammo from the cache when your inventory runs out. Construction Wand, Building Gadgets 2, and Effortless Building can also consume building blocks directly from the cache. Your inventory is always used first, and the cache supplies the shortfall.
 
 ## Mod integrations
 
@@ -92,19 +88,23 @@ The panel remembers whether you left it folded or open. Folding only hides the i
 | --- | --- | --- |
 | **Create** | Required | Supplies the goods. The pendant binds to a logistics network, checks stock, and requests materials for your packagers to box up. Sequenced assembly also produces Upgrade Links. |
 | **Curios API** | Required | Provides the equipment slot for the pendant. |
-| **JEI / EMI** | Optional | Fill recipes from cached materials and select item or fluid filters through a keybind. |
-| **Create More: Package Couriers** | Optional | Paper courier deliveries and active returns for players and maids. |
-| **Create: Mobile Packages** | Optional | Bee deliveries and active returns for players and maids. |
-| **Create: Phantom** | Optional | Phantom deliveries and active returns for players and maids. |
-| **Create: Biotech** | Optional | Allay deliveries and active returns for players and maids. |
-| **Create: Fluid Logistics** | Optional | Fluid package receipt, restocking, and returns. |
-| **Create: Factory Logistics** | Optional | Ordinary-item request routing and package receipt. |
-| **Touhou Little Maid** | Optional | Maid cache management, food and ammo use, and automatic storage of newly picked-up items. |
-| **Sophisticated Backpacks / Sophisticated Storage** | Optional | Crafting upgrades draw missing materials from the cache. |
-| **Create: Storage** | Optional | Crafting access across the worn backpack and cache, with JEI / EMI recipe transfer. |
-| **Crafting Tweaks** | Optional | Workbench rotate, balance, and clear operations. |
-| **TaCZ** | Optional | Cached ammo for either the official release or unofficial port, including per-round reloads. |
-| **Superb Warfare** | Optional | Ammo for handheld guns and vehicle weapons operated by a player. |
-| **Construction Wand / Building Gadgets 2 / Effortless Building** | Optional | Cached building materials. |
+| **Create More: Package Couriers** | Optional | Delivers restocking packages to players and maids and carries return packages back using paper planes. |
+| **Create: Mobile Packages** | Optional | Delivers restocking packages to players and maids and carries return packages back using robo-bees. |
+| **Create: Phantom** | Optional | Delivers restocking packages to players and maids and carries return packages back using phantom couriers. |
+| **Create: Biotech** | Optional | Delivers restocking packages to players and maids and carries return packages back using allay couriers. |
+| **Create: Fluid Logistics** | Optional | Receives fluid packages into the cache and automatically requests fluid refills or packs and returns surplus fluids by quantity. |
+| **Create: Factory Logistics** | Optional | Supports ordinary-item restock requests and package unpacking with Factory Logistics networks. |
+| **Touhou Little Maid** | Optional | Maids wearing a pendant automatically restock and return supplies, consume cached food and ammo, and auto-store newly picked-up matching items. |
+| **JEI** | Optional | Fills missing recipe ingredients from the cache and sets item or fluid cache filters via shortcut key (Middle Mouse Button by default). |
+| **EMI** | Optional | Fills missing recipe ingredients from the cache and sets item or fluid cache filters via shortcut key (Middle Mouse Button by default). |
+| **Sophisticated Backpacks** | Optional | Crafting upgrades inside backpacks draw missing ingredients from the cache. |
+| **Sophisticated Storage** | Optional | Crafting upgrades inside storage containers draw missing ingredients from the cache. |
+| **Create: Storage** | Optional | When a backpack is worn, crafting and JEI / EMI recipe transfer can draw from both the backpack and the cache. |
+| **Crafting Tweaks** | Optional | Supports workbench rotate, balance, and clear operations. |
+| **TaCZ** | Optional | Draws ammo from the cache when the inventory runs out on both official and unofficial 1.21.1 port builds (including per-round reload guns). |
+| **Superb Warfare** | Optional | Draws ammo from the cache for handheld guns and vehicle weapons actively operated by the player when the inventory runs out. |
+| **Construction Wand** | Optional | Consumes building blocks directly from the cache. |
+| **Building Gadgets 2** | Optional | Consumes building blocks directly from the cache. |
+| **Effortless Building** | Optional | Consumes building blocks directly from the cache. |
 
-Your factory needs stock, and the packages need a way to reach you. Transport mods still need their own infrastructure, addresses, and delivery conditions. The pendant won't build those for you or teleport materials out of storage. Without these optional mods, you can still use the cache and core features, and receive packages that meet the receipt rules through other means. Or maybe you'd like to consider becoming a courier yourself?
+Your factory needs stock, and the packages need a way to reach you. Paper planes, robo-bees, phantoms, and allays still need their own infrastructure, addresses, and delivery conditions. The pendant won't build those for you or teleport materials out of storage. Without these optional mods, you can still use the cache and core features, and receive packages that meet the receipt rules through other means. Or maybe you'd like to consider becoming a courier yourself?
