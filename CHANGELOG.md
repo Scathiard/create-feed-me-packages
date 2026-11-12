@@ -8,6 +8,90 @@ gameplay milestone.
 本文件记录本项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号沿用 `MAJOR.MINOR.PATCH`，其中 `MINOR` 对应一次玩法里程碑。
 
+## [0.3.0] - 2026-11-13
+
+### English
+
+#### Added
+
+- **Pocket Pallet**: Use supplies directly from your cache without moving them into your inventory first. Hold the selection keybind (middle mouse button by default) with the Pocket Pallet in hand to open the arc or grid menu (with search and view switching), release to confirm, and right-click to place blocks, eat food, drink potions, or pour cached fluids.
+- **Fluid Caches**: Cache cells can now store fluids (8 buckets per stack group). Left- or right-click a fluid cell with buckets, bottles, or other fluid containers to deposit or withdraw fluids directly, following each fluid's standard container rules.
+- **Mod Integrations**:
+  - **Touhou Little Maid**: Maids can equip a Supply Chain Pendant to request refills, return surplus items, and consume cached food, arrows, and gun ammo directly. Their cache is managed on the left side of the maid GUI; when Auto-Store is enabled, newly picked-up items matching existing filters are stored into the cache automatically.
+  - **Create: Fluid Logistics**: Receive fluid packages into the cache, request fluid refills, and return excess fluids automatically.
+  - **Create: Phantom**: Support Phantom couriers for player and maid deliveries and returns.
+  - **Create: Biotech**: Support Allay couriers for player and maid deliveries and returns.
+  - **Create More: Package Couriers**: Added maid delivery and return support, plus `@playername` address compatibility for older versions.
+  - **Create: Mobile Packages**: Added maid delivery and return support, with compatibility across multiple versions of its range-check interface.
+  - **Create: Factory Logistics**: Support factory logistics request routing and package receipt.
+  - **EMI**: Support recipe filling from cached materials and selecting items or fluids from EMI via keybind to set cache filters.
+  - **JEI**: Added keybind support (middle mouse button by default) for setting cache filters from JEI items or fluids, and expanded recipe transfer coverage.
+  - **Sophisticated Backpacks**: Support drawing cached materials when using the crafting upgrade inside backpacks.
+  - **Sophisticated Storage**: Support drawing cached materials when using the crafting upgrade inside storage containers.
+  - **Create: Storage**: Added crafting material support when used alongside JEI or EMI.
+  - **Crafting Tweaks**: Compatible with workbench rotate, balance, and clear buttons.
+  - **TaCZ**: Support drawing ammo from the cache on both the official 1.21.1 release and the unofficial port.
+  - **Superb Warfare**: Support drawing ammo from the cache for handheld guns and player-operated vehicle weapons.
+  - **Construction Wand**: Support consuming building blocks directly from the cache.
+  - **Building Gadgets 2**: Support consuming building blocks directly from the cache.
+  - **Effortless Building**: Support consuming building blocks directly from the cache.
+
+#### Improved
+
+- **Cell Settings Panel**: Click the corner dot on a cell to configure its restock threshold, return threshold, minimum restock batch, and minimum return batch in one panel. Supports slider dragging (with stack-multiple snapping) and scroll adjustment (Scroll ±1, Shift + Scroll ±1 stack). Click the center package icon to clear pending requests for that cell.
+- **Updated Package Receipt & Addressing**: Restock requests now use the `@playername` address; return addresses can be customized. Package receipt now automatically unpacks any package addressed to the player whose contents all match existing cache filters, provided the target cells are not full and remain below their return thresholds; matching packages sent manually are also accepted.
+- **Panel Controls**:
+  - Added a **Crafting Access toggle** at the bottom of the panel to enable or disable crafting access per pendant.
+  - The panel remembers its folded or unfolded state, and adds a pendant level display in the top-right corner along with cell visual effects on transfers.
+
+#### Changed
+
+- **Removed the Personal Pendant**: Existing personal cache stock is transferred once and losslessly to an ordinary Supply Chain Pendant upon entering the world. If the player's inventory and Curios slots are full, the transfer waits for a free slot without clearing stock.
+- **Server Configuration**: Cell counts, stack capacities for Levels 1–5, mod integration toggles, and item/fluid allowlists and denylists are now configurable in `serverconfig`. Stock exceeding reduced capacity limits is kept read-only and can still be withdrawn.
+
+**Please back up existing worlds before upgrading. Create and Curios API are required; all integrated mods above are optional.**
+
+### 简体中文
+
+#### 新增
+
+- **拣货夹（Pocket Pallet）**：直接调用缓存中的物资，无需先取回背包。手持拣货夹按住快捷键（默认鼠标中键）打开圆弧或网格菜单（支持搜索与视图切换），松开确认选择后，右键即可放置方块、进食、饮用药水，或直接倒出缓存中的流体。
+- **流体缓存**：缓存格现可存放流体（每组容量为 8 桶）。支持手持空桶、玻璃瓶等流体容器在面板中直接存取流体，容器规则与对应流体本身一致。
+- **模组联动**：
+  - **Touhou Little Maid（车万女仆）**：女仆可佩戴供应链坠，自动请求补货、退回多余物资，并在进食或战斗时直接取用缓存中的食物、箭矢与枪械弹药。可在女仆界面左侧直接管理其缓存；开启「自动入库」后，女仆新拾取且匹配已有过滤的物品会自动存入缓存。
+  - **Create: Fluid Logistics（机械动力：流体物流）**：支持接收流体包裹入库，并按设定数量自动请求流体补货或打包退回多余流体。
+  - **Create: Phantom（机械动力：幻翼物流）**：支持幻翼快递员向玩家与女仆配送补货包裹及运回退货。
+  - **Create: Biotech（机械动力：生物科技）**：支持悦灵快递员向玩家与女仆配送补货包裹及运回退货。
+  - **Create More: Package Couriers（纸飞机）**：新增女仆补货配送与退货发运支持，并兼容旧版玩家地址解析。
+  - **Create: Mobile Packages（运输蜂）**：新增女仆补货配送与退货发运支持，并兼容多个版本的距离检查接口。
+  - **Create: Factory Logistics（机械动力：工厂物流）**：兼容工厂物流的补货请求与拆包收件。
+  - **EMI**：支持配方填充在背包缺料时从缓存补齐，支持通过快捷键从 EMI 列表选取物品或流体设置缓存过滤。
+  - **JEI**：新增通过快捷键（默认中键）从 JEI 列表选取物品或流体设置缓存过滤，补齐多处配方转移入口的缓存取料。
+  - **Sophisticated Backpacks（精妙背包）**：支持背包内的合成升级在背包缺料时从缓存取料。
+  - **Sophisticated Storage（精妙存储）**：支持存储容器内的合成升级在缺料时从缓存取料。
+  - **Create: Storage（机械动力：存储）**：补充与 JEI、EMI 同时启用时的合成取料支持。
+  - **Crafting Tweaks**：兼容工作台旋转、平衡与清空操作。
+  - **TaCZ（永恒枪械工坊）**：同时支持 1.21.1 官方版与非官方移植版从缓存取用弹药。
+  - **Superb Warfare（卓越前线）**：支持手持枪械与玩家实际操作的载具武器在背包缺弹时从缓存取用弹药。
+  - **Construction Wand（建筑魔杖）**：支持直接从缓存消耗建造方块。
+  - **Building Gadgets 2（建造小帮手 2）**：支持直接从缓存消耗建造方块。
+  - **Effortless Building（简易建造）**：支持直接从缓存消耗建造方块。
+
+#### 改进
+
+- **单格数量设置面板**：点开缓存格角落的小点，可集中调整补货下限、退货上限、单次最少补货量与单次最少退货量。支持滑条拖动（在整组倍数处吸附）与滚轮调整（滚轮 ±1，按住 Shift ±1 组）；点击中央包裹图标可手动清零该格的在途记录。
+- **收件规则与地址更新**：补货请求改为使用 `@玩家名` 地址，退货地址可自定义。包裹入库规则改为寄给玩家的包裹只要所有内容物均匹配已有缓存过滤，且对应缓存格未满、未达退货上限，即可自动拆包入库；手动寄出的同类包裹同样适用。
+- **面板操作**：
+  - 面板底部新增**合成取用开关**，可按坠子单独开启或关闭缓存参与合成。
+  - 面板记住上次展开或收起状态，新增右上角链坠等级显示与收发货时的格子光效。
+
+#### 调整
+
+- **移除私人供应链坠**：旧存档中的个人缓存会在玩家进入世界后一次性无损转移至普通供应链坠；若背包与饰品栏已满，会等待腾出空位后再发放，不清空库存。
+- **新增服务端配置**：可在存档 `serverconfig` 中配置 1～5 级坠子的格数、单格组数上限、各模组联动开关及物品/流体存入黑白名单。调低容量配置后，超出新上限的原有库存保留为只读状态，仍可正常取出。
+
+**升级旧存档前请先备份。必需前置仍为 Create 与 Curios API，其余联动模组按需安装。**
+
 ## [0.2.3] — 2026-09-20
 
 **One-key collect and a panel you can fold away.**
@@ -171,6 +255,7 @@ package — the only difference is the version number.
   drawing, five-level growth and owner-locked personal caches.
   首个本地可玩版本：坠子绑定缓存、真实 Create 补货请求、含残包的收件、合成／JEI／标准投射物取料、五级成长与物主锁定的个人缓存。
 
+[0.3.0]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.3.0
 [0.2.3]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.3
 [0.2.2]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.2
 [0.2.1]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.1
