@@ -26,7 +26,6 @@
     "BiotechAddressMixin",
     "BiotechReceiveMixin",
     "BiotechFlightMixin",
-    "PendantNetworkHighlightMixin",
     "TaczGunSourcesMixin",
     "TaczScriptSourcesMixin",
     "TaczShootSourcesMixin",

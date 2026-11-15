@@ -310,34 +310,7 @@ public final class GrowthTests {
         var level = helper.getLevel(); var manager = level.getRecipeManager();
         long count = manager.getRecipes().stream().filter(holder -> holder.id().getNamespace().equals(FeedMePackages.MOD_ID)
                 && List.of("crafting/", "mechanical_crafting/", "sequenced_assembly/", "smithing/").stream().anyMatch(holder.id().getPath()::startsWith)).count();
-        // R-018 adds exactly three recipes: the frame sequence, the five-by-five link crafting and the expansion
-        // smithing. The set is pinned by id so a subset cannot pass silently.
-        for (String path : List.of("sequenced_assembly/expansion_frame", "mechanical_crafting/expansion_link",
-                "smithing/pendant_expansion"))
-            helper.assertTrue(manager.byKey(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, path)).isPresent(),
-                    "R-018 recipe missing: " + path);
-        helper.assertTrue(count == 17, "Expected ordinary recipes only: " + count);
-
-        // R-018 acceptance: drive the five-round sequence for real and pin the smithing sentinel.
-        var frameRecipe = (SequencedAssemblyRecipe) manager
-                .byKey(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "sequenced_assembly/expansion_frame"))
-                .orElseThrow().value();
-        var steps = frameRecipe.getSequence();
-        helper.assertTrue(steps.size() == 6, "six installations per round");
-        var kinds = steps.stream().map(step -> step.getRecipe().getType().toString()).toList();
-        helper.assertTrue(kinds.equals(List.of("create:deploying", "create:deploying", "create:pressing",
-                        "create:deploying", "create:deploying", "create:pressing")),
-                "installation order changed: " + kinds);
-        var expansion = (PendantSmithingRecipe) manager
-                .byKey(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "smithing/pendant_expansion"))
-                .orElseThrow().value();
-        helper.assertTrue(expansion.expansion() && expansion.targetLevel() == 0,
-                "target_level 0 must mark the expansion sentinel");
-        var expansionInput = new SmithingRecipeInput(FmpRegistries.ASSEMBLY_TEMPLATE.toStack(),
-                FmpRegistries.PENDANT.toStack(), FmpRegistries.EXPANSION_LINK.toStack());
-        helper.assertTrue(expansion.matches(expansionInput, level)
-                        && expansion.assemble(expansionInput, level.registryAccess()).isEmpty(),
-                "generic recipe execution must never manufacture an expansion");
+        helper.assertTrue(count == 14, "Expected ordinary recipes only: " + count);
         for (String path : List.of("sequenced_assembly/private_link", "smithing/personalize", "smithing/personal_supply_chain_pendant_to_2",
                 "smithing/personal_supply_chain_pendant_to_3", "smithing/personal_supply_chain_pendant_to_4", "smithing/personal_supply_chain_pendant_to_5"))
             helper.assertTrue(manager.byKey(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, path)).isEmpty(), "Retired recipe still loaded: " + path);

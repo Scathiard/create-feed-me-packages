@@ -15,24 +15,4 @@ public final class ReturnAddress {
         }
         return true;
     }
-
-    /**
-     * Appends pasted text under exactly the rules the keyboard path uses: one code point at a time, control characters
-     * refused, and every accepted code point must leave the whole address valid. A code point that would break the
-     * contract is skipped the same way a refused keystroke is, so a paste can never produce a value that typing could
-     * not produce (R-016).
-     */
-    public static String append(String current, String pasted) {
-        StringBuilder result = new StringBuilder(current == null ? "" : current);
-        if (pasted == null || pasted.isEmpty()) return result.toString();
-        for (int index = 0; index < pasted.length(); ) {
-            int point = pasted.codePointAt(index);
-            index += Character.charCount(point);
-            if (point < ' ' || !Character.isValidCodePoint(point)) continue;
-            String candidate = result + new String(Character.toChars(point));
-            if (!valid(candidate)) continue;
-            result.appendCodePoint(point);
-        }
-        return result.toString();
-    }
 }

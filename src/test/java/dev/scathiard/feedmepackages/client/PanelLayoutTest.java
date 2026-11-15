@@ -1077,16 +1077,9 @@ class PanelLayoutTest {
         int end = tail.indexOf("\n    }");
         assertTrue(end > 0, "the render method must end after the button calls");
         String after = tail.substring(0, end);
-        // R-017: one documented exception - an open cell control panel must be drawn above the bottom band, so where
-        // it overlaps the buttons the panel wins. Nothing else may follow the buttons.
-        String cellPanel = "LogisticsPanel.renderSlider(g);";
-        assertTrue(after.contains(cellPanel), "the open cell control panel must be drawn above the bottom buttons");
-        assertTrue(after.indexOf(cellPanel) > after.indexOf("LogisticsPanel.renderFoldButton(g);"),
-                "the cell control panel is the one thing that belongs after the buttons");
-        String withoutException = after.replace("LogisticsPanel.renderFoldButton(g);", "").replace(cellPanel, "");
         for (String painter : new String[]{"blit", "fill", "overlay(", "text(", "render"}) {
-            assertFalse(withoutException.contains(painter),
-                    "something is still drawn after the buttons and the cell panel: " + painter);
+            assertFalse(after.replace("LogisticsPanel.renderFoldButton(g);", "").contains(painter),
+                    "something is still drawn after the fold button: " + painter);
         }
     }
 

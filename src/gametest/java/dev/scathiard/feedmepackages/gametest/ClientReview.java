@@ -1590,40 +1590,6 @@ public final class ClientReview {
                 FeedMePackages.LOGGER.info("FMP_CLIENT_LAYOUT_PASSED mode={} scale={} framebuffer={}x{} cells=36 real-deposit-withdrawal", layoutIndex < 4 ? "survival" : "creative", scale, mc.getWindow().getWidth(), mc.getWindow().getHeight());
                 layoutIndex++; layoutStage = 0; layoutChanged = ticks;
             }
-            case 13 -> {
-                // R-016: a pasted address goes in verbatim (leading/trailing spaces, Chinese, emoji) and Enter saves it.
-                var returnBar = panelLayout().returnBar();
-                click(returnBar.x() + 2, returnBar.y() + 2);
-                panelSetString("returnBuffer", "");
-                pasteFromClipboard();
-                require(returnPaste().equals(panelString("returnBuffer")),
-                        "Ctrl+V did not append the clipboard text verbatim: " + panelString("returnBuffer"));
-                keyPress(257);
-                returnNext();
-            }
-            case 14 -> {
-                if (ticks - returnChanged < 20) return false;
-                require(!panelBoolean("returnEditing"), "Enter did not close the return editor after a paste");
-                server(player -> require(returnPaste().equals(CacheLedger.get(player.getServer())
-                                .returnAddress(AccessGate.resolve(player).handle().cacheId())),
-                        "Pasted address was not saved verbatim"));
-                var returnBar = panelLayout().returnBar();
-                click(returnBar.x() + 2, returnBar.y() + 2);
-                panelSetString("returnBuffer", "");
-                pasteFromClipboard();
-                require(!panelString("returnBuffer").isEmpty(), "Second paste did not reach the draft");
-                keyPress(256);
-                returnNext();
-            }
-            case 15 -> {
-                if (ticks - returnChanged < 5) return false;
-                require(!panelBoolean("returnEditing"), "Esc did not cancel return editing after a paste");
-                server(player -> require(returnPaste().equals(CacheLedger.get(player.getServer())
-                                .returnAddress(AccessGate.resolve(player).handle().cacheId())),
-                        "Esc after a paste changed the saved return address"));
-                FeedMePackages.LOGGER.info("FMP_RETURN_PASTE_PASSED");
-                returnNext();
-            }
             case 100 -> { return true; }
             default -> throw new IllegalStateException("Unexpected layout stage");
         }
@@ -1722,26 +1688,10 @@ public final class ClientReview {
         if (!release.isCanceled()) screen.mouseReleased(x, y, 0);
     }
     private static void keyPress(int keyCode) {
-        keyPress(keyCode, 0);
-    }
-    private static void keyPress(int keyCode, int modifiers) {
         var screen = Minecraft.getInstance().screen;
-        var press = new ScreenEvent.KeyPressed.Pre(screen, keyCode, 0, modifiers);
+        var press = new ScreenEvent.KeyPressed.Pre(screen, keyCode, 0, 0);
         NeoForge.EVENT_BUS.post(press);
         if (!press.isCanceled()) screen.keyPressed(keyCode, 0, 0);
-    }
-    /** R-016: the address the paste steps expect, so both the draft and the saved value can be compared verbatim. */
-    private static String returnPaste() {
-        return "  FMP@paste-" + RUN + " 仓😀 ";
-    }
-    /** R-016: real clipboard + the panel's own listener, which is what a Ctrl+V reaches in game. */
-    private static void pasteFromClipboard() {
-        Minecraft.getInstance().keyboardHandler.setClipboard(returnPaste());
-        var screen = Minecraft.getInstance().screen;
-        var press = new ScreenEvent.KeyPressed.Pre(screen, org.lwjgl.glfw.GLFW.GLFW_KEY_V, 0,
-                org.lwjgl.glfw.GLFW.GLFW_MOD_CONTROL);
-        NeoForge.EVENT_BUS.post(press);
-        require(press.isCanceled(), "Ctrl+V was not consumed by the return-address field");
     }
     /** Select a cache cell by its dot so its threshold slider opens, using the real panel event. */
     private static void clickCellDot(int slot) {

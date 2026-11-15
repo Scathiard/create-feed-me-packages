@@ -341,14 +341,6 @@ public final class LogisticsPanel {
             if (!LogisticsPanel.current(event.getScreen())) {
                 return;
             }
-            if (returnEditing && event.getKeyCode() == org.lwjgl.glfw.GLFW.GLFW_KEY_V
-                    && ((event.getModifiers() & org.lwjgl.glfw.GLFW.GLFW_MOD_CONTROL) != 0
-                            || net.minecraft.client.gui.screens.Screen.hasControlDown())) {
-                // R-016: paste appends through the same per-code-point contract as typing, so Enter/Esc keep working.
-                LogisticsPanel.pasteReturnAddress();
-                event.setCanceled(true);
-                return;
-            }
             if (returnEditing && LogisticsPanel.editReturnKey(event.getKeyCode())) {
                 event.setCanceled(true);
                 return;
@@ -975,6 +967,9 @@ public final class LogisticsPanel {
             if (layout.returnBar() != null) {
                 LogisticsPanel.renderReturnBar(g);
             }
+            if (layout.slider() != null) {
+                LogisticsPanel.renderSlider(g);
+            }
         }
         if (waiting != 0) {
             LogisticsPanel.overlay(g, x + 10, y + 31, 4, 2, COLOR_WAITING_DOT);
@@ -996,11 +991,6 @@ public final class LogisticsPanel {
         if (!layout.compact()) {
             LogisticsPanel.renderTransferButton(g);
             LogisticsPanel.renderFoldButton(g);
-        }
-        // R-017: the single exception to "the buttons are drawn last" - an open cell control panel sits above the bottom
-        // band, so where they overlap the panel and its tooltip are what the user sees, never the buttons underneath.
-        if (LogisticsPanel.active() && layout.slider() != null) {
-            LogisticsPanel.renderSlider(g);
         }
     }
 
@@ -1050,18 +1040,10 @@ public final class LogisticsPanel {
      * there is no mirroring and no scaling in this class at all. The only marks drawn here come <b>after</b> the
      * sheet and strictly above it ({@link #BUTTON_MARK_Z}): a hover highlight or the disabled veil.
      */
-    /** R-017: an expanded cell control panel owns its whole area, including whatever bottom-band button it overlaps. */
-    private static boolean cellPanelOwns(double mx, double my) {
-        PanelLayout.Rect slider = layout == null ? null : layout.slider();
-        return slider != null && slider.contains(mx, my);
-    }
-
     private static void iconButton(GuiGraphics g, PanelLayout.Rect r, ResourceLocation texture, String help,
             boolean enabled) {
         if (r.width() <= 0 || r.height() <= 0) return;   // no button in this state (e.g. transfer while hidden)
-        // R-017: a point the expanded control panel owns never belongs to a bottom-band button, so it cannot take the
-        // hover highlight or the tooltip away from the panel either.
-        boolean hover = enabled && r.contains(mouseX, mouseY) && !LogisticsPanel.cellPanelOwns(mouseX, mouseY);
+        boolean hover = enabled && r.contains(mouseX, mouseY);
         LogisticsPanel.buttonSheet(g, r, texture);
         if (!enabled) LogisticsPanel.mark(g, r, BUTTON_DISABLED_VEIL);
         else if (hover) LogisticsPanel.mark(g, r, BUTTON_HOVER_MARK);
@@ -1858,21 +1840,6 @@ public final class LogisticsPanel {
             return true;
         }
         return false;
-    }
-
-    /** R-016: appends the clipboard under the same contract as typing. Returns whether the draft changed. */
-    public static boolean pasteReturnAddress() {
-        if (!returnEditing) return false;
-        String clipboard;
-        try {
-            clipboard = MC.keyboardHandler.getClipboard();
-        } catch (RuntimeException unavailable) {
-            return false;
-        }
-        String appended = ReturnAddress.append(returnBuffer, clipboard);
-        if (appended.equals(returnBuffer)) return false;
-        returnBuffer = appended;
-        return true;
     }
 
     private static boolean sendReturnAddressDraft() {

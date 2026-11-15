@@ -121,9 +121,6 @@ public final class CacheEdit<K extends MaterialVariant> {
 
     public void upgrade() { upgrade(CacheCapacity.defaults(level + 1)); }
     public void upgrade(CacheCapacity next) {
-        // Deliberately the plain level upgrade: the shared item/fluid invariant requires both typed states to agree on
-        // capacity, and CacheFluids.align() replays this call on the fluid side. Anything that wants to keep cells bought
-        // outside the level curve (R-018) has to do it in the ledger, around this call, not inside it.
         open(); CacheLevel.of(level + 1); resize(next); level++;
     }
     /** Only a validated previous state may establish retained stock. Never trims, reorders or silently writes it off. */

@@ -40,10 +40,7 @@ class CacheStateTest {
         cells.set(0,new Cell<>(key,129,-1,-1,1));
         assertThrows(IllegalArgumentException.class,()->new CacheState<>(UUID.randomUUID(),1,0,cells,Map.of()));
         assertThrows(IllegalArgumentException.class,()->new CacheState<>(UUID.randomUUID(),1,0,cells,Map.of(),new CacheCapacity(9,2),Map.of(0,128),Map.of()));
-        // R-018 lifts 0.3.0's 128-cell ceiling on purpose: 129 and the acceptance case 134 are legal now, and the new
-        // bound is what must be refused.
-        new CacheCapacity(129, 2); new CacheCapacity(134, 2);
-        assertThrows(IllegalArgumentException.class,()->new CacheCapacity(CacheCapacity.MAX_SLOTS+1,2));
+        assertThrows(IllegalArgumentException.class,()->new CacheCapacity(129,2));
         assertThrows(IllegalArgumentException.class,()->new CacheCapacity(9,CacheCapacity.MAX_GROUPS+1));
         assertTrue(new CacheCapacity(128,CacheCapacity.MAX_GROUPS).items(new TestVariant("fluid",8000))>2_000_000_000);
     }

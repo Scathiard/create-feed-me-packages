@@ -38,7 +38,6 @@ public final class MixinTransportShapes {
     private static Boolean phantom102FlightReady;
     private static Boolean phantom102BeltReady;
     private static Boolean phantom102PortReturnReady;
-    private static Boolean pendantHighlightReady;
 
     // Create Phantom 1.0.3 flight, port return, and belt gates.
     private static Boolean phantom103FlightReady;
@@ -122,28 +121,6 @@ public final class MixinTransportShapes {
 
     static boolean phantom102PortReturnCompatible() {
         return Boolean.TRUE.equals(phantom102PortReturnReady);
-    }
-
-    /** R-020: client display only, so a dedicated server never applies it. */
-    static boolean pendantHighlightCompatible() {
-        return Boolean.TRUE.equals(pendantHighlightReady);
-    }
-
-    static boolean inspectPendantHighlight(String targetClassName) {
-        if (!net.neoforged.fml.loading.FMLLoader.getDist().isClient()) {
-            pendantHighlightReady = false;
-            return false;
-        }
-        try {
-            var node = getClassNode(targetClassName);
-            pendantHighlightReady = targetClassName
-                            .equals("com.simibubi.create.content.logistics.packagerLink.LogisticallyLinkedClientHandler")
-                    && hasMethod(node, "tick", "()V");
-            return pendantHighlightReady;
-        } catch (ClassNotFoundException | IOException unavailable) {
-            pendantHighlightReady = false;
-            return false;
-        }
     }
 
     static boolean phantom103FlightCompatible() {

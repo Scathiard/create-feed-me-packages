@@ -43,10 +43,6 @@ public final class FmpRegistries {
     public static final List<DeferredItem<Item>> INCOMPLETE_LINKS = IntStream.rangeClosed(2, 5).mapToObj(level ->
             ITEMS.register("incomplete_link_" + level, () -> new Item(new Item.Properties().stacksTo(1)))).toList();
     public static final DeferredItem<Item> INCOMPLETE_PRIVATE_LINK = ITEMS.register("incomplete_private_link", () -> new Item(new Item.Properties().stacksTo(1)));
-    /** R-018: sequence-assembled frame, the crafting product that carries five extra cells, and its in-progress form. */
-    public static final DeferredItem<Item> EXPANSION_FRAME = ITEMS.register("expansion_frame", () -> new Item(new Item.Properties()));
-    public static final DeferredItem<Item> INCOMPLETE_EXPANSION_FRAME = ITEMS.register("incomplete_expansion_frame", () -> new Item(new Item.Properties().stacksTo(1)));
-    public static final DeferredItem<Item> EXPANSION_LINK = ITEMS.register("expansion_link", () -> new Item(new Item.Properties()));
     public static DeferredItem<SupplyLinkItem> upgradeLink(int level) {
         if (level < 2 || level > 5) throw new IllegalArgumentException("Invalid upgrade level"); return UPGRADE_LINKS.get(level - 2);
     }
@@ -65,7 +61,6 @@ public final class FmpRegistries {
                 output.accept(PENDANT); output.accept(POCKET_PALLET); output.accept(INCOMPLETE_PALLET);
                 output.accept(ASSEMBLY_TEMPLATE); UPGRADE_LINKS.forEach(output::accept);
                 LINK_FRAMES.forEach(output::accept); INCOMPLETE_LINKS.forEach(output::accept);
-                output.accept(EXPANSION_FRAME); output.accept(INCOMPLETE_EXPANSION_FRAME); output.accept(EXPANSION_LINK);
             }).build());
     public static void register(IEventBus bus) { COMPONENTS.register(bus); ITEMS.register(bus); RECIPES.register(bus); TABS.register(bus); }
 }

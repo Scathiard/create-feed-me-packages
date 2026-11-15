@@ -12,26 +12,19 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.*;
 import net.minecraft.world.level.Level;
 
-/**
- * Visible to the native smithing recipe system; ownership is committed only by GrowthService.
- *
- * <p>{@code target_level} 2..5 is a level upgrade. The sentinel {@code 0} is the R-018 dragon-head expansion: it applies
- * to a pendant of any level, adds five cells to its ordinary cache, and never changes the level, binding or stock.
- */
+/** Visible to the native smithing recipe system; ownership is committed only by GrowthService. */
 public final class PendantSmithingRecipe extends SmithingTransformRecipe {
     private final Ingredient template, base, addition;
     private final ItemStack result;
     private final int targetLevel;
     public PendantSmithingRecipe(Ingredient template, Ingredient base, Ingredient addition, ItemStack result, int targetLevel) {
         super(template, base, addition, result.copy());
-        if ((targetLevel != 0 && (targetLevel < 2 || targetLevel > 5)) || result.getCount() != 1
+        if ((targetLevel < 2 || targetLevel > 5) || result.getCount() != 1
                 || !(result.getItem() instanceof PendantItem pendant))
             throw new IllegalArgumentException("Invalid pendant smithing definition");
         this.template = template; this.base = base; this.addition = addition; this.result = result.copy(); this.targetLevel = targetLevel;
     }
     public int targetLevel() { return targetLevel; }
-    /** R-018: {@code target_level} 0 means the dragon-head expansion, not a level upgrade. */
-    public boolean expansion() { return targetLevel == 0; }
     public Ingredient templateIngredient() { return template; }
     public Ingredient baseIngredient() { return base; }
     public Ingredient additionIngredient() { return addition; }
