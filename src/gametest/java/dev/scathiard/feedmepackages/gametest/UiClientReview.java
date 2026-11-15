@@ -15,6 +15,14 @@ import java.util.concurrent.CompletableFuture;
  * and unbound one-key collection through actual mouse/key input and server inventory settlement.
  */
 public final class UiClientReview {
+    private static final java.util.UUID HIGHLIGHT=java.util.UUID.randomUUID();
+    private static int popupSlot;
+    private static java.util.UUID highlightFrequency() throws ReflectiveOperationException {
+        var held=com.simibubi.create.content.logistics.packagerLink.LogisticallyLinkedClientHandler.class
+                .getDeclaredField("previouslyHeldFrequency");
+        held.setAccessible(true);
+        return (java.util.UUID)held.get(null);
+    }
     private static final Minecraft MC = Minecraft.getInstance();
     private static int phase, ticks, changed;
     private static CompletableFuture<Void> work;
@@ -147,6 +155,70 @@ public final class UiClientReview {
                 if (!panelReady() || TemplateClientReview.snapshot().cells().getFirst().amount()!=15) return false;
                 TemplateClientReview.capture("collect-unbound-after");
                 dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP_UNBOUND_COLLECT_PASSED mouse=5 key=2 unmatched=3 stock=15");
+                onServer(player -> {
+                    var copy=FmpRegistries.PENDANT.toStack();
+                    copy.set(FmpRegistries.NETWORK.get(), HIGHLIGHT);
+                    player.getInventory().setItem(player.getInventory().selected,copy);
+                    player.inventoryMenu.broadcastChanges();
+                });
+                next();
+            }
+            case 27 -> {
+                if (!HIGHLIGHT.equals(highlightFrequency())) return false;
+                onServer(player -> {
+                    player.getMainHandItem().remove(FmpRegistries.NETWORK.get());
+                    player.inventoryMenu.broadcastChanges();
+                });
+                next();
+            }
+            case 28 -> {
+                if (highlightFrequency()!=null) return false;
+                var snap=TemplateClientReview.snapshot();
+                var layout=TemplateClientReview.hostLayout();
+                var cell=layout.cells().stream().filter(c->c.bounds().y()==layout.cells().stream()
+                        .mapToInt(other->other.bounds().y()).max().orElseThrow()
+                        && c.bounds().x()==layout.cells().stream().mapToInt(other->other.bounds().x()).max().orElseThrow())
+                        .findFirst().orElseGet(()->layout.cells().getLast());
+                int slot=snap.grid().storageSlot(cell.slot());
+                onServer(player->ConsumptionTests.seed(player,slot,new net.minecraft.world.item.ItemStack(net.minecraft.world.item.Items.EMERALD),5));
+                popupSlot=cell.slot();
+                next();
+            }
+            case 29 -> {
+                if (TemplateClientReview.snapshot().cells().get(popupSlot).amount()!=5) return false;
+                var dot=TemplateClientReview.hostLayout().cells().stream().filter(c->c.slot()==popupSlot).findFirst().orElseThrow().dot();
+                TemplateClientReview.click(dot.x()+1,dot.y()+1);
+                next();
+            }
+            case 30 -> {
+                var layout=TemplateClientReview.hostLayout();
+                require(layout.slider()!=null,"Cell controls failed to open");
+                var footer=layout.foldButton(); var popup=layout.slider();
+                int x=Math.max(footer.x(),popup.x())+1, y=Math.max(footer.y(),popup.y())+1;
+                require(footer.contains(x,y) && popup.contains(x,y),"Fixture did not overlap the footer");
+                TemplateClientReview.move(x,y); TemplateClientReview.capture("031-cell-controls-above-footer");
+                TemplateClientReview.click(x,y); next();
+            }
+            case 31 -> {
+                var layout=TemplateClientReview.hostLayout();
+                require(!layout.hidden() && layout.slider()!=null,"Click on cell settings fell through and folded the panel");
+                var dot=layout.cells().stream().filter(c->c.slot()==popupSlot).findFirst().orElseThrow().dot();
+                TemplateClientReview.click(dot.x()+1,dot.y()+1); next();
+            }
+            case 32 -> {
+                editAddress(); pasteFixture("退货站🚀");
+                pressAddressKey(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER); next();
+            }
+            case 33 -> {
+                if (!"退货站🚀".equals(TemplateClientReview.snapshot().returnAddress())) return false;
+                editAddress(); pasteFixture("取消"); pressAddressKey(org.lwjgl.glfw.GLFW.GLFW_KEY_ESCAPE);
+                MC.setScreen(null); next();
+            }
+            case 34 -> openInventory();
+            case 35 -> {
+                if (!panelReady()) return false;
+                require("退货站🚀".equals(TemplateClientReview.snapshot().returnAddress()),"Address damaged by cancel or reopening");
+                dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP031_UI_PASSED nativeNetwork={} unboundCleared=true footerOverlap=true addressCommitCancelReopen=true",HIGHLIGHT);
                 return true;
             }
             default -> { }
@@ -158,6 +230,24 @@ public final class UiClientReview {
      * Both the panel session and a container screen have to be up before a panel picture means anything. The
      * snapshot is read through the review helper: a picture without it would show an empty panel.
      */
+    static void editAddress() throws ReflectiveOperationException {
+        var r=TemplateClientReview.hostLayout().returnBar();
+        TemplateClientReview.click(r.x()+r.width()/2,r.y()+r.height()/2);
+    }
+    static void pasteFixture(String text) throws ReflectiveOperationException {
+        // Exercise the editor with a local clipboard fixture. Do not read or replace the host clipboard.
+        var method=dev.scathiard.feedmepackages.client.LogisticsPanel.class.getDeclaredMethod("editReturnKey",
+                int.class,int.class,java.util.function.Supplier.class);
+        method.setAccessible(true);
+        int modifier=Minecraft.ON_OSX?org.lwjgl.glfw.GLFW.GLFW_MOD_SUPER:org.lwjgl.glfw.GLFW.GLFW_MOD_CONTROL;
+        require((Boolean)method.invoke(null,org.lwjgl.glfw.GLFW.GLFW_KEY_V,modifier,
+                (java.util.function.Supplier<String>)()->text),"Paste shortcut refused");
+    }
+    static void pressAddressKey(int code) {
+        var event=new net.neoforged.neoforge.client.event.ScreenEvent.KeyPressed.Pre(MC.screen,code,0,0);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(event);
+        require(event.isCanceled(),"Editor did not handle key "+code);
+    }
     private static boolean panelReady() throws ReflectiveOperationException {
         return MC.player != null && MC.screen instanceof AbstractContainerScreen<?>
                 && TemplateClientReview.snapshot() != null;

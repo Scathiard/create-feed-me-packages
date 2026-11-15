@@ -211,7 +211,7 @@ public final class FmpConfig {
         try {
             var levels = new ArrayList<CacheCapacity>();
             for (int i = 0; i < 5; i++) {
-                levels.add(new CacheCapacity(SLOTS.get(i).get(), GROUPS.get(i).get()));
+                levels.add(CacheCapacity.configured(SLOTS.get(i).get(), GROUPS.get(i).get()));
             }
             var next = new Rules(levels, new HashSet<>(DENIED.get()), new HashSet<>(ALLOWED.get()));
             enabled = new Enabled(

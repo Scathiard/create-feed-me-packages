@@ -83,6 +83,190 @@ public final class GrowthTests {
     }
 
     @GameTest(template = "empty")
+    public static void expansionSurvivesWearLevelUpAndSaveWithItsNewSlot(GameTestHelper h) {
+        var server=h.getLevel().getServer();
+        var probe=server.overworld().getDataStorage().computeIfAbsent(new SavedData.Factory<>(GrowthProbe::new,GrowthProbe::load),
+                "fmp_paid_expansion_probe");
+        if (probe.data.hasUUID("writer")) {
+            h.assertTrue(!PROCESS.equals(probe.data.getUUID("writer")),"Expansion persistence requires a different JVM");
+            var restored=TestPlayers.create(h,probe.data.getUUID("player"),ItemStack.EMPTY);
+            h.assertTrue(server.getPlayerList().load(restored).isPresent(),"Missing original player data");
+            var access=AccessGate.resolve(restored);
+            h.assertTrue(access.active() && access.handle().cacheId().equals(probe.data.getUUID("cache")),"Persisted pendant lost its identity");
+            var ledger=CacheLedger.get(server); var record=ledger.find(access.handle().cacheId());
+            h.assertTrue(record.expansionLinks()==2 && record.state().level()==2 && record.state().capacity().slots()==26
+                    && record.state().cells().get(13).amount()==12 && record.state().writable(25),"Expansion lost after restarting the server");
+            var edit=record.state().edit(); var key=record.state().cells().get(13).filter();
+            h.assertTrue(edit.extract(13,12)==12 && edit.insert(13,key,12)==12,"Expanded slot no longer allows stock transfer");
+            ledger.replace(access.handle(),record.state().revision(),record.withState(edit.finish()));
+            FeedMePackages.LOGGER.info("FMP031_EXPANSION PRIOR_JVM_PASSED slots=26 links=2 diamonds=12");
+            h.succeed(); return;
+        }
+        h.assertTrue(!Boolean.getBoolean("fmp.requirePriorPersistence"),"Missing previous expansion fixture");
+        var player = TestPlayers.create(h, ItemStack.EMPTY);
+        var pendant = FmpRegistries.PENDANT.toStack();
+        UUID id = null;
+        var ledger = CacheLedger.get(player.getServer());
+        for (int step = 0; step < 3; step++) {
+            var menu = open(h, player, pendant, step == 2 ? FmpRegistries.upgradeLink(2).toStack() : FmpRegistries.EXPANSION_LINK.toStack());
+            menu.createResult();
+            h.assertTrue(menu.getSlot(3).hasItem() && menu.getSlot(2).hasItem(), "Missing expansion preview or inputs");
+            menu.clicked(3, 0, ClickType.PICKUP, player);
+            pendant = menu.getCarried().copy();
+            h.assertTrue(pendant.is(FmpRegistries.PENDANT.get()) && !menu.getSlot(2).hasItem()
+                    && menu.getSlot(0).hasItem(), "Incorrect smithing output or input cost");
+            menu.setCarried(ItemStack.EMPTY);
+            close(player, menu);
+            TestPlayers.necklace(player).setStackInSlot(0, pendant);
+            var handle = AccessGate.resolve(player).handle();
+            if (step == 0) id = pendant.get(FmpRegistries.IDENTITY.get());
+            int slots = step == 0 ? 14 : step == 1 ? 19 : 26;
+            var record = ledger.find(id);
+            h.assertTrue(id != null && id.equals(handle.cacheId()) && record.state().capacity().slots() == slots,
+                    "Re-equipping lost the expansion or the pendant identity");
+            var key = ItemVariantKey.of(new ItemStack(Items.DIAMOND), player.registryAccess());
+            if (step == 0) {
+                var edit = record.state().edit();
+                edit.filter(13, key);
+                h.assertTrue(edit.insert(13, key, 12) == 12, "Expanded slot was read-only");
+                ledger.replace(handle, record.state().revision(), record.withState(edit.finish()));
+            }
+            var reload = CacheLedger.load(saved(player), player.registryAccess());
+            dev.scathiard.feedmepackages.service.CachePolicy.synchronize(reload, handle);
+            record = reload.find(id);
+            h.assertTrue(record.expansionLinks() == Math.min(2,step+1) && record.state().capacity().slots() == slots
+                    && record.state().cells().get(13).amount() == 12 && record.state().writable(slots-1),
+                    "Saved expansion lost stock or access");
+            TestPlayers.necklace(player).setStackInSlot(0, ItemStack.EMPTY);
+        }
+        TestPlayers.necklace(player).setStackInSlot(0,pendant);
+        FoundationTests.saveNativePlayer(player);
+        probe.data.putUUID("writer",PROCESS); probe.data.putUUID("cache",id); probe.data.putUUID("player",player.getUUID());
+        probe.setDirty();
+        FeedMePackages.LOGGER.info("FMP031_EXPANSION FIRST_WRITE slots=26 links=2 diamonds=12");
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void slot129CanBeUsedAfterRestartAndExpandedAgain(GameTestHelper h) {
+        var server=h.getLevel().getServer(); var ledger=CacheLedger.get(server);
+        var probe=server.overworld().getDataStorage().computeIfAbsent(new SavedData.Factory<>(GrowthProbe::new,GrowthProbe::load),
+                "fmp_129_slot_probe");
+        boolean prior=probe.data.hasUUID("writer");
+        h.assertTrue(prior || !Boolean.getBoolean("fmp.requirePriorPersistence"),"Missing previous 129-slot world");
+        var p=TestPlayers.create(h,prior?probe.data.getUUID("player"):UUID.randomUUID(),ItemStack.EMPTY);
+        ItemStack pendant;
+        if (prior) {
+            h.assertTrue(!probe.data.getUUID("writer").equals(PROCESS) && server.getPlayerList().load(p).isPresent(),
+                    "Expected a real player file from a previous JVM");
+            pendant=TestPlayers.necklace(p).getStackInSlot(0);
+            var handle=AccessGate.resolve(p).handle();
+            h.assertTrue(handle.cacheId().equals(probe.data.getUUID("cache")),"Lost expanded cache identity");
+            var record=ledger.find(handle.cacheId());
+            if (probe.data.getBoolean("verified")) {
+                h.assertTrue(record.state().capacity().slots()==134 && record.expansionLinks()==25
+                        && record.state().cells().get(128).amount()==0,"Completed expansion verification did not persist");
+                h.succeed(); return;
+            }
+            h.assertTrue(record.state().capacity().slots()==129 && record.expansionLinks()==24
+                    && record.state().cells().get(128).amount()==7,"Slot 129 lost stock or access");
+            TestPlayers.necklace(p).setStackInSlot(0,ItemStack.EMPTY);
+        } else {
+            pendant=FmpRegistries.PENDANT.toStack();
+        }
+        for (int i=0;i<(prior?1:24);i++) {
+            var menu=open(h,p,pendant,FmpRegistries.EXPANSION_LINK.toStack());
+            menu.clicked(3,0,ClickType.PICKUP,p);
+            pendant=menu.getCarried().copy(); menu.setCarried(ItemStack.EMPTY); close(p,menu);
+            h.assertTrue(pendant.is(FmpRegistries.PENDANT.get()),"Native smithing stopped on link "+(i+1));
+        }
+        TestPlayers.necklace(p).setStackInSlot(0,pendant);
+        var handle=AccessGate.resolve(p).handle();
+        var window=dev.scathiard.feedmepackages.network.PanelNetwork.query(p,
+                new dev.scathiard.feedmepackages.network.PanelPackets.Query(UUID.randomUUID(),p.containerMenu.containerId,true,128,6));
+        h.assertTrue(window!=null && window.totalSlots()==(prior?134:129) && window.grid().localSlot(128)>=0,
+                "Last expanded slot cannot be reached through the networked viewport");
+        var record=ledger.find(handle.cacheId()); var key=ItemVariantKey.of(new ItemStack(Items.EMERALD),p.registryAccess());
+        var edit=record.state().edit();
+        if (prior) {
+            h.assertTrue(edit.extract(128,7)==7,"Could not take the saved stock from slot 129");
+            ledger.replace(handle,record.state().revision(),record.withState(edit.finish()));
+            probe.data.putBoolean("verified",true); probe.setDirty();
+            FeedMePackages.LOGGER.info("FMP031_SLOT129 PRIOR_JVM_PASSED base=9 installed=25 slots=134 withdrawn=7");
+        } else {
+            edit.filter(128,key); h.assertTrue(edit.insert(128,key,7)==7,"Could not put stock into slot 129");
+            ledger.replace(handle,record.state().revision(),record.withState(edit.finish()));
+            FoundationTests.saveNativePlayer(p);
+            probe.data.putUUID("writer",PROCESS);probe.data.putUUID("player",p.getUUID());probe.data.putUUID("cache",handle.cacheId());
+            probe.setDirty();
+            FeedMePackages.LOGGER.info("FMP031_SLOT129 FIRST_WRITE base=9 installed=24 slots=129 emeralds=7");
+        }
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void expandedStockHintsFitTheWireAndArePublishedTogether(GameTestHelper h) {
+        var registries = h.getLevel().registryAccess();
+        var variants = new ArrayList<String>();
+        for (int i=0;i<200;i++) {
+            var stack = new ItemStack(Items.PAPER);
+            stack.set(DataComponents.CUSTOM_NAME,Component.literal("a".repeat(742)+i));
+            variants.add(ItemVariantKey.of(stack,registries).encoded());
+        }
+        var uuid=UUID.randomUUID();
+        var hints = new dev.scathiard.feedmepackages.network.MaterialHints.Message(uuid,1,true,true,false,
+                variants,Collections.nCopies(200,1),0,Collections.nCopies(200,0),List.of());
+        var fluid = new dev.scathiard.feedmepackages.network.PalletFluids.Stock(uuid,variants,Collections.nCopies(200,8));
+        var pages=hints.pages(); var fluidPages=fluid.pages();
+        h.assertTrue(pages.size()==2 && fluidPages.size()==2,"Expanded candidates did not page");
+        for (int i=0;i<2;i++) {
+            var buffer = new net.minecraft.network.RegistryFriendlyByteBuf(io.netty.buffer.Unpooled.buffer(),registries);
+            try {
+                var codec=dev.scathiard.feedmepackages.network.MaterialHints.Message.CODEC;
+                codec.encode(buffer,pages.get(i));
+                h.assertTrue(buffer.readableBytes()<=144*1024,"Oversized item page");
+                var complete=codec.decode(buffer).receivePage();
+                h.assertTrue(i==0 ? complete==null : hints.equals(complete),"Partial or reordered material hints");
+                buffer.clear();
+                var fluidCodec=dev.scathiard.feedmepackages.network.PalletFluids.Stock.CODEC;
+                fluidCodec.encode(buffer,fluidPages.get(i));
+                var stock=fluidCodec.decode(buffer).receivePage();
+                h.assertTrue(i==0 ? stock==null : fluid.equals(stock),"Partial or reordered fluid hints");
+            } finally { buffer.release(); }
+        }
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void expansionSequenceOnlyConsumesFreshPendants(GameTestHelper h) {
+        var recipes = h.getLevel().getServer().getRecipeManager();
+        var recipe = (SequencedAssemblyRecipe)recipes.byKey(ResourceLocation.fromNamespaceAndPath(
+                FeedMePackages.MOD_ID, "sequenced_assembly/expansion_frame")).orElseThrow().value();
+        h.assertTrue(recipe.getLoops() == 5 && recipe.getSequence().size() == 6, "Expansion sequence cost");
+        boolean frame=false, nugget=false;
+        for (int attempt=0;attempt<80 && !(frame && nugget);attempt++) {
+            ItemStack part=FmpRegistries.LINK_FRAMES.getFirst().toStack();
+            for(int step=0;step<30;step++) {
+                part=nativeStep(h,part,recipe.getSequence().get(step%6).getRecipe());
+                if(step<29) h.assertTrue(part.is(FmpRegistries.INCOMPLETE_EXPANSION.get())
+                        && part.get(AllDataComponents.SEQUENCED_ASSEMBLY).step()==step+1,"Expansion ended before step 30");
+            }
+            frame|=part.is(FmpRegistries.EXPANSION_FRAME.get()); nugget|=part.is(Items.IRON_NUGGET);
+        }
+        h.assertTrue(frame && nugget,"Native 30-step assembly did not produce both outcomes");
+        var ingredient = recipe.getSequence().get(3).getRecipe().getIngredients().get(1);
+        var used = FmpRegistries.PENDANT.toStack();
+        h.assertTrue(ingredient.test(used), "Blank pendant rejected");
+        used.set(FmpRegistries.IDENTITY.get(), UUID.randomUUID());
+        h.assertTrue(!ingredient.test(used), "Used pendant could be consumed");
+        var crafting = recipes.byKey(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID,
+                "mechanical_crafting/expansion_link")).orElseThrow().value();
+        h.assertTrue(crafting.getIngredients().size()==25 && crafting.getIngredients().get(12).test(new ItemStack(Items.DRAGON_HEAD)),
+                "Expansion link is missing the central dragon head");
+        h.succeed();
+    }
+
+    @GameTest(template = "empty")
     public static void allOrdinaryLevelsUseNativeResultClicksAndPreserveTheFullCache(GameTestHelper helper) {
         var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); var access = AccessGate.resolve(player); var ledger = CacheLedger.get(player.getServer());
         ItemStack pendant = TestPlayers.necklace(player).getStackInSlot(0); UUID network = UUID.randomUUID(); pendant.set(FmpRegistries.NETWORK.get(), network);
@@ -310,7 +494,7 @@ public final class GrowthTests {
         var level = helper.getLevel(); var manager = level.getRecipeManager();
         long count = manager.getRecipes().stream().filter(holder -> holder.id().getNamespace().equals(FeedMePackages.MOD_ID)
                 && List.of("crafting/", "mechanical_crafting/", "sequenced_assembly/", "smithing/").stream().anyMatch(holder.id().getPath()::startsWith)).count();
-        helper.assertTrue(count == 14, "Expected ordinary recipes only: " + count);
+        helper.assertTrue(count == 17, "Expected level and expansion recipes: " + count);
         for (String path : List.of("sequenced_assembly/private_link", "smithing/personalize", "smithing/personal_supply_chain_pendant_to_2",
                 "smithing/personal_supply_chain_pendant_to_3", "smithing/personal_supply_chain_pendant_to_4", "smithing/personal_supply_chain_pendant_to_5"))
             helper.assertTrue(manager.byKey(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, path)).isEmpty(), "Retired recipe still loaded: " + path);

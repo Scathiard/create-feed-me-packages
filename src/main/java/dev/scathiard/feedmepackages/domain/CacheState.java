@@ -14,7 +14,7 @@ public record CacheState<K extends MaterialVariant>(UUID id, int level, long rev
         retainedCeilings = Map.copyOf(retainedCeilings); requestedControls = Map.copyOf(requestedControls);
         cells = List.copyOf(cells);
         orders = Map.copyOf(orders);
-        if (revision < 0 || cells.size() < capacity.slots() || cells.size() > CacheCapacity.MAX_SLOTS || orders.size() > MAX_ORDERS)
+        if (revision < 0 || cells.size() < capacity.slots() || orders.size() > MAX_ORDERS)
             throw new IllegalArgumentException("Invalid cache structure");
         Set<K> variants = new HashSet<>();
         for (int slot = 0; slot < cells.size(); slot++) {

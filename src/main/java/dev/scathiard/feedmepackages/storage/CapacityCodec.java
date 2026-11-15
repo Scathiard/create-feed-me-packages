@@ -81,7 +81,7 @@ final class CapacityCodec {
         var retained = new HashMap<Integer, Integer>();
         var requested = new HashMap<Integer, CellControls>();
 
-        for (var entry : rows(tag, "retained")) {
+        for (var entry : rows(tag, "retained", cells.size())) {
             var row = (CompoundTag) entry;
             fields(row, Set.of("slot", "ceiling"));
             require(row, "slot", Tag.TAG_INT);
@@ -91,7 +91,7 @@ final class CapacityCodec {
             }
         }
 
-        for (var entry : rows(tag, "requested")) {
+        for (var entry : rows(tag, "requested", cells.size())) {
             var row = (CompoundTag) entry;
             var requiredKeys = Set.of("slot", "min", "max", "lower", "upper", "batch", "pending");
             fields(row, Set.of("slot", "min", "max", "lower", "upper", "batch", "pending", "return_batch"));
@@ -116,10 +116,10 @@ final class CapacityCodec {
         return new CacheState<>(id, level, revision, cells, orders, capacity, retained, requested);
     }
 
-    private static ListTag rows(CompoundTag tag, String name) {
+    private static ListTag rows(CompoundTag tag, String name, int cellCount) {
         require(tag, name, Tag.TAG_LIST);
         var list = (ListTag) tag.get(name);
-        if (list.size() > CacheCapacity.MAX_SLOTS
+        if (list.size() > cellCount
                 || (!list.isEmpty() && list.getElementType() != Tag.TAG_COMPOUND)) {
             throw new IllegalArgumentException("Invalid capacity provenance rows");
         }

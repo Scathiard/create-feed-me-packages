@@ -1,5 +1,8 @@
 {
   "itemGroup.create_feed_me_packages": "Create: Feed Me Packages!",
+  "item.create_feed_me_packages.incomplete_expansion_frame": "Incomplete Expansion Link Frame",
+  "item.create_feed_me_packages.expansion_frame": "Expansion Link Frame",
+  "item.create_feed_me_packages.expansion_link": "Expansion Link",
   "item.create_feed_me_packages.supply_chain_pendant": "Supply Chain Pendant",
   "item.create_feed_me_packages.personal_supply_chain_pendant": "Legacy Personal Pendant (Pending Conversion)",
   "tooltip.create_feed_me_packages.ordinary": "The cache travels with this pendant. Wear it to access your factory supplies.",

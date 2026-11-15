@@ -271,8 +271,12 @@ public final class CraftingRetrievalContractTests {
         var restored = CacheLedger.load(saved, p.registryAccess());
         h.assertTrue(restored.problem().isEmpty() && !restored.find(handle.cacheId()).craftingEnabled()
                 && restored.find(handle.cacheId()).state().cells().get(0).amount() == 17, "Save/load lost OFF or stock");
-        var old = saved.copy(); old.putInt("schema", 31003);
-        for (var row : old.getList("caches", net.minecraft.nbt.Tag.TAG_COMPOUND)) ((net.minecraft.nbt.CompoundTag)row).remove("crafting_enabled");
+        // A pre-toggle world could not already own expansion links from another test or a previous server run.
+        var old = new CacheLedger().save(new net.minecraft.nbt.CompoundTag(),p.registryAccess());
+        old.putInt("schema", 31003);
+        var oldRow=LedgerIsolationTests.row(saved,handle.cacheId()).copy();
+        oldRow.remove("crafting_enabled");
+        var oldCaches=new net.minecraft.nbt.ListTag(); oldCaches.add(oldRow); old.put("caches",oldCaches);
         var legacy = CacheLedger.load(old, p.registryAccess());
         h.assertTrue(legacy.problem().isEmpty() && legacy.find(handle.cacheId()).craftingEnabled()
                 && legacy.find(handle.cacheId()).state().cells().get(0).amount() == 17, "Legacy absence must default ON");

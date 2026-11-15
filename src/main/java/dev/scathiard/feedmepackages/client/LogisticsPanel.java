@@ -175,6 +175,7 @@ public final class LogisticsPanel {
     private static int silentCollectSequence;
     private static boolean returnEditing;
     private static String returnBuffer;
+    private static char pendingAddressSurrogate;
     private static int pendingReturnSequence;
     private static UUID pendingReturnWindow;
     private static UUID pendingReturnSession;
@@ -341,7 +342,7 @@ public final class LogisticsPanel {
             if (!LogisticsPanel.current(event.getScreen())) {
                 return;
             }
-            if (returnEditing && LogisticsPanel.editReturnKey(event.getKeyCode())) {
+            if (returnEditing && LogisticsPanel.editReturnKey(event.getKeyCode(), event.getModifiers(), MC.keyboardHandler::getClipboard)) {
                 event.setCanceled(true);
                 return;
             }
@@ -354,9 +355,16 @@ public final class LogisticsPanel {
                 return;
             }
             if (returnEditing) {
-                if (event.getCodePoint() >= ' ' && Character.isValidCodePoint(event.getCodePoint())
-                        && ReturnAddress.valid(returnBuffer + new String(Character.toChars(event.getCodePoint())))) {
-                    returnBuffer = returnBuffer + new String(Character.toChars(event.getCodePoint()));
+                int code = event.getCodePoint();
+                if (code <= Character.MAX_VALUE && Character.isHighSurrogate((char) code)) {
+                    pendingAddressSurrogate = (char) code;
+                } else {
+                    if (code <= Character.MAX_VALUE && Character.isLowSurrogate((char) code)
+                            && pendingAddressSurrogate != 0)
+                        code = Character.toCodePoint(pendingAddressSurrogate, (char) code);
+                    pendingAddressSurrogate = 0;
+                    if (Character.isValidCodePoint(code))
+                        returnBuffer = ReturnAddress.appendInput(returnBuffer, Character.toString(code));
                 }
                 event.setCanceled(true);
             }
@@ -677,6 +685,7 @@ public final class LogisticsPanel {
                 if (incoming.acknowledged() != silentCollectSequence)
                     notice("result." + incoming.result().name().toLowerCase(Locale.ROOT));
                 if (LogisticsPanel.pendingReturnMatches(incoming)) {
+                    pendingAddressSurrogate = 0;
                     returnEditing = true;
                     returnBuffer = pendingReturnBuffer == null ? "" : pendingReturnBuffer;
                     pendingReturnSequence = 0;
@@ -967,9 +976,6 @@ public final class LogisticsPanel {
             if (layout.returnBar() != null) {
                 LogisticsPanel.renderReturnBar(g);
             }
-            if (layout.slider() != null) {
-                LogisticsPanel.renderSlider(g);
-            }
         }
         if (waiting != 0) {
             LogisticsPanel.overlay(g, x + 10, y + 31, 4, 2, COLOR_WAITING_DOT);
@@ -985,13 +991,14 @@ public final class LogisticsPanel {
             PanelLayout.Rect rail = layout.scrollbar();
             g.fill(rail.x(), rail.y(), rail.x() + rail.width(), rail.y() + rail.height(), COLOR_SCROLL_RAIL);
             int thumb = Math.max(7, rail.height() * layout.visibleRows() / scrollRows);
-            int offset = (rail.height() - thumb) * scrollRow() / Math.max(1, scrollRows - layout.visibleRows());
+            int offset = (int)((long)(rail.height() - thumb) * scrollRow() / Math.max(1, scrollRows - layout.visibleRows()));
             g.fill(rail.x(), rail.y() + offset, rail.x() + rail.width(), rail.y() + offset + thumb, COLOR_SCROLL_THUMB);
         }
         if (!layout.compact()) {
             LogisticsPanel.renderTransferButton(g);
             LogisticsPanel.renderFoldButton(g);
         }
+        if (active() && layout.slider() != null) LogisticsPanel.renderSlider(g);
     }
 
     /**
@@ -1485,7 +1492,6 @@ public final class LogisticsPanel {
             if (layout.bounds().contains(x, y)) { capturedButton = button; return true; }
             return false;
         }
-        if (ClientBootstrap.SELECT_TEMPLATE.matchesMouse(button) && beginTemplate(x, y)) { capturedButton = button; return true; }
         if (active() && layout.slider() != null && layout.slider().contains(x,y)) {
             closeReturnEditorForClick(x,y,layout);
             capturedButton = button;
@@ -1496,6 +1502,7 @@ public final class LogisticsPanel {
             }
             return true;
         }
+        if (ClientBootstrap.SELECT_TEMPLATE.matchesMouse(button) && beginTemplate(x, y)) { capturedButton = button; return true; }
         if (waiting != 0 || !pageReady()) {
             capturedButton = button;
             return true;
@@ -1545,6 +1552,7 @@ public final class LogisticsPanel {
             return true;
         }
         if (LogisticsPanel.active() && inputLayout.returnAddressContains(x, y)) {
+            pendingAddressSurrogate = 0;
             returnEditing = true;
             returnBuffer = snapshot.returnAddress() == null ? "" : snapshot.returnAddress();
             return true;
@@ -1820,7 +1828,15 @@ public final class LogisticsPanel {
         return LogisticsPanel.visible() && waiting != 0 && key != 256;
     }
 
-    private static boolean editReturnKey(int keyCode) {
+    private static boolean editReturnKey(int keyCode, int modifiers, java.util.function.Supplier<String> clipboard) {
+        pendingAddressSurrogate = 0;
+        int shortcut = Minecraft.ON_OSX ? org.lwjgl.glfw.GLFW.GLFW_MOD_SUPER : org.lwjgl.glfw.GLFW.GLFW_MOD_CONTROL;
+        int commandModifiers = modifiers & (org.lwjgl.glfw.GLFW.GLFW_MOD_SHIFT | org.lwjgl.glfw.GLFW.GLFW_MOD_ALT
+                | org.lwjgl.glfw.GLFW.GLFW_MOD_SUPER | org.lwjgl.glfw.GLFW.GLFW_MOD_CONTROL);
+        if (keyCode == org.lwjgl.glfw.GLFW.GLFW_KEY_V && commandModifiers == shortcut) {
+            returnBuffer = ReturnAddress.appendInput(returnBuffer, clipboard.get());
+            return true;
+        }
         if (keyCode == 256) {
             returnEditing = false;
             return true;

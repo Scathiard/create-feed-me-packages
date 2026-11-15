@@ -3,7 +3,6 @@ package dev.scathiard.feedmepackages.network;
 import dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages;
 import dev.scathiard.feedmepackages.compat.maid.MaidMenus;
 import dev.scathiard.feedmepackages.compat.maid.MaidPickup;
-import dev.scathiard.feedmepackages.domain.CacheCapacity;
 import dev.scathiard.feedmepackages.domain.CacheGrid;
 import dev.scathiard.feedmepackages.domain.CacheViewport;
 import dev.scathiard.feedmepackages.domain.ReturnAddress;
@@ -150,7 +149,7 @@ public final class PanelNetwork {
     }
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar("18-fluid-batches");
+        var registrar = event.registrar("19-expanded-inventory");
         registrar.playToServer(PanelPackets.Query.TYPE, PanelPackets.Query.CODEC, (packet, context) -> {
             var reply = query((ServerPlayer) context.player(), packet);
             if (reply != null) {
@@ -264,10 +263,19 @@ public final class PanelNetwork {
         }
         if (packet.menu() != player.containerMenu.containerId
                 || packet.firstSlot() < 0
-                || packet.firstSlot() > CacheCapacity.MAX_SLOTS
                 || packet.columnLimit() < 2
                 || packet.columnLimit() > 6) {
             return null;
+        }
+        // A previously valid page can disappear when the wearer changes pendants. Let snapshot() return
+        // the new first page or inactive status to an already-open window.
+        boolean samePage = window != null && window.id.equals(packet.window()) && window.menu == packet.menu()
+                && window.firstSlot == packet.firstSlot();
+        if (packet.firstSlot() > 0 && !samePage) {
+            var access = PanelAccess.resolve(player);
+            if (!access.active()) return null;
+            var current = CacheLedger.get(player.getServer()).find(access.handle().cacheId());
+            if (current == null || packet.firstSlot() >= current.state().cells().size()) return null;
         }
         if (window == null || !window.id.equals(packet.window()) || window.menu != packet.menu()) {
             if (window != null) {

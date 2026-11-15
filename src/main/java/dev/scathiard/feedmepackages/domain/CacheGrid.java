@@ -186,11 +186,15 @@ public final class CacheGrid {
         int columns=columnsFor(total,limit), first=CacheViewport.first(total,requestedFirst,limit)/columns;
         int rows=Math.min(MAX_ROWS,rowsFor(total,limit)-first);var slots=new ArrayList<Integer>();var coordinates=new ArrayList<Integer>();
         var base=forLevel(5);
-        for(int slot=0;slot<total;slot++){
+        boolean linear = columns < naturalColumns(total);
+        // Below 36 the canonical storage order is not row-major. Every later row is contiguous.
+        int start = linear || first >= MAX_ROWS ? first * columns : 0;
+        int end = linear || first >= MAX_ROWS ? (int)Math.min(total, (long)(first + rows) * columns)
+                : Math.min(total, Math.max(36, (first + rows) * columns));
+        for(int slot=start;slot<end;slot++){
             int row,column;
-            if(columns<naturalColumns(total)){row=slot/columns;column=slot%columns;}
-            else if(slot<36){row=base.row(slot);column=base.column(slot);}
-            else{row=MAX_ROWS+(slot-36)/6;column=(slot-36)%6;}
+            if(linear || slot>=36){row=slot/columns;column=slot%columns;}
+            else{row=base.row(slot);column=base.column(slot);}
             if(row<first || row>=first+rows)continue;
             slots.add(slot);coordinates.add(packed(column,row-first));
         }

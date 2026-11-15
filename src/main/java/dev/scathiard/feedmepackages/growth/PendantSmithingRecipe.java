@@ -16,10 +16,11 @@ import net.minecraft.world.level.Level;
 public final class PendantSmithingRecipe extends SmithingTransformRecipe {
     private final Ingredient template, base, addition;
     private final ItemStack result;
+    public static final int EXPAND = 0;
     private final int targetLevel;
     public PendantSmithingRecipe(Ingredient template, Ingredient base, Ingredient addition, ItemStack result, int targetLevel) {
         super(template, base, addition, result.copy());
-        if ((targetLevel < 2 || targetLevel > 5) || result.getCount() != 1
+        if (targetLevel != EXPAND && (targetLevel < 2 || targetLevel > 5) || result.getCount() != 1
                 || !(result.getItem() instanceof PendantItem pendant))
             throw new IllegalArgumentException("Invalid pendant smithing definition");
         this.template = template; this.base = base; this.addition = addition; this.result = result.copy(); this.targetLevel = targetLevel;

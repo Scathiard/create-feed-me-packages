@@ -68,6 +68,7 @@
     "PalletNativeTickMixin"
   ],
   "client": [
+    "PendantNetworkHighlightMixin",
     "ContainerScreenAccess",
     "CellSettingsCloseMixin",
     "RecipeBookHintsMixin",

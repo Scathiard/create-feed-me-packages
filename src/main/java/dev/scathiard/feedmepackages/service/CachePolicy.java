@@ -79,7 +79,7 @@ public final class CachePolicy {
 
     public static void synchronize(CacheLedger ledger, CacheHandle handle) {
         var record = ledger.find(handle.cacheId());
-        var capacity = FmpConfig.rules().capacity(record.state().level());
+        var capacity = FmpConfig.rules().capacity(record.state().level()).expanded(record.expansionLinks());
         if (record.state().capacity().equals(capacity)) {
             return;
         }

@@ -18,14 +18,21 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import java.util.*;
 import java.util.function.Consumer;
 
-/** Read-only view, separate from a GUI window. At most 128 configured cells; template updates <=144KiB, count updates <=1KiB. */
+/** Read-only view, separate from a GUI window. Entire snapshots are assembled from bounded, ordered pages. */
 public final class MaterialHints {
     private MaterialHints() {}
-    private static final int MAX_CELLS = dev.scathiard.feedmepackages.domain.CacheCapacity.MAX_SLOTS;
+    public static void clearClientPages() { PAGES.clear(); }
+    private static final StockPages<Message> PAGES = new StockPages<>();
     private static final int WIRE_LIMIT = 144 * 1024;
     public record Message(UUID generation, long serial, boolean full, boolean active, boolean cacheFirst,
                           List<String> templates, List<Integer> amounts, int menu, List<Integer> ownReservations,
-                          List<Integer> reservedGrid, UUID cache, boolean craftingEnabled) implements CustomPacketPayload {
+                          List<Integer> reservedGrid, UUID cache, boolean craftingEnabled, int offset, boolean last) implements CustomPacketPayload {
+        public Message(UUID generation, long serial, boolean full, boolean active, boolean cacheFirst,
+                       List<String> templates, List<Integer> amounts, int menu, List<Integer> ownReservations,
+                       List<Integer> reservedGrid, UUID cache, boolean craftingEnabled) {
+            this(generation, serial, full, active, cacheFirst, templates, amounts, menu, ownReservations, reservedGrid,
+                    cache, craftingEnabled, 0, true);
+        }
         public Message(UUID generation, long serial, boolean full, boolean active, boolean cacheFirst,
                        List<String> templates, List<Integer> amounts, int menu, List<Integer> ownReservations,
                        List<Integer> reservedGrid, UUID cache) {
@@ -42,27 +49,46 @@ public final class MaterialHints {
             if (ownReservations.size() != amounts.size() || reservedGrid.size() > 9 || menu < 0
                     || ownReservations.stream().anyMatch(n -> n < 0 || n > 4096) || reservedGrid.stream().anyMatch(n -> n < 0 || n > 4096))
                 throw new IllegalArgumentException("Invalid reservation hints");
-            if (serial < 1 || amounts.size() > MAX_CELLS || templates.size() > MAX_CELLS || (full ? templates.size() != amounts.size() : !templates.isEmpty())
+            if (serial < 1 || offset < 0 || (full ? templates.size() != amounts.size() : !templates.isEmpty())
                     || amounts.stream().anyMatch(n -> n < 0 || n > 4096) || (!active && (!full || !amounts.isEmpty())))
                 throw new IllegalArgumentException("Invalid material hints");
         }
         public static final Type<Message> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath(FeedMePackages.MOD_ID, "material_hints"));
         public static final StreamCodec<RegistryFriendlyByteBuf, Message> CODEC = StreamCodec.of((b, m) -> {
-            int start = b.writerIndex(); b.writeUUID(m.generation); b.writeUUID(m.cache); b.writeLong(m.serial); b.writeBoolean(m.full); b.writeBoolean(m.active); b.writeBoolean(m.cacheFirst); b.writeBoolean(m.craftingEnabled);
+            int start = b.writerIndex();
+            if (m.amounts.size() > StockPages.SIZE) throw new IllegalArgumentException("Material hints require paging");
+            b.writeVarInt(m.offset); b.writeBoolean(m.last); b.writeUUID(m.generation); b.writeUUID(m.cache); b.writeLong(m.serial); b.writeBoolean(m.full); b.writeBoolean(m.active); b.writeBoolean(m.cacheFirst); b.writeBoolean(m.craftingEnabled);
             b.writeVarInt(m.amounts.size());
             for (int i = 0; i < m.amounts.size(); i++) { if (m.full) PanelPackets.text(b, m.templates.get(i), 1024); b.writeVarInt(m.amounts.get(i)); }
             b.writeVarInt(m.menu); for (int held : m.ownReservations) b.writeVarInt(held);
             b.writeVarInt(m.reservedGrid.size()); for (int held : m.reservedGrid) b.writeVarInt(held);
             PanelPackets.written(b, start, WIRE_LIMIT);
         }, b -> {
-            PanelPackets.bound(b, WIRE_LIMIT); var generation = b.readUUID(); var cache = b.readUUID(); long serial = b.readLong();
-            boolean full = b.readBoolean(), active = b.readBoolean(), first = b.readBoolean(), crafting = b.readBoolean(); int size = PanelPackets.size(b, MAX_CELLS);
+            PanelPackets.bound(b, WIRE_LIMIT); int offset = b.readVarInt(); boolean last = b.readBoolean(); var generation = b.readUUID(); var cache = b.readUUID(); long serial = b.readLong();
+            boolean full = b.readBoolean(), active = b.readBoolean(), first = b.readBoolean(), crafting = b.readBoolean(); int size = PanelPackets.size(b, StockPages.SIZE);
             var templates = new ArrayList<String>(); var amounts = new ArrayList<Integer>();
             for (int i = 0; i < size; i++) { if (full) templates.add(PanelPackets.text(b, 1024)); amounts.add(b.readVarInt()); }
             int menu = b.readVarInt(); var own = new ArrayList<Integer>(); for (int i = 0; i < size; i++) own.add(b.readVarInt());
             int gridSize = PanelPackets.size(b, 9); var grid = new ArrayList<Integer>(); for (int i = 0; i < gridSize; i++) grid.add(b.readVarInt());
-            PanelPackets.end(b); return new Message(generation, serial, full, active, first, templates, amounts, menu, own, grid, cache, crafting);
+            PanelPackets.end(b); return new Message(generation, serial, full, active, first, templates, amounts, menu, own, grid, cache, crafting, offset, last);
         });
+        public List<Message> pages() {
+            if (amounts.size() <= StockPages.SIZE) return List.of(this);
+            return StockPages.split(amounts.size(), (from, to) -> new Message(generation, serial, full, active, cacheFirst,
+                    full ? templates.subList(from, to) : List.of(), amounts.subList(from, to), menu,
+                    ownReservations.subList(from, to), reservedGrid, cache, craftingEnabled, from, to == amounts.size()));
+        }
+        private boolean sameSnapshot(Message other) {
+            return generation.equals(other.generation) && cache.equals(other.cache) && serial == other.serial
+                    && full == other.full && active == other.active && cacheFirst == other.cacheFirst && menu == other.menu
+                    && craftingEnabled == other.craftingEnabled && reservedGrid.equals(other.reservedGrid);
+        }
+        public Message receivePage() {
+            return PAGES.accept(this, offset, last, amounts.size(), Message::sameSnapshot, parts -> new Message(
+                    generation, serial, full, active, cacheFirst, StockPages.collect(parts, Message::templates),
+                    StockPages.collect(parts, Message::amounts), menu, StockPages.collect(parts, Message::ownReservations),
+                    reservedGrid, cache, craftingEnabled));
+        }
         @Override public Type<Message> type() { return TYPE; }
     }
     private record Sent(CacheHandle handle, Message message) {}
@@ -84,7 +110,10 @@ public final class MaterialHints {
     private static Consumer<Message> clientReceiver = packet -> {};
     public static void receiveOnClient(Consumer<Message> consumer) { clientReceiver = Objects.requireNonNull(consumer); }
     public static void register(RegisterPayloadHandlersEvent event) {
-        event.registrar("converged-hints-5").playToClient(Message.TYPE, Message.CODEC, (packet, context) -> clientReceiver.accept(packet));
+        event.registrar("material-hints-6").playToClient(Message.TYPE, Message.CODEC, (packet, context) -> {
+            var complete = packet.receivePage();
+            if (complete != null) clientReceiver.accept(complete);
+        });
     }
     public static void forget(ServerPlayer player) { LAST.remove(player); }
     public static void tick(ServerPlayer player) {
@@ -94,7 +123,7 @@ public final class MaterialHints {
         // than once per join, because the map is weak and a rejoin brings a new player instance.
         if (JOIN_CHECKED.put(player, Boolean.TRUE) == null && !CacheLedger.get(player.getServer()).problem().isEmpty()) noticeLocked(player, "join");
         else if (player.tickCount % 100 == 0 && AccessGate.resolve(player).status() == AccessGate.Status.STORAGE_LOCKED) noticeLocked(player, "worn");
-        var packet = next(player); if (packet != null) PacketDistributor.sendToPlayer(player, packet);
+        var packet = next(player); if (packet != null) for (var page : packet.pages()) PacketDistributor.sendToPlayer(player, page);
     }
     private static final Set<UUID> TOLD_LOCKED = new HashSet<>();
     private static final Map<ServerPlayer, Boolean> JOIN_CHECKED = new WeakHashMap<>();

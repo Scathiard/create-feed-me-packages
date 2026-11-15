@@ -35,12 +35,19 @@ class CacheStateTest {
         edit=state.edit();edit.thresholds(0,-1,-1);edit.resize(new CacheCapacity(9,4));state=edit.finish();
         assertEquals(8000,state.cells().get(0).amount());assertEquals(-1,state.cells().get(0).settings().lower());
     }
+    @Test void paidLinksCanCrossTheBaseLimitAndTheViewportOnlyVisitsTheVisiblePage() {
+        assertEquals(514,CacheCapacity.configured(9,2).expanded(101).slots());
+        assertEquals(133,CacheCapacity.configured(128,2).expanded(1).slots());
+        var grid=CacheGrid.window(Integer.MAX_VALUE,Integer.MAX_VALUE,6);
+        assertTrue(grid.count()>0 && grid.count()<=36);
+        assertTrue(grid.storageSlots().contains(Integer.MAX_VALUE-1));
+    }
     @Test void unknownExcessAndForgedRetentionRemainRejected() {
         var key=new TestVariant("stone",64);var cells=new ArrayList<Cell<TestVariant>>(Collections.nCopies(9,Cell.empty()));
         cells.set(0,new Cell<>(key,129,-1,-1,1));
         assertThrows(IllegalArgumentException.class,()->new CacheState<>(UUID.randomUUID(),1,0,cells,Map.of()));
         assertThrows(IllegalArgumentException.class,()->new CacheState<>(UUID.randomUUID(),1,0,cells,Map.of(),new CacheCapacity(9,2),Map.of(0,128),Map.of()));
-        assertThrows(IllegalArgumentException.class,()->new CacheCapacity(129,2));
+        assertThrows(IllegalArgumentException.class,()->CacheCapacity.configured(129,2));
         assertThrows(IllegalArgumentException.class,()->new CacheCapacity(9,CacheCapacity.MAX_GROUPS+1));
         assertTrue(new CacheCapacity(128,CacheCapacity.MAX_GROUPS).items(new TestVariant("fluid",8000))>2_000_000_000);
     }

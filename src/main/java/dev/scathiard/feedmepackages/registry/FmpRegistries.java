@@ -37,6 +37,9 @@ public final class FmpRegistries {
     public static final DeferredItem<Item> ASSEMBLY_TEMPLATE = ITEMS.register("assembly_template", () -> new Item(new Item.Properties().stacksTo(1)));
     public static final List<DeferredItem<SupplyLinkItem>> UPGRADE_LINKS = IntStream.rangeClosed(2, 5).mapToObj(level ->
             ITEMS.register("upgrade_link_" + level, () -> new SupplyLinkItem(new Item.Properties(), level))).toList();
+    public static final DeferredItem<Item> INCOMPLETE_EXPANSION = ITEMS.registerSimpleItem("incomplete_expansion_frame", new Item.Properties().stacksTo(1));
+    public static final DeferredItem<Item> EXPANSION_FRAME = ITEMS.registerSimpleItem("expansion_frame", new Item.Properties());
+    public static final DeferredItem<Item> EXPANSION_LINK = ITEMS.registerSimpleItem("expansion_link", new Item.Properties());
     public static final DeferredItem<Item> PRIVATE_LINK = ITEMS.register("private_link", () -> new Item(new Item.Properties()));
     public static final List<DeferredItem<Item>> LINK_FRAMES = IntStream.rangeClosed(2, 5).mapToObj(level ->
             ITEMS.register("link_frame_" + level, () -> new Item(new Item.Properties()))).toList();
@@ -59,6 +62,7 @@ public final class FmpRegistries {
             .title(Component.translatable("itemGroup.create_feed_me_packages"))
             .icon(() -> PENDANT.toStack()).displayItems((parameters, output) -> {
                 output.accept(PENDANT); output.accept(POCKET_PALLET); output.accept(INCOMPLETE_PALLET);
+                output.accept(INCOMPLETE_EXPANSION); output.accept(EXPANSION_FRAME); output.accept(EXPANSION_LINK);
                 output.accept(ASSEMBLY_TEMPLATE); UPGRADE_LINKS.forEach(output::accept);
                 LINK_FRAMES.forEach(output::accept); INCOMPLETE_LINKS.forEach(output::accept);
             }).build());

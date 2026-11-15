@@ -63,21 +63,20 @@ public final class GrowthService {
         if (!ledger.problem(base.get(FmpRegistries.IDENTITY.get())).isEmpty()) throw new Rejected("storage_locked");
         if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(base.get(FmpRegistries.IDENTITY.get()))) throw new Rejected("stale");
         if (!(base.getItem() instanceof PendantItem pendant) || base.getCount() != 1 || base.getOrDefault(FmpRegistries.PREVIEW.get(), false)
-                || !(input.addition().getItem() instanceof SupplyLinkItem link) || link.targetLevel() != recipe.targetLevel()
                 || !input.template().is(FmpRegistries.ASSEMBLY_TEMPLATE.get())) throw new Rejected("invalid_input");
         ItemStack result = recipe.display(input); result.remove(FmpRegistries.PREVIEW.get());
-        CacheLedger.Mutation mutation;
-        {
-            if (recipe.targetLevel() < 2 || recipe.targetLevel() > 5 || base.has(FmpRegistries.IDENTITY.get())
-                    && !ledger.ordinaryEntry(base.get(FmpRegistries.IDENTITY.get()), base.get(FmpRegistries.RETIREMENT_RECEIPT.get())))
-                throw new Rejected("invalid_input");
-            var source = ledger.ordinaryForManufacturing(base.get(FmpRegistries.IDENTITY.get()));
-            if (source.state().level() + 1 != recipe.targetLevel()) throw new Rejected("wrong_level");
-            mutation = ledger.prepareOrdinaryUpgrade(source, recipe.targetLevel());
-            result.set(FmpRegistries.IDENTITY.get(), mutation.result().state().id());
-            result.remove(FmpRegistries.OWNER.get()); result.remove(FmpRegistries.OWNER_NAME.get());
-
-        }
+        boolean expanding = recipe.targetLevel() == PendantSmithingRecipe.EXPAND;
+        if (expanding ? !input.addition().is(FmpRegistries.EXPANSION_LINK.get())
+                : !(input.addition().getItem() instanceof SupplyLinkItem link) || link.targetLevel() != recipe.targetLevel())
+            throw new Rejected("invalid_input");
+        UUID id = base.get(FmpRegistries.IDENTITY.get());
+        if (id != null && !ledger.ordinaryEntry(id, base.get(FmpRegistries.RETIREMENT_RECEIPT.get())))
+            throw new Rejected("invalid_input");
+        var source = ledger.ordinaryForManufacturing(id);
+        if (!expanding && source.state().level() + 1 != recipe.targetLevel()) throw new Rejected("wrong_level");
+        var mutation = expanding ? ledger.prepareExpansion(source) : ledger.prepareOrdinaryUpgrade(source, recipe.targetLevel());
+        result.set(FmpRegistries.IDENTITY.get(), mutation.result().state().id());
+        result.remove(FmpRegistries.OWNER.get()); result.remove(FmpRegistries.OWNER_NAME.get());
         if (!(result.getItem() instanceof PendantItem output) || !result.is(FmpRegistries.PENDANT.get()))
             throw new Rejected("invalid_input");
         return new Prepared(mutation, result);

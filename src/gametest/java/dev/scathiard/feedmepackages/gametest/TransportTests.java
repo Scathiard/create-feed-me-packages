@@ -339,11 +339,16 @@ public final class TransportTests {
                         FeedMePackages.LOGGER.info("FMP_NETWORK_FLIGHT_PASSED mobile source=64 cache=64 backpack=full");
                     })
                     .thenExecute(() -> {
-                        var before = f.record(); var edit = before.state().edit(); edit.insert(0, f.key(), ReceiveTests.FULL);
-                        f.ledger().replace(f.handle(), before.state().revision(), before.withState(edit.finish())); enqueue.accept(f.box(32));
+                        var before = f.record();
+                        var edit = before.state().edit();
+                        edit.insert(0, f.key(), ReceiveTests.FULL - 8 - before.state().cells().getFirst().amount());
+                        f.ledger().replace(f.handle(), before.state().revision(), before.withState(edit.finish()));
+                        enqueue.accept(f.box(32));
                     })
                     .thenWaitUntil(observeFlight)
-                    .thenWaitUntil(() -> helper.assertTrue(f.record().state().cells().getFirst().amount() == ReceiveTests.FULL && !f.residual().isEmpty(), "Native bee did not deliver partial parcel"))
+                    .thenWaitUntil(() -> helper.assertTrue(f.record().state().cells().getFirst().amount() == ReceiveTests.FULL
+                            && !f.residual().isEmpty() && PackageItem.getContents(f.residual()).getStackInSlot(0).getCount() == 24,
+                            "Native bee did not store 8 items and retain the other 24 in the parcel"))
                     .thenWaitUntil(recovered)
                     .thenExecute(() -> enqueue.accept(f.box(16)))
                     .thenWaitUntil(observeFlight)
@@ -357,7 +362,7 @@ public final class TransportTests {
                             f.extract(ReceiveTests.FULL); dev.scathiard.feedmepackages.logistics.ReceiveService.resume(f.player());
                         } catch (ReflectiveOperationException failure) { throw new IllegalStateException(failure); }
                     })
-                    .thenWaitUntil(() -> helper.assertTrue(f.record().state().cells().getFirst().amount() == 32 + 16 && f.residual().isEmpty(), "Native retry after space was freed was not conservative"))
+                    .thenWaitUntil(() -> helper.assertTrue(f.record().state().cells().getFirst().amount() == 24 + 16 && f.residual().isEmpty(), "Native retry after space was freed was not conservative"))
                     .thenWaitUntil(recovered)
                     .thenSucceed();
         } catch (ReflectiveOperationException failure) { throw new IllegalStateException("Mobile native flight experiment failed", failure); }
@@ -390,7 +395,7 @@ public final class TransportTests {
                         FeedMePackages.LOGGER.info("FMP_NETWORK_FLIGHT_PASSED paper source=64 cache=64 backpack=full");
                     })
                     .thenExecute(() -> {
-                        var before = f.record(); var edit = before.state().edit(); edit.insert(0, f.key(), 8120);
+                        var before = f.record(); var edit = before.state().edit(); edit.insert(0, f.key(), ReceiveTests.FULL - 8 - before.state().cells().getFirst().amount());
                         f.ledger().replace(f.handle(), before.state().revision(), before.withState(edit.finish())); send.accept(second);
                     })
                     .thenWaitUntil(() -> helper.assertTrue(f.record().state().cells().getFirst().amount() == ReceiveTests.FULL && !f.residual().isEmpty(), "Paper has not delivered partial parcel"))
@@ -593,12 +598,21 @@ public final class TransportTests {
                 .thenWaitUntil(() -> helper.assertTrue(returnedCargo(player) == 35, "Return parcel has not arrived with exactly 35 stone"))
                 .thenExecute(() -> FeedMePackages.LOGGER.info("FMP_RETURN_SHARED_PASSED {} stock=64 crafted=1 delivered=35 carrier=0", mobile ? "mobile" : "paper"))
                 .thenExecute(() -> prepareCarrierRefill(helper, f, carrier))
+                .thenExecuteAfter(3, () -> bindCarrierRefillStation(helper, f))
                 .thenWaitUntil(() -> {
+                    // A synthetic player has no guaranteed regular player tick. Use the server clock for its scanner.
+                    player.tickCount = (int)helper.getLevel().getGameTime();
                     SupplyService.tick(player);
                     var packing = helper.absolutePos(new BlockPos(3, 1, 1));
                     var output = helper.getLevel().getCapability(net.neoforged.neoforge.capabilities.Capabilities.ItemHandler.BLOCK,
                             packing, net.minecraft.core.Direction.NORTH);
-                    helper.assertTrue(output != null && PackageItem.isPackage(output.extractItem(0, 1, true)), "Waiting for real carrier replenishment package");
+                    helper.assertTrue(output != null && PackageItem.isPackage(output.extractItem(0, 1, true)),
+                            "Waiting for real carrier replenishment package; stock=" + ConsumptionTests.stock(player,1)
+                                    + " pending=" + f.record().state().pending(1) + " requestable=" + f.record().state().requestable(1));
+                })
+                .thenExecute(() -> {
+                    var output = helper.getLevel().getCapability(net.neoforged.neoforge.capabilities.Capabilities.ItemHandler.BLOCK,
+                            helper.absolutePos(new BlockPos(3,1,1)),net.minecraft.core.Direction.NORTH);
                     var box = output.extractItem(0, 1, false);
                     helper.assertTrue(dev.scathiard.feedmepackages.logistics.ReceiveService.receive(player, box) && box.isEmpty()
                             && ConsumptionTests.stock(player, 1) == 1 && ConsumptionTests.stock(player, 0) == 64,
@@ -608,7 +622,11 @@ public final class TransportTests {
                 .thenSucceed();
     }
     private static void prepareCarrierRefill(GameTestHelper helper, ReceiveTests.Fixture f, net.minecraft.world.item.Item carrier) {
-        var before = f.record(); var edit = before.state().edit(); edit.thresholds(0, 0, -1); edit.thresholds(1, 1, -1);
+        var before = f.record(); var edit = before.state().edit();
+        // The returned stone parcel is physically in this player's inventory. Keep it excluded from automatic receipt
+        // while this fixture tests a separate delivery of a new carrier.
+        edit.settings(0,new dev.scathiard.feedmepackages.domain.CellSettings(-1,before.state().cells().get(0).amount(),1,-1));
+        edit.thresholds(1, 1, -1);
         f.ledger().replace(f.handle(), before.state().revision(), before.withState(edit.finish()));
         var packing = new BlockPos(3, 1, 1); var chestPos = packing.south(); var linkPos = packing.above();
         helper.setBlock(chestPos, net.minecraft.world.level.block.Blocks.CHEST.defaultBlockState());
@@ -618,6 +636,10 @@ public final class TransportTests {
                 .setValue(com.simibubi.create.content.logistics.packagerLink.PackagerLinkBlock.FACE, net.minecraft.world.level.block.state.properties.AttachFace.FLOOR));
         var chest = (net.minecraft.world.level.block.entity.ChestBlockEntity)helper.getBlockEntity(chestPos);
         chest.setItem(0, new ItemStack(carrier)); chest.setChanged();
+    }
+
+    private static void bindCarrierRefillStation(GameTestHelper helper, ReceiveTests.Fixture f) {
+        var linkPos = new BlockPos(3, 2, 1);
         var link = (com.simibubi.create.content.logistics.packagerLink.PackagerLinkBlockEntity)helper.getBlockEntity(linkPos);
         com.simibubi.create.content.logistics.packagerLink.LogisticallyLinkedBehaviour.remove(link.behaviour);
         link.behaviour.freqId = TestPlayers.necklace(f.player()).getStackInSlot(0).get(FmpRegistries.NETWORK.get());

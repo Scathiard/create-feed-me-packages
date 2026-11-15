@@ -85,7 +85,7 @@ public final class CacheLedger extends SavedData {
         if (source == null || !owner.equals(source.owner()) || !transfer.cache().equals(personal.get(owner)))
             throw new IllegalStateException("Stale retirement");
         var records = new HashMap<>(caches);
-        records.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals(), source.fluids(), source.craftingEnabled()));
+        records.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals(), source.fluids(), source.craftingEnabled(), source.expansionLinks()));
         var owners = new HashMap<>(personal); owners.remove(owner);
         var completed = new HashMap<>(retirements);
         completed.put(owner, new Retirement(owner, transfer.cache(), receipt, true));
@@ -255,8 +255,22 @@ public final class CacheLedger extends SavedData {
     public Mutation prepareOrdinaryUpgrade(CacheRecord source, int targetLevel) {
         writable(); sourceCurrent(source);
         if (source.owner() != null || source.state().level() + 1 != targetLevel) throw new IllegalArgumentException("Upgrade must advance one level");
-        var edit = source.state().edit(); edit.upgrade(dev.scathiard.feedmepackages.FmpConfig.rules().capacity(targetLevel)); var result = source.withState(edit.finish());
+        var edit = source.state().edit(); edit.upgrade(dev.scathiard.feedmepackages.FmpConfig.rules().capacity(targetLevel).expanded(source.expansionLinks())); var result = source.withState(edit.finish());
         var records = new HashMap<>(caches); records.put(result.state().id(), result);
+        return new Mutation(records, personal, redirects, result);
+    }
+
+    public Mutation prepareExpansion(CacheRecord source) {
+        writable(); sourceCurrent(source);
+        if (source.owner() != null) throw new IllegalStateException("Expansion requires an ordinary pendant");
+        int links = Math.incrementExact(source.expansionLinks());
+        var edit = source.state().edit();
+        edit.resize(dev.scathiard.feedmepackages.FmpConfig.rules().capacity(source.state().level()).expanded(links));
+        var next = edit.finish();
+        var result = new CacheRecord(next, null, source.residuals(), source.fluids().align(next),
+                source.craftingEnabled(), links);
+        var records = new HashMap<>(caches);
+        records.put(next.id(), result);
         return new Mutation(records, personal, redirects, result);
     }
 
@@ -312,6 +326,7 @@ public final class CacheLedger extends SavedData {
             CacheRecord record = entry.getValue(); var state = record.state(); CompoundTag row = new CompoundTag();
             row.putUUID("id", state.id()); row.putInt("level", state.level()); row.putLong("revision", state.revision());
             row.putBoolean("crafting_enabled", record.craftingEnabled());
+            if (record.expansionLinks() != 0) row.putInt("expansion_links", record.expansionLinks());
             if (record.owner() != null) row.putUUID("owner", record.owner());
             else {
                 var transfer = retirementsByCache.get(state.id());
@@ -436,7 +451,7 @@ public final class CacheLedger extends SavedData {
             for (Tag element : rows) {
                 CompoundTag row = (CompoundTag)element;
                 context = "cache row " + cacheIndex++ + (row.hasUUID("id") ? " (" + row.getUUID("id") + ")" : " (invalid identity)");
-                fields(row, sourceSchema >= 31004 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids", CapacityCodec.KEY, "crafting_enabled")
+                fields(row, sourceSchema >= 31004 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids", CapacityCodec.KEY, "crafting_enabled", "expansion_links")
                         : sourceSchema >= 31002 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids", CapacityCodec.KEY)
                         : sourceSchema == 31001 ? Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals", "astra_fluids")
                         : Set.of("id", "level", "revision", "owner", "cells", "orders", "residual", "residuals"));
@@ -445,7 +460,10 @@ public final class CacheLedger extends SavedData {
                 if (row.contains("owner")) require(row, "owner", Tag.TAG_INT_ARRAY);
                 UUID id = row.getUUID("id"); int level = row.getInt("level"); UUID owner = row.contains("owner") ? row.getUUID("owner") : null;
                 List<Cell<ItemVariantKey>> cells = new ArrayList<>(); var cellRows = compounds(row, "cells");
-                if (cellRows.size() < 1 || cellRows.size() > CacheCapacity.MAX_SLOTS || !row.contains(CapacityCodec.KEY) && cellRows.size() != CacheLevel.of(level).slots()) throw new IllegalArgumentException("Invalid cell count");
+                if (row.contains("expansion_links")) require(row, "expansion_links", Tag.TAG_INT);
+                int links = row.getInt("expansion_links");
+                long bonus = (long) links * CacheCapacity.SLOTS_PER_LINK;
+                if (links < 0 || cellRows.size() <= bonus || cellRows.size() > bonus + CacheCapacity.MAX_SLOTS || !row.contains(CapacityCodec.KEY) && cellRows.size() != CacheLevel.of(level).slots()) throw new IllegalArgumentException("Invalid cell count");
                 for (Tag cellTag : cellRows) {
                     var cell = (CompoundTag)cellTag;
                     fields(cell, sourceSchema >= 31001 ? Set.of("filter", "amount", "min", "max", "revision", "item_controls")
@@ -519,7 +537,7 @@ public final class CacheLedger extends SavedData {
                 }
                 if (row.contains("crafting_enabled")) bool(row, "crafting_enabled");
                 boolean craftingEnabled = !row.contains("crafting_enabled") || row.getBoolean("crafting_enabled");
-                if (caches.put(id, new CacheRecord(state, owner, residuals, fluids, craftingEnabled)) != null) throw new IllegalArgumentException("Duplicate cache identity");
+                if (caches.put(id, new CacheRecord(state, owner, residuals, fluids, craftingEnabled, links)) != null) throw new IllegalArgumentException("Duplicate cache identity");
                 if (owner != null && personal.put(owner, id) != null) throw new IllegalArgumentException("Duplicate personal cache");
             }
             context = "ledger metadata";
@@ -560,7 +578,7 @@ public final class CacheLedger extends SavedData {
                         throw new IllegalArgumentException("Invalid or duplicate retirement");
                     if (transfer.completed()) {
                         var source = caches.get(transfer.cache());
-                        caches.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals(), source.fluids(), source.craftingEnabled())); personal.remove(transfer.owner());
+                        caches.put(transfer.cache(), new CacheRecord(source.state(), null, source.residuals(), source.fluids(), source.craftingEnabled(), source.expansionLinks())); personal.remove(transfer.owner());
                     }
                 }
             } else if (tag.contains("private_retirements")) throw new IllegalArgumentException("Retirement in legacy schema");

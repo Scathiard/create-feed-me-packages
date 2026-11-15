@@ -26,6 +26,7 @@ final class MaidClientReview {
     private static final Minecraft MC = Minecraft.getInstance();
     private static int phase, ticks, changed, maidId;
     private static UUID cache;
+    private static int popupSlot;
     private static ItemStack browserTemplate;
     private static CompletableFuture<Void> work;
     static boolean tick() throws Exception {
@@ -196,6 +197,53 @@ final class MaidClientReview {
             case 37 -> {
                 FeedMePackages.LOGGER.info("FMP_MAID_PICKUP_CLIENT_PASSED defaultOff=true nativeClicks=true serverState=true snapshotRoundtrip=true");
                 FeedMePackages.LOGGER.info("FMP_MAID_CLIENT_PASSED nativeEntityInteraction=true nativeCuriosButton=true mouseEquip=true mouseUnequip=true legacyItemRejectedIntact=true unwornPanel=true partialPlacement=true depositFilter=true nativeWheel=true closePreview=true playerCacheIsolated=true browserTemplate={} guiScales=1,2,3",browserTemplate!=null);
+                var layout=TemplateClientReview.hostLayout();
+                var cell=layout.cells().getLast();
+                popupSlot=cell.slot();
+                int storageSlot=TemplateClientReview.snapshot().grid().storageSlot(popupSlot);
+                server(p -> {
+                    var access=MaidAccess.resolve(maid(p)).handle();
+                    var ledger=CacheLedger.get(p.getServer()); var before=ledger.find(access.cacheId());
+                    var edit=before.state().edit();
+                    var key=dev.scathiard.feedmepackages.item.ItemVariantKey.of(new ItemStack(Items.EMERALD),p.registryAccess());
+                    edit.filter(storageSlot,key); edit.insert(storageSlot,key,5);
+                    ledger.replace(access,before.state().revision(),before.withState(edit.finish()));
+                }); next();
+            }
+            case 38 -> {
+                if (TemplateClientReview.snapshot().cells().get(popupSlot).amount()!=5) return false;
+                var dot=TemplateClientReview.hostLayout().cells().getLast().dot();
+                TemplateClientReview.click(dot.x()+1,dot.y()+1); next();
+            }
+            case 39 -> {
+                var layout=TemplateClientReview.hostLayout(); var popup=layout.slider(); var button=layout.foldButton();
+                require(popup!=null,"Maid cell settings failed to open");
+                int x=Math.max(popup.x(),button.x())+1,y=Math.max(popup.y(),button.y())+1;
+                require(popup.contains(x,y) && button.contains(x,y),"Maid fixture lacks footer overlap");
+                TemplateClientReview.move(x,y); TemplateClientReview.click(x,y); next();
+            }
+            case 40 -> {
+                var layout=TemplateClientReview.hostLayout();
+                require(!layout.hidden() && layout.slider()!=null,"Maid popup passed its click to the fold button");
+                TemplateClientReview.capture("031-maid-controls-above-footer");
+                var dot=layout.cells().getLast().dot();
+                TemplateClientReview.click(dot.x()+1,dot.y()+1); next();
+            }
+            case 41 -> {
+                UiClientReview.editAddress(); UiClientReview.pasteFixture("女仆退货站🚀");
+                UiClientReview.pressAddressKey(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER); next();
+            }
+            case 42 -> {
+                if (!TemplateClientReview.snapshot().returnAddress().endsWith("女仆退货站🚀")) return false;
+                server(p -> {
+                    var ledger=CacheLedger.get(p.getServer());
+                    require(ledger.returnAddress(cache).endsWith("女仆退货站🚀")
+                            && !java.util.Objects.equals(ledger.returnAddress(cache),ledger.returnAddress(AccessGate.resolve(p).handle().cacheId())),
+                            "Maid address edited the wrong pendant");
+                }); next();
+            }
+            case 43 -> {
+                FeedMePackages.LOGGER.info("FMP031_MAID_UI_PASSED footerOverlap=true addressSavedToMaidOnly=true");
                 return true;
             }
         }

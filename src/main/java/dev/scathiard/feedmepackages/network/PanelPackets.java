@@ -141,7 +141,7 @@ public final class PanelPackets {
             Objects.requireNonNull(template);
             if (amount < 0 || amount > 8000 || template.getBytes(StandardCharsets.UTF_8).length > 1024
                     || (amount == 0 ? slot != -1 || !template.isEmpty() || sequence != 0
-                    : slot < 0 || slot >= dev.scathiard.feedmepackages.domain.CacheCapacity.MAX_SLOTS || template.isEmpty() || sequence < 1)) throw new IllegalArgumentException("Invalid fluid preview");
+                    : slot < 0 || template.isEmpty() || sequence < 1)) throw new IllegalArgumentException("Invalid fluid preview");
         }
     }
     public record Snapshot(UUID window, UUID session, long serial, int acknowledged, CacheActions.Result result,
@@ -184,7 +184,7 @@ public final class PanelPackets {
             if (fluidPackageCapacity < 0) throw new IllegalArgumentException("Negative fluid package capacity");
             if (returnAddressPreserved && !returnAddress.isEmpty()) throw new IllegalArgumentException("Preserved invalid address must not enter the wire model");
             cells = List.copyOf(cells); terminals = List.copyOf(terminals); Objects.requireNonNull(fluidPreview);
-            if (cells.size() > 36 || terminals.size() > MAX_TERMINALS || totalSlots<0 || totalSlots>dev.scathiard.feedmepackages.domain.CacheCapacity.MAX_SLOTS
+            if (cells.size() > 36 || terminals.size() > MAX_TERMINALS || totalSlots<0
                     || firstSlot<0 || columnLimit<2 || columnLimit>6 || firstSlot!=dev.scathiard.feedmepackages.domain.CacheViewport.first(totalSlots,firstSlot,columnLimit)
                     || cells.size()!=dev.scathiard.feedmepackages.domain.CacheGrid.window(totalSlots,firstSlot,columnLimit).count()) throw new IllegalArgumentException("Oversized panel model");
         }

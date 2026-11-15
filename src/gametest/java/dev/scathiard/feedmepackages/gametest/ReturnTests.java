@@ -95,6 +95,38 @@ public final class ReturnTests {
         ledger.beginReturn(hold, before, p.registryAccess());
         return new Held(p, ledger, handle, before, hold);
     }
+    @GameTest(template="empty")
+    public static void mixedManifestSurvivesReloadAndSettlesOnce(GameTestHelper h) {
+        var p=TestPlayers.create(h,FmpRegistries.PENDANT.toStack());
+        var handle=AccessGate.resolve(p).handle(); var ledger=CacheLedger.get(p.getServer());
+        var first=ItemVariantKey.of(new ItemStack(Items.STONE),p.registryAccess());
+        var second=ItemVariantKey.of(new ItemStack(Items.COPPER_INGOT),p.registryAccess());
+        var before=ledger.find(handle.cacheId()); var edit=before.state().edit();
+        edit.filter(0,first); edit.insert(0,first,100); edit.filter(1,second); edit.insert(1,second,90);
+        ledger.replace(handle,before.state().revision(),before.withState(edit.finish()));
+        before=ledger.find(handle.cacheId());
+        var hold=new ReturnEscrow(java.util.UUID.randomUUID(),handle,before.state().revision(),0,first,88,
+                new ItemStack(Items.PAPER),7,-1,"paper","Depot",false,null,
+                java.util.List.of(new ReturnEscrow.Line(1,second,64)));
+        ledger.beginReturn(hold,before,p.registryAccess());
+        var tag=ledger.save(new CompoundTag(),p.registryAccess());
+        var saved=CacheLedger.load(tag,p.registryAccess()); var stored=saved.returnEscrow(handle.cacheId());
+        h.assertTrue(stored!=null && stored.extra().equals(hold.extra()),"Reload lost the cargo manifest");
+        saved.finishReturn(stored,p.registryAccess());
+        var after=saved.find(handle.cacheId());
+        h.assertTrue(after.state().cells().get(0).amount()==12 && after.state().cells().get(1).amount()==26
+                && saved.returnEscrow(handle.cacheId())==null,"A settled handoff did not debit both exact quantities");
+        var rows=tag.getList("return_handoffs",net.minecraft.nbt.Tag.TAG_COMPOUND);
+        for (int i=0;i<rows.size();i++) if (rows.getCompound(i).getUUID("id").equals(hold.id())) {
+            var malformed=new net.minecraft.nbt.ListTag(); malformed.add(net.minecraft.nbt.StringTag.valueOf("wrong"));
+            rows.getCompound(i).put("lines",malformed);
+        }
+        var damaged=CacheLedger.load(tag,p.registryAccess());
+        h.assertTrue(!damaged.problem(handle.cacheId()).isEmpty(),"Malformed multi-item evidence was accepted as a single-item hold");
+        ledger.cancelRejectedReturn(ledger.rejectReturn(hold));
+        h.succeed();
+    }
+
     @GameTest(template = "empty") public static void uncertainReturnLocksSourcesAndSurvivesReload(GameTestHelper h) {
         var f=held(h,true);
         h.assertTrue(AccessGate.resolve(f.player).status()==AccessGate.Status.RETURN_HELD

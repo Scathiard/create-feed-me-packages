@@ -1,5 +1,8 @@
 {
   "itemGroup.create_feed_me_packages": "机械动力：喂我发包！",
+  "item.create_feed_me_packages.incomplete_expansion_frame": "未完成的扩容链节框架",
+  "item.create_feed_me_packages.expansion_frame": "扩容链节框架",
+  "item.create_feed_me_packages.expansion_link": "扩容链节",
   "item.create_feed_me_packages.supply_chain_pendant": "供应链坠",
   "item.create_feed_me_packages.personal_supply_chain_pendant": "旧私人定坠（待转换）",
   "tooltip.create_feed_me_packages.ordinary": "缓存随这件链坠转交。佩戴后访问你的工厂供应。",

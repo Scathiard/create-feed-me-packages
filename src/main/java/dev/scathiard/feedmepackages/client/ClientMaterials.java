@@ -29,7 +29,11 @@ public final class ClientMaterials {
         dev.scathiard.feedmepackages.compat.tacz.TaczMaterials.clientSources(() -> ClientCompatibility.taczSourcesAvailable() ? stacks() : List.of());
 
         MaterialHints.receiveOnClient(ClientMaterials::accept); AmmoService.clientQuery(ClientMaterials::ammo);
-        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> clear());
+        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> {
+            clear();
+            MaterialHints.clearClientPages();
+            dev.scathiard.feedmepackages.network.PalletFluids.clearClientPages();
+        });
     }
     public static void clear() { generation = null; cache = null; serial = 0; active = false; first = false; craftingEnabled = false; prototypes = List.of(); counts = List.of(); ownReservations = List.of(); reservedGrid = List.of(); }
     public static boolean active() { return active && Minecraft.getInstance().player != null && !Minecraft.getInstance().player.isSpectator(); }

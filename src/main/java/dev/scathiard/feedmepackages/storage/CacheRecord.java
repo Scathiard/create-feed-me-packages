@@ -11,9 +11,17 @@ import java.util.stream.Collectors;
  *  Residuals are actual packages, not counts, and are owned per exact filter variant (one per item cell).
  *  A cell may hold at most one residual; different cells never contend for a shared slot. */
 public record CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<ItemVariantKey, ItemStack> residuals,
-                          CacheFluids fluids, boolean craftingEnabled) {
+                          CacheFluids fluids, boolean craftingEnabled, int expansionLinks) {
+    public CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<ItemVariantKey, ItemStack> residuals,
+                       CacheFluids fluids, boolean craftingEnabled) {
+        this(state, owner, residuals, fluids, craftingEnabled, 0);
+    }
     public CacheRecord {
         Objects.requireNonNull(state);
+        long bonus = (long) expansionLinks * dev.scathiard.feedmepackages.domain.CacheCapacity.SLOTS_PER_LINK;
+        if (expansionLinks < 0 || state.capacity().slots() <= bonus
+                || state.cells().size() > bonus + dev.scathiard.feedmepackages.domain.CacheCapacity.MAX_SLOTS)
+            throw new IllegalArgumentException("Cache size disagrees with installed expansion links");
         residuals = copyResiduals(residuals);
         Objects.requireNonNull(fluids);
         var fluid = fluids.state();
@@ -32,7 +40,7 @@ public record CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<Item
         this(state, owner, residuals, fluids, true);
     }
     public CacheRecord withCraftingEnabled(boolean enabled) {
-        return new CacheRecord(state, owner, residuals, fluids, enabled);
+        return new CacheRecord(state, owner, residuals, fluids, enabled, expansionLinks);
     }
     @Override public Map<ItemVariantKey, ItemStack> residuals() { return copyResiduals(residuals); }
     public ItemStack residual(ItemVariantKey variant) {
@@ -44,7 +52,7 @@ public record CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<Item
     public boolean blocksReplenishment() { return !residuals.isEmpty() || !fluids.residuals().isEmpty(); }
     public CacheRecord withState(CacheState<ItemVariantKey> next) { return withStates(next, fluids.align(next)); }
     public CacheRecord withStates(CacheState<ItemVariantKey> next, CacheFluids nextFluids) {
-        return new CacheRecord(next, owner, residuals, nextFluids, craftingEnabled);
+        return new CacheRecord(next, owner, residuals, nextFluids, craftingEnabled, expansionLinks);
     }
     public CacheRecord withFluids(CacheFluids next) {
         var context = next.state();
@@ -58,7 +66,7 @@ public record CacheRecord(CacheState<ItemVariantKey> state, UUID owner, Map<Item
         var next = new HashMap<>(residuals);
         if (box == null || box.isEmpty()) next.remove(variant);
         else next.put(variant, box.copy());
-        return new CacheRecord(state, owner, next, fluids, craftingEnabled);
+        return new CacheRecord(state, owner, next, fluids, craftingEnabled, expansionLinks);
     }
 
     private static Map<ItemVariantKey, ItemStack> copyResiduals(Map<ItemVariantKey, ItemStack> source) {

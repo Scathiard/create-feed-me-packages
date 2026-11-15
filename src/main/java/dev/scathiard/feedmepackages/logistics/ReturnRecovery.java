@@ -113,7 +113,16 @@ public final class ReturnRecovery {
     private static String cargoIdentity(ReturnEscrow hold) {
         try {
             byte[] digest=java.security.MessageDigest.getInstance("SHA-256").digest(hold.encodedVariant().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            return (hold.fluid()?"fluid/mB ":"item ")+hold.variant()+" [sha256:"+HexFormat.of().formatHex(digest)+"]";
+            String first = (hold.fluid()?"fluid/mB ":"item ")+hold.variant()+" [sha256:"+HexFormat.of().formatHex(digest)+"]";
+            if (hold.extra().isEmpty()) return first;
+            var manifest = new StringBuilder(first);
+            for (var line : hold.extra()) {
+                var hash = java.security.MessageDigest.getInstance("SHA-256").digest(line.variant().encoded()
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                manifest.append(", slot ").append(line.slot()).append(" x").append(line.amount())
+                        .append(" ").append(line.variant()).append(" [sha256:").append(HexFormat.of().formatHex(hash)).append(']');
+            }
+            return manifest.toString();
         } catch(java.security.NoSuchAlgorithmException unavailable) { throw new IllegalStateException("Required JDK digest unavailable",unavailable); }
     }
     private static void audit(CommandSourceStack source,ReturnEscrow hold,String decision,String status,String evidence) {

@@ -1046,9 +1046,9 @@ class PanelLayoutTest {
     /**
      * The code-level half of the direction ruling and of "the fold button was invisible": each call site picks one
      * ready-made sheet, there is no mirroring helper, no direction flag and no negative scale anywhere, and the
-     * button calls are the last thing {@code render} does, so nothing drawn afterwards can cover their rect.
+     * footer is drawn above the inventory. Only the floating cell settings may cover its buttons.
      */
-    @Test void theButtonDrawPathIsSingleAndIsTheLastThingRenderDraws() throws Exception {
+    @Test void theFooterDrawsAboveTheInventoryAndBelowTheCellSettings() throws Exception {
         var source = java.nio.file.Path.of("src/main/java/dev/scathiard/feedmepackages/client/LogisticsPanel.java");
         assertTrue(java.nio.file.Files.exists(source), "run the tests from the project directory: " + source);
         String code = java.nio.file.Files.readString(source, java.nio.charset.StandardCharsets.UTF_8);
@@ -1077,6 +1077,9 @@ class PanelLayoutTest {
         int end = tail.indexOf("\n    }");
         assertTrue(end > 0, "the render method must end after the button calls");
         String after = tail.substring(0, end);
+        String popup = "if (active() && layout.slider() != null) LogisticsPanel.renderSlider(g);";
+        assertTrue(after.contains(popup), "floating cell settings must own the overlap with footer buttons");
+        after = after.replace(popup, "");
         for (String painter : new String[]{"blit", "fill", "overlay(", "text(", "render"}) {
             assertFalse(after.replace("LogisticsPanel.renderFoldButton(g);", "").contains(painter),
                     "something is still drawn after the fold button: " + painter);

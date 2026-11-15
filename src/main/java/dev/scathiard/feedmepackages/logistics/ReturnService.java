@@ -4,7 +4,6 @@ import com.simibubi.create.content.logistics.box.PackageItem;
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.compat.TransportDispatch;
 import dev.scathiard.feedmepackages.consumption.CraftingReservations;
-import dev.scathiard.feedmepackages.domain.CacheEdit;
 import dev.scathiard.feedmepackages.domain.CacheState;
 import dev.scathiard.feedmepackages.domain.Cell;
 import dev.scathiard.feedmepackages.domain.MaterialVariant;
@@ -13,7 +12,6 @@ import dev.scathiard.feedmepackages.compat.fluidlogistics.FluidPackages;
 import dev.scathiard.feedmepackages.interaction.FluidActions;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.service.AccessGate;
-import dev.scathiard.feedmepackages.compat.maid.MaidAccess;
 import dev.scathiard.feedmepackages.compat.maid.MaidCompatibility;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.TamableAnimal;
@@ -92,6 +90,7 @@ public final class ReturnService {
         }
         int slots = record.state().cells().size();
         ReturnDispatchState.ensureContext(handle, address, slots);
+        int firstItem = 0;
         for (int slot = 0; slot < slots; slot++) {
             AccessGate.Result current = endpoint.access();
             if (!current.active() || !current.handle().equals(handle)) return;
@@ -118,17 +117,28 @@ public final class ReturnService {
             }
             // Preserve plane-first preference. A rejected attempt changes no FMP stock
             // and the bee receives its own newly built package, never the plane's object.
-            int result = dispatch(endpoint, handle, ledger, slot, CARD, address);
-            if (result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null) result = dispatch(endpoint, handle, ledger, slot, BEE, address);
+            if (cell.filter() instanceof ItemVariantKey) {
+                while (firstItem < slot && !hasItemSurplus(live, firstItem)) firstItem++;
+            }
+            ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), cell.settings().returnBatch(), RETURN_FAILED);
+            int result = dispatch(endpoint, handle, ledger, slot, firstItem, CARD, address);
+            if (result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null) result = dispatch(endpoint, handle, ledger, slot, firstItem, BEE, address);
             if (phantomDispatcher(bearer) && result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null)
-                result = dispatch(endpoint, handle, ledger, slot, PHANTOM, address);
-            if (result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null) result = dispatch(endpoint, handle, ledger, slot, ALLAY, address);
-            ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), cell.settings().returnBatch(), result);
+                result = dispatch(endpoint, handle, ledger, slot, firstItem, PHANTOM, address);
+            if (result == RETURN_FAILED && ledger.returnEscrow(handle.cacheId()) == null) result = dispatch(endpoint, handle, ledger, slot, firstItem, ALLAY, address);
+            if (result != RETURN_SENT)
+                ReturnDispatchState.rememberCell(handle, slot, filter, cell.settings().upper(), cell.settings().returnBatch(), result);
         }
     }
 
+    private static boolean hasItemSurplus(CacheRecord record, int slot) {
+        var cell = record.state().cells().get(slot);
+        return record.state().writable(slot) && cell.filter() != null && cell.settings().upper() >= 0
+                && cell.amount() - cell.settings().upper() >= cell.settings().returnBatch();
+    }
+
     private static int dispatch(LogisticsEndpoint endpoint, CacheHandle handle, CacheLedger ledger,
-            int slot, Item carrierItem, String address) {
+            int slot, int firstItem, Item carrierItem, String address) {
         var bearer = endpoint.entity(); var inventory = new CarrierInventory(bearer);
         if (carrierItem == Items.AIR) return RETURN_FAILED;
         CacheRecord record = ledger.find(handle.cacheId());
@@ -142,14 +152,22 @@ public final class ReturnService {
         Carrier carrier = findCarrier(bearer, handle, record.state(), carrierItem);
         if (carrier == null) return RETURN_FAILED;
 
-        int available = (int)Math.max(0, cell.amount() - (fluid ? FluidActions.reserved(handle.cacheId(), slot)
-                : CraftingReservations.reservedCache(handle.cacheId(), slot, null)));
-        int carrierCost = !fluid && carrier.cacheSlot() == slot ? 1 : 0;
-        available = Math.max(0, available - carrierCost);
-        int amount = cell.settings().returnable(cell.amount(), available,
-                fluid ? FluidPackages.capacity() : PACKAGE_SLOTS * cell.filter().stackSize(), carrierCost);
-        if (amount <= 0) return RETURN_FAILED;
-        ItemStack box = buildBox(bearer, cell.filter(), amount, address);
+        List<ReturnEscrow.Line> extra = List.of();
+        int amount;
+        if (fluid) {
+            amount = cell.settings().returnable(cell.amount(), available(handle, slot, cell, true, carrier),
+                    FluidPackages.capacity(), 0);
+            if (amount == 0) return RETURN_FAILED;
+        } else {
+            var lines = planItems(record, handle, carrier, firstItem);
+            if (lines.isEmpty()) return RETURN_FAILED;
+            var first = lines.getFirst();
+            slot = first.slot();
+            cell = state.cells().get(slot);
+            amount = first.amount();
+            extra = lines.subList(1, lines.size());
+        }
+        ItemStack box = buildBox(bearer, cell.filter(), amount, extra, address);
         if (box == null) return RETURN_FAILED;
         if (carrierItem == PHANTOM && !dev.scathiard.feedmepackages.compat.PhantomDispatch.canDispatch(bearer, box))
             return RETURN_FAILED;
@@ -165,7 +183,7 @@ public final class ReturnService {
         ReturnEscrow hold;
         try {
             hold = new ReturnEscrow(UUID.randomUUID(), handle, state.revision(), slot, cell.filter(), amount,
-                    carrierStack.copyWithCount(1), carrier.inventorySlot(), carrier.cacheSlot(), carrierItem == CARD ? "paper" : carrierItem == BEE ? "bee" : carrierItem == PHANTOM ? "phantom" : "biotech", address, false, bearer instanceof TamableAnimal pet ? pet.getOwnerUUID() : null);
+                    carrierStack.copyWithCount(1), carrier.inventorySlot(), carrier.cacheSlot(), carrierItem == CARD ? "paper" : carrierItem == BEE ? "bee" : carrierItem == PHANTOM ? "phantom" : "biotech", address, false, bearer instanceof TamableAnimal pet ? pet.getOwnerUUID() : null, extra);
         } catch (IllegalArgumentException refused) {
             // A combination the escrow refuses must never take the server tick down with it: refuse this dispatch
             // instead, leaving stock, carrier and escrow untouched. (User crash, maid + phantom, 2026-10-13.)
@@ -191,7 +209,9 @@ public final class ReturnService {
         } finally { OPERATING.remove(handle.cacheId()); }
         if (result.outcome() == TransportDispatch.Outcome.SENT) {
             ledger.finishReturn(hold, bearer.registryAccess());
-            LogisticsSignals.publish(handle.cacheId(), slot, dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE);
+            publishDeparture(hold);
+            rememberSent(handle, slot, cell);
+            for (var line : extra) rememberSent(handle, line.slot(), state.cells().get(line.slot()));
             return RETURN_SENT;
         }
         if (result.outcome() == TransportDispatch.Outcome.NOT_SENT) {
@@ -292,35 +312,74 @@ public final class ReturnService {
     }
     static void recovered(ReturnEscrow hold, boolean sent) {
         ReturnDispatchState.reset(hold.handle());
-        if (sent) LogisticsSignals.publish(hold.handle().cacheId(),hold.slot(),dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE);
+        if (sent) publishDeparture(hold);
     }
 
 
     private static String encoded(MaterialVariant variant) {
         return variant instanceof FluidVariantKey fluid ? "fluid:" + fluid.encoded() : ((ItemVariantKey) variant).encoded();
     }
-    private static ItemStack buildBox(LivingEntity player, MaterialVariant material, int amount, String address) {
-        if (material instanceof FluidVariantKey fluid) {
-            try {
-                var box = FluidPackages.create(fluid.stack(player.registryAccess(), amount));
-                PackageItem.addAddress(box, address); return box;
-            } catch (IllegalArgumentException unavailable) { return null; }
+    private static int available(CacheHandle handle, int slot, Cell<?> cell, boolean fluid, Carrier carrier) {
+        long reserved = fluid ? FluidActions.reserved(handle.cacheId(), slot)
+                : CraftingReservations.reservedCache(handle.cacheId(), slot, null);
+        return (int) Math.max(0L, cell.amount() - reserved - (!fluid && carrier.cacheSlot() == slot ? 1 : 0));
+    }
+
+    private static List<ReturnEscrow.Line> planItems(CacheRecord record, CacheHandle handle, Carrier carrier, int first) {
+        int freeSlots = PACKAGE_SLOTS;
+        var lines = new ArrayList<ReturnEscrow.Line>();
+        var state = record.state();
+        for (int slot = first; freeSlots > 0 && slot < state.capacity().slots(); slot++) {
+            var cell = state.cells().get(slot);
+            if (!state.writable(slot) || cell.filter() == null || cell.settings().upper() < 0) continue;
+            int stack = cell.filter().stackSize();
+            int amount = cell.settings().returnable(cell.amount(), available(handle, slot, cell, false, carrier),
+                    freeSlots * stack, carrier.cacheSlot() == slot ? 1 : 0);
+            if (amount == 0) continue;
+            lines.add(new ReturnEscrow.Line(slot, cell.filter(), amount));
+            freeSlots -= Math.ceilDiv(amount, stack);
         }
-        var variant = (ItemVariantKey) material;
+        return lines;
+    }
+
+    private static void rememberSent(CacheHandle handle, int slot, Cell<? extends MaterialVariant> cell) {
+        ReturnDispatchState.rememberCell(handle, slot, encoded(cell.filter()), cell.settings().upper(), cell.settings().returnBatch(), RETURN_SENT);
+    }
+
+    private static void publishDeparture(ReturnEscrow hold) {
+        var kind = dev.scathiard.feedmepackages.domain.LogisticsSignal.Kind.DEPARTURE;
+        LogisticsSignals.publish(hold.handle().cacheId(), hold.slot(), kind);
+        for (var line : hold.extra()) LogisticsSignals.publish(hold.handle().cacheId(), line.slot(), kind);
+    }
+
+    private static ItemStack buildBox(LivingEntity bearer, MaterialVariant first, int amount,
+            List<ReturnEscrow.Line> extra, String address) {
         try {
-            List<ItemStack> contents = new ArrayList<>();
-            for (int remaining = amount; remaining > 0;) {
-                int count = Math.min(remaining, variant.stackSize());
-                contents.add(variant.stack(player.registryAccess(), count));
-                remaining -= count;
+            ItemStack box;
+            if (first instanceof FluidVariantKey fluid) {
+                box = FluidPackages.create(fluid.stack(bearer.registryAccess(), amount));
+            } else {
+                var contents = new net.neoforged.neoforge.items.ItemStackHandler(PACKAGE_SLOTS);
+                appendStacks(contents, bearer, (ItemVariantKey) first, amount);
+                for (var line : extra) appendStacks(contents, bearer, line.variant(), line.amount());
+                box = PackageItem.containing(contents);
             }
-            if (contents.isEmpty() || contents.size() > PACKAGE_SLOTS) return null;
-            ItemStack box = PackageItem.containing(contents);
             PackageItem.addAddress(box, address);
             return box;
         } catch (IllegalArgumentException invalid) {
-            FeedMePackages.LOGGER.warn("FMP return package could not be built for " + variant + " x" + amount, invalid);
+            FeedMePackages.LOGGER.warn("FMP could not pack return cargo for {}", address, invalid);
             return null;
+        }
+    }
+
+    private static void appendStacks(net.neoforged.neoforge.items.ItemStackHandler contents, LivingEntity bearer,
+            ItemVariantKey variant, int amount) {
+        for (int remaining = amount; remaining > 0;) {
+            int count = Math.min(remaining, variant.stackSize());
+            var stack = variant.stack(bearer.registryAccess(), count);
+            var remainder = net.neoforged.neoforge.items.ItemHandlerHelper.insertItemStacked(contents, stack, false);
+            if (!remainder.isEmpty()) throw new IllegalArgumentException("Create parcel did not accept its complete manifest");
+            remaining -= count;
         }
     }
 
