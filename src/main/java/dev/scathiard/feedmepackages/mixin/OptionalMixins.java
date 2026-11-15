@@ -122,6 +122,11 @@ public final class OptionalMixins implements IMixinConfigPlugin {
         return MixinTransportShapes.phantom102PortReturnCompatible();
     }
 
+    /** R-020: client-only; the shape gate also refuses it on a dedicated server. */
+    public static boolean pendantHighlightCompatible() {
+        return MixinTransportShapes.pendantHighlightCompatible();
+    }
+
     public static boolean phantom103FlightCompatible() {
         return MixinTransportShapes.phantom103FlightCompatible();
     }
@@ -225,6 +230,9 @@ public final class OptionalMixins implements IMixinConfigPlugin {
         }
         if (mixinClassName.endsWith("Phantom102LaunchMixin")) {
             return MixinTransportShapes.inspectPhantom102Launch(targetClassName);
+        }
+        if (mixinClassName.endsWith("PendantNetworkHighlightMixin")) {
+            return MixinTransportShapes.inspectPendantHighlight(targetClassName);
         }
         if (mixinClassName.endsWith("Phantom102PortReturnMixin")) {
             return MixinTransportShapes.inspectPhantom102PortReturn(targetClassName);
