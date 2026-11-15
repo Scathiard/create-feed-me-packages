@@ -341,6 +341,14 @@ public final class LogisticsPanel {
             if (!LogisticsPanel.current(event.getScreen())) {
                 return;
             }
+            if (returnEditing && event.getKeyCode() == org.lwjgl.glfw.GLFW.GLFW_KEY_V
+                    && ((event.getModifiers() & org.lwjgl.glfw.GLFW.GLFW_MOD_CONTROL) != 0
+                            || net.minecraft.client.gui.screens.Screen.hasControlDown())) {
+                // R-016: paste appends through the same per-code-point contract as typing, so Enter/Esc keep working.
+                LogisticsPanel.pasteReturnAddress();
+                event.setCanceled(true);
+                return;
+            }
             if (returnEditing && LogisticsPanel.editReturnKey(event.getKeyCode())) {
                 event.setCanceled(true);
                 return;
@@ -1840,6 +1848,21 @@ public final class LogisticsPanel {
             return true;
         }
         return false;
+    }
+
+    /** R-016: appends the clipboard under the same contract as typing. Returns whether the draft changed. */
+    public static boolean pasteReturnAddress() {
+        if (!returnEditing) return false;
+        String clipboard;
+        try {
+            clipboard = MC.keyboardHandler.getClipboard();
+        } catch (RuntimeException unavailable) {
+            return false;
+        }
+        String appended = ReturnAddress.append(returnBuffer, clipboard);
+        if (appended.equals(returnBuffer)) return false;
+        returnBuffer = appended;
+        return true;
     }
 
     private static boolean sendReturnAddressDraft() {
