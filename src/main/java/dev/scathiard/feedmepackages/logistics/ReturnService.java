@@ -171,42 +171,58 @@ public final class ReturnService {
                     cell.settings().returnBatch()));
             variants.put(slot, cell.filter());
         }
-        var plan = dev.scathiard.feedmepackages.domain.ReturnPlan.plan(eligible);
-        if (plan.isEmpty()) return RETURN_UNKNOWN;
-
-        var contents = new ArrayList<ItemStack>();
-        var kept = new ArrayList<ReturnEscrow.Line>();
-        int stacks = 0;
-        var registryAccess = bearer.registryAccess();
-        for (var line : plan) {
-            var variant = variants.get(line.slot());
-            int count = 0;
-            for (int remaining = line.requested(); remaining > 0;) {
-                if (stacks >= PACKAGE_SLOTS) break;
-                int size = Math.min(remaining, variant.stackSize());
-                contents.add(variant.stack(registryAccess, size));
-                stacks++; remaining -= size; count += size;
-            }
-            if (count > 0) kept.add(new ReturnEscrow.Line(line.slot(), variant, count));
-            if (stacks >= PACKAGE_SLOTS) break;
-        }
-        if (kept.isEmpty()) return RETURN_UNKNOWN;
-
-        ItemStack box;
-        try {
-            box = com.simibubi.create.content.logistics.box.PackageItem.containing(contents);
-            com.simibubi.create.content.logistics.box.PackageItem.addAddress(box, address);
-        } catch (IllegalArgumentException invalid) {
-            FeedMePackages.LOGGER.warn("FMP combined return package could not be built", invalid);
-            return RETURN_FAILED;
-        }
+        var planned = planPackage(keptLines(eligible, variants), bearer.registryAccess());
+        if (planned == null) return RETURN_UNKNOWN;
         for (Item transport : transports) {
-            int result = handoff(endpoint, handle, ledger, box, kept, transport, address);
+            int result = handoff(endpoint, handle, ledger, planned.box(), planned.lines(), transport, address);
             if (result == RETURN_SENT || result == RETURN_UNCERTAIN) return result;
             if (ledger.returnEscrow(handle.cacheId()) != null) return RETURN_FAILED;
         }
         return RETURN_FAILED;
     }
+
+    /** R-019: the ordered lines that fit one nine-slot package (the longest prefix that still fits). */
+    public static List<ReturnEscrow.Line> keptLines(List<dev.scathiard.feedmepackages.domain.ReturnPlan.Eligible> eligible,
+            java.util.Map<Integer, ItemVariantKey> variants) {
+        var kept = new ArrayList<ReturnEscrow.Line>();
+        int stacks = 0;
+        for (var line : dev.scathiard.feedmepackages.domain.ReturnPlan.plan(eligible)) {
+            var variant = variants.get(line.slot());
+            if (variant == null) continue;
+            int count = 0;
+            while (line.requested() - count > 0 && stacks < PACKAGE_SLOTS) {
+                count += Math.min(line.requested() - count, variant.stackSize());
+                stacks++;
+            }
+            if (count > 0) kept.add(new ReturnEscrow.Line(line.slot(), variant, count));
+            if (stacks >= PACKAGE_SLOTS) break;
+        }
+        return kept;
+    }
+
+    /** The one package those lines make, or null when none of them could be built. */
+    public static PlannedPackage planPackage(List<ReturnEscrow.Line> kept, net.minecraft.core.HolderLookup.Provider registries) {
+        if (kept.isEmpty()) return null;
+        var contents = new ArrayList<ItemStack>();
+        for (var line : kept) {
+            int remaining = line.amount();
+            while (remaining > 0) {
+                int size = Math.min(remaining, ((ItemVariantKey) line.variant()).stackSize());
+                contents.add(((ItemVariantKey) line.variant()).stack(registries, size));
+                remaining -= size;
+            }
+        }
+        if (contents.isEmpty() || contents.size() > PACKAGE_SLOTS) return null;
+        try {
+            return new PlannedPackage(PackageItem.containing(contents), kept);
+        } catch (IllegalArgumentException invalid) {
+            FeedMePackages.LOGGER.warn("FMP combined return package could not be built", invalid);
+            return null;
+        }
+    }
+
+    /** One combined package: its built box and the lines it actually ships. */
+    public record PlannedPackage(ItemStack box, List<ReturnEscrow.Line> lines) {}
 
     /** Carrier, escrow and native handoff for one already-built package; returns WITHOUT touching stock on failure. */
     private static int handoff(LogisticsEndpoint endpoint, CacheHandle handle, CacheLedger ledger, ItemStack box,

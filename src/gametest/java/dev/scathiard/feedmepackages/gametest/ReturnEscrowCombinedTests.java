@@ -87,4 +87,47 @@ public final class ReturnEscrowCombinedTests {
         helper.assertTrue(ledger.returnEscrow(id) == null, "a refused handoff must not stay registered");
         helper.succeed();
     }
+
+    /** The specification's own packing examples, decided by the same helpers the dispatch uses. */
+    @GameTest(template = "empty")
+    public static void thePackingRulesFollowTheSpecification(GameTestHelper helper) {
+        var registries = helper.getLevel().registryAccess();
+        var iron = ItemVariantKey.of(new ItemStack(Items.IRON_INGOT), registries);
+        var copper = ItemVariantKey.of(new ItemStack(Items.COPPER_INGOT), registries);
+        var redstone = ItemVariantKey.of(new ItemStack(Items.REDSTONE), registries);
+        var gold = ItemVariantKey.of(new ItemStack(Items.GOLD_INGOT), registries);
+
+        // 4 iron, 3 copper and 2 redstone: one nine-slot package, in scan order, one line each.
+        var variants = new java.util.HashMap<Integer, ItemVariantKey>();
+        variants.put(0, iron); variants.put(1, copper); variants.put(2, redstone);
+        var nine = dev.scathiard.feedmepackages.logistics.ReturnService.keptLines(List.of(
+                new dev.scathiard.feedmepackages.domain.ReturnPlan.Eligible(0, 4 * 64, 64),
+                new dev.scathiard.feedmepackages.domain.ReturnPlan.Eligible(1, 3 * 64, 64),
+                new dev.scathiard.feedmepackages.domain.ReturnPlan.Eligible(2, 2 * 64, 64)), variants);
+        helper.assertTrue(nine.size() == 3 && nine.get(0).amount() == 4 * 64 && nine.get(1).amount() == 3 * 64
+                && nine.get(2).amount() == 2 * 64, "the three items must ship together: " + nine);
+        var box = dev.scathiard.feedmepackages.logistics.ReturnService.planPackage(nine, registries);
+        helper.assertTrue(box != null && com.simibubi.create.content.logistics.box.PackageItem.isPackage(box.box()),
+                "a combined package must be a real Create package");
+
+        // Gold only 63 over with a minimum of 64 stays where it is.
+        var stale = dev.scathiard.feedmepackages.logistics.ReturnService.keptLines(List.of(
+                new dev.scathiard.feedmepackages.domain.ReturnPlan.Eligible(3, 63, 64)), java.util.Map.of(3, gold));
+        helper.assertTrue(stale.isEmpty(), "a cell below its own minimum must not join");
+
+        // Nine iron plus one copper: the package keeps nine stacks, the copper waits for the next dispatch.
+        var overflow = dev.scathiard.feedmepackages.logistics.ReturnService.keptLines(List.of(
+                new dev.scathiard.feedmepackages.domain.ReturnPlan.Eligible(0, 9 * 64, 64),
+                new dev.scathiard.feedmepackages.domain.ReturnPlan.Eligible(1, 64, 64)), variants);
+        helper.assertTrue(overflow.size() == 1 && overflow.getFirst().slot() == 0
+                && overflow.getFirst().amount() == 9 * 64, "nine stacks fill the package: " + overflow);
+
+        // Copper first: it leads the package, then the iron fills the rest.
+        var copperFirst = dev.scathiard.feedmepackages.logistics.ReturnService.keptLines(List.of(
+                new dev.scathiard.feedmepackages.domain.ReturnPlan.Eligible(1, 64, 64),
+                new dev.scathiard.feedmepackages.domain.ReturnPlan.Eligible(0, 9 * 64, 64)), variants);
+        helper.assertTrue(copperFirst.getFirst().slot() == 1 && copperFirst.size() == 2
+                && copperFirst.get(1).amount() == 8 * 64, "copper must lead and iron follow: " + copperFirst);
+        helper.succeed();
+    }
 }
