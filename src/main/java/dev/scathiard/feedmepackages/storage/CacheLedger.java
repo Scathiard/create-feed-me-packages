@@ -260,6 +260,24 @@ public final class CacheLedger extends SavedData {
         return new Mutation(records, personal, redirects, result);
     }
 
+    /**
+     * R-018: the dragon-head expansion adds {@link CacheCapacity#EXPANSION_SLOTS} cells to an ordinary cache of any
+     * level, without touching its level, binding or stock. Growth is append-only: no filter is trimmed or reordered, and
+     * the new cells are simply writable from then on.
+     */
+    public Mutation prepareExpansion(CacheRecord source) {
+        writable(); sourceCurrent(source);
+        if (source.owner() != null) throw new IllegalArgumentException("Expansion applies to ordinary caches only");
+        var current = source.state().capacity();
+        if (current.slots() + CacheCapacity.EXPANSION_SLOTS > CacheCapacity.MAX_SLOTS)
+            throw new IllegalArgumentException("Cache slot ceiling reached");
+        var edit = source.state().edit();
+        edit.resize(new CacheCapacity(current.slots() + CacheCapacity.EXPANSION_SLOTS, current.groups()));
+        var result = source.withState(edit.finish());
+        var records = new HashMap<>(caches); records.put(result.state().id(), result);
+        return new Mutation(records, personal, redirects, result);
+    }
+
     public void setCacheFirst(UUID player, boolean first) {
         writable(); var next = new HashMap<>(cacheFirst); next.put(player, first); cacheFirst = Map.copyOf(next); setDirty();
     }
