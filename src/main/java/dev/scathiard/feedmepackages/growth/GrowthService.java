@@ -63,8 +63,18 @@ public final class GrowthService {
         if (!ledger.problem(base.get(FmpRegistries.IDENTITY.get())).isEmpty()) throw new Rejected("storage_locked");
         if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(base.get(FmpRegistries.IDENTITY.get()))) throw new Rejected("stale");
         if (!(base.getItem() instanceof PendantItem pendant) || base.getCount() != 1 || base.getOrDefault(FmpRegistries.PREVIEW.get(), false)
-                || !(input.addition().getItem() instanceof SupplyLinkItem link) || link.targetLevel() != recipe.targetLevel()
                 || !input.template().is(FmpRegistries.ASSEMBLY_TEMPLATE.get())) throw new Rejected("invalid_input");
+        if (recipe.expansion()) {
+            // R-018: any level, any number of times. The result keeps level, binding and every existing cell; only the
+            // cache record grows by five append-only cells, and the expansion link is consumed by the native shell.
+            if (!input.addition().is(FmpRegistries.EXPANSION_LINK.get())) throw new Rejected("invalid_input");
+            var source = ledger.ordinaryForManufacturing(base.get(FmpRegistries.IDENTITY.get()));
+            ItemStack expanded = base.copyWithCount(1);
+            expanded.remove(FmpRegistries.PREVIEW.get());
+            return new Prepared(ledger.prepareExpansion(source), expanded);
+        }
+        if (!(input.addition().getItem() instanceof SupplyLinkItem link) || link.targetLevel() != recipe.targetLevel())
+            throw new Rejected("invalid_input");
         ItemStack result = recipe.display(input); result.remove(FmpRegistries.PREVIEW.get());
         CacheLedger.Mutation mutation;
         {
