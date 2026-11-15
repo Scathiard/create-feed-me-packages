@@ -255,7 +255,14 @@ public final class CacheLedger extends SavedData {
     public Mutation prepareOrdinaryUpgrade(CacheRecord source, int targetLevel) {
         writable(); sourceCurrent(source);
         if (source.owner() != null || source.state().level() + 1 != targetLevel) throw new IllegalArgumentException("Upgrade must advance one level");
-        var edit = source.state().edit(); edit.upgrade(dev.scathiard.feedmepackages.FmpConfig.rules().capacity(targetLevel)); var result = source.withState(edit.finish());
+        var next = dev.scathiard.feedmepackages.FmpConfig.rules().capacity(targetLevel);
+        // R-018: cells bought with dragon-head expansions belong to this pendant permanently, so the new level's own
+        // cells get them on top. This is done here, around upgrade(), because CacheFluids.align() replays the plain
+        // level upgrade on the fluid side and both sides must keep agreeing on capacity.
+        int bought = source.state().capacity().slots() - CacheCapacity.defaults(source.state().level()).slots();
+        var edit = source.state().edit(); edit.upgrade(next);
+        if (bought > 0) edit.resize(new CacheCapacity(next.slots() + bought, next.groups()));
+        var result = source.withState(edit.finish());
         var records = new HashMap<>(caches); records.put(result.state().id(), result);
         return new Mutation(records, personal, redirects, result);
     }

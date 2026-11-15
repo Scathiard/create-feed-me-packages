@@ -121,12 +121,10 @@ public final class CacheEdit<K extends MaterialVariant> {
 
     public void upgrade() { upgrade(CacheCapacity.defaults(level + 1)); }
     public void upgrade(CacheCapacity next) {
-        open(); CacheLevel.of(level + 1);
-        // R-018: cells bought with dragon-head expansions belong to this pendant permanently, so a level upgrade has to
-        // keep them on top of the new level's own cells instead of replacing the whole capacity.
-        int extra = capacity.slots() - CacheCapacity.defaults(level).slots();
-        resize(new CacheCapacity(next.slots() + Math.max(0, extra), next.groups()));
-        level++;
+        // Deliberately the plain level upgrade: the shared item/fluid invariant requires both typed states to agree on
+        // capacity, and CacheFluids.align() replays this call on the fluid side. Anything that wants to keep cells bought
+        // outside the level curve (R-018) has to do it in the ledger, around this call, not inside it.
+        open(); CacheLevel.of(level + 1); resize(next); level++;
     }
     /** Only a validated previous state may establish retained stock. Never trims, reorders or silently writes it off. */
     public void resize(CacheCapacity next) {

@@ -24,11 +24,16 @@ class ExpansionCapacityTest {
     }
 
     @Test void aLevelUpgradeKeepsExpansionCells() throws Exception {
+        // The bought cells are carried by the ledger, not by CacheEdit.upgrade: that call is replayed on the fluid side
+        // by CacheFluids.align(), and both typed states must keep agreeing on capacity.
         String edit = read("src/main/java/dev/scathiard/feedmepackages/domain/CacheEdit.java");
-        assertTrue(edit.contains("capacity.slots() - CacheCapacity.defaults(level).slots()"),
-                "the upgrade must measure the cells bought by expansion");
-        assertTrue(edit.contains("next.slots() + Math.max(0, extra)"),
-                "and add them on top of the new level's own cells instead of replacing the capacity");
+        assertTrue(edit.contains("resize(next); level++;"), "the plain level upgrade must stay plain");
+        assertFalse(edit.contains("Math.max(0, extra)"), "the upgrade must not fold bought cells into itself");
+        String ledger = read("src/main/java/dev/scathiard/feedmepackages/storage/CacheLedger.java");
+        assertTrue(ledger.contains("capacity().slots() - CacheCapacity.defaults(source.state().level()).slots()"),
+                "the ledger must measure the cells bought by expansion");
+        assertTrue(ledger.contains("edit.resize(new CacheCapacity(next.slots() + bought, next.groups()))"),
+                "and add them on top of the new level's own cells");
     }
 
     @Test void expansionIsAppendOnlyAndRefusesPrivateCaches() throws Exception {
