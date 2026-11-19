@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.growth;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.interaction.CacheActions;
 import dev.scathiard.feedmepackages.item.*;
@@ -137,7 +138,8 @@ public final class GrowthService {
         try {
             menu.getSlot(3).set(ItemStack.EMPTY); menu.getSlot(0).container.setChanged(); player.getInventory().setChanged();
             player.awardRecipes(List.of(completedRecipe)); player.inventoryMenu.broadcastChanges(); menu.broadcastFullState();
-            player.serverLevel().levelEvent(1044, player.blockPosition(), 0); message(player, "success");
+            player.serverLevel().levelEvent(1044, player.blockPosition(), 0);
+            if (completedRecipe.value().targetLevel() == 5) FmpAdvancement.MAX_LEVEL.award(player);
         } catch (RuntimeException notificationFailure) {
             FeedMePackages.LOGGER.error("FMP manufacturing committed, but its post-commit notification failed", notificationFailure);
             message(player, "committed_sync_error");
@@ -151,6 +153,6 @@ public final class GrowthService {
         return -1;
     }
     private static void message(ServerPlayer player, String code) {
-        player.displayClientMessage(Component.translatable("message.create_feed_me_packages.growth." + code), true);
+        if ("wrong_level".equals(code)) player.displayClientMessage(Component.translatable("message.create_feed_me_packages.growth.wrong_level"), true);
     }
 }

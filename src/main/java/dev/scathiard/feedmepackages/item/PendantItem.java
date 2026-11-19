@@ -55,9 +55,8 @@ public final class PendantItem extends Item {
 
     @Override public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
         tooltip.add(Component.translatable("tooltip.create_feed_me_packages.ordinary"));
-        tooltip.add(Component.translatable("tooltip.create_feed_me_packages.bind"));
-        if (stack.has(FmpRegistries.NETWORK.get())) tooltip.add(Component.translatable("tooltip.create_feed_me_packages.clear"));
-        tooltip.add(Component.translatable(stack.has(FmpRegistries.NETWORK.get()) ? "message.create_feed_me_packages.bound" : "message.create_feed_me_packages.unbound"));
-        if (stack.getOrDefault(FmpRegistries.PREVIEW.get(), false)) tooltip.add(Component.translatable("tooltip.create_feed_me_packages.preview"));
+        boolean bound = stack.has(FmpRegistries.NETWORK.get());
+        tooltip.add(Component.translatable(bound ? "message.create_feed_me_packages.bound" : "message.create_feed_me_packages.unbound"));
+        tooltip.add(Component.translatable(bound ? "tooltip.create_feed_me_packages.clear" : "tooltip.create_feed_me_packages.bind"));
     }
 }

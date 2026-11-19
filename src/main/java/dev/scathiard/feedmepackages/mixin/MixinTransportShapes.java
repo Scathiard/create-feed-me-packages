@@ -27,6 +27,7 @@ import org.objectweb.asm.tree.MethodInsnNode;
  */
 public final class MixinTransportShapes {
     private static Boolean biotechReady;
+    static boolean biotechRouteLanding;
     static String biotechRoot = "com.nobodiiiii.createbiotech.content.allay.";
     private static boolean factoryReady;
     private static Boolean maidPaperReady;
@@ -163,8 +164,18 @@ public final class MixinTransportShapes {
             String tag = "Lnet/minecraft/nbt/CompoundTag;";
             String owner = root.replace('.', '/');
 
+            boolean taskLanding = hasMethod(task, "landingTarget", "(" + port + player + ")" + vec);
+            if (!taskLanding) {
+                String signature = "(L" + owner + "AllayCourierTask;" + port + player + ")" + vec;
+                var route = getClassNode(root + "AllayCourierPortRoute");
+                biotechRouteLanding = route.methods.stream().anyMatch(m -> m.name.equals("landingTarget") && m.desc.equals(signature)
+                        && (m.access & org.objectweb.asm.Opcodes.ACC_STATIC) != 0)
+                        && task.methods.stream().filter(m -> m.name.equals("doFinishDeliveryAt"))
+                        .flatMap(m -> Arrays.stream(m.instructions.toArray())).anyMatch(i -> i instanceof MethodInsnNode call
+                                && call.owner.equals(route.name) && call.name.equals("landingTarget") && call.desc.equals(signature));
+            }
             biotechReady = hasMethod(task, "resolveTarget", "(" + server + ")L" + owner + "AllayCourierTask$ResolvedTarget;")
-                    && hasMethod(task, "landingTarget", "(" + port + player + ")" + vec)
+                    && (taskLanding || biotechRouteLanding)
                     && hasMethod(task, "nearTargetWaypoint", "(" + port + player + ")" + vec)
                     && hasMethod(task, "hasReachedPlayer", "(" + player + vec + ")Z")
                     && hasMethod(task, "startCarrierReturn", "(" + server + ")V")

@@ -41,14 +41,15 @@ def transportInput = { family, version ->
     jar
 }
 ['mobile_runtime_version': ['withMobile', 'bee'], 'couriers_runtime_version': ['withCouriers', 'paper'],
- 'phantom_runtime_version': ['withPhantom', 'phantom'], 'biotech_runtime_version': ['withBiotech', 'biotech']].each { key, input ->
+ 'phantom_runtime_version': ['withPhantom', 'phantom'], 'biotech_runtime_version': ['withBiotech', 'biotech'],
+ 'tacz_runtime_version': ['withTacz', 'tacz']].each { key, input ->
     if (project.hasProperty(key)) {
         if (!project.hasProperty(input[0])) throw new GradleException("${key} requires ${input[0]}")
         transportInput(input[1], project.property(key).toString())
         runProfile += '-' + key.split('_')[0] + project.property(key).toString().replace('.', '')
     }
 }
-['fluid_runtime_version': ['withFluid', '1.3.2'], 'tacz_runtime_version': ['withTacz', '1.2.0']].each { key, input ->
+['fluid_runtime_version': ['withFluid', '1.3.2']].each { key, input ->
     if (project.hasProperty(key)) {
         if (!project.hasProperty(input[0]) || project.property(key).toString() != input[1])
             throw new GradleException("${key} requires ${input[0]} and the pinned ${input[1]} input")
@@ -222,8 +223,8 @@ dependencies {
     }
 
     if (project.hasProperty('withTacz')) {
-        def tacz = project.findProperty('tacz_runtime_version') == '1.2.0'
-                ? new File(optionalInput, 'tacz/1.2.0/tacz-neoforge-1.21.1-1.2.0.jar')
+        def tacz = project.hasProperty('tacz_runtime_version')
+                ? transportInput('tacz', project.property('tacz_runtime_version').toString())
                 : new File(dependencyInput, 'dependencies/artifacts/tacz/1.1.8-hotfix-r6/tacz-neoforge-1.21.1-1.1.8-hotfix-r6.jar')
         if (!tacz.isFile()) throw new GradleException('Missing pinned, isolated TaCZ test artifact: ' + tacz)
         localRuntime files(tacz)
@@ -289,7 +290,11 @@ dependencies {
         if (project.hasProperty('withSophisticated')) localRuntime files(new File(optionalInput, 'sophisticated-backpacks/1.21.1-3.26.20.2244/sophisticatedbackpacks-1.21.1-3.26.20.2244.jar'))
         if (project.hasProperty('withStorage')) localRuntime files(new File(optionalInput, 'sophisticated-storage/1.21.1-1.6.16.2222/sophisticatedstorage-1.21.1-1.6.16.2222.jar'))
     }
-    if (project.hasProperty('withBiotech')) localRuntime files(transportInput('biotech', project.findProperty('biotech_runtime_version') ?: '1.3.1'))
+    if (project.hasProperty('withBiotech')) {
+        def biotech = project.findProperty('biotech_runtime_version') ?: '1.3.1'
+        localRuntime files(transportInput('biotech', biotech))
+        if (biotech == '2.0.0-instance') localRuntime files(transportInput('pondererlib', '0.1.1'))
+    }
     compileOnly "mezz.jei:jei-1.21.1-common-api:${jei_version}"
     compileOnly "mezz.jei:jei-1.21.1-neoforge-api:${jei_version}"
     if (project.hasProperty('withJei')) {
@@ -491,6 +496,7 @@ tasks.register('phantomProbeJar', Jar) {
             include 'dev/scathiard/feedmepackages/gametest/MaidTests*.class'
             include 'dev/scathiard/feedmepackages/gametest/MaidConsumptionTests*.class'
             include 'dev/scathiard/feedmepackages/gametest/TaczTests*.class'
+            include 'dev/scathiard/feedmepackages/gametest/AdvancementTests*.class'
             include 'dev/scathiard/feedmepackages/gametest/LedgerIsolationTests*.class'
             include 'dev/scathiard/feedmepackages/gametest/FoundationTests*.class'
             include 'dev/scathiard/feedmepackages/gametest/DeathRecovery*.class'

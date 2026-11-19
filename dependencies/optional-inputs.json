@@ -2,6 +2,56 @@
   "purpose": "Pinned optional test inputs; binaries are not bundled or FMP loader dependencies. Original mod requirements still apply.",
   "artifacts": [
     {
+      "transport": "pondererlib",
+      "version": "0.1.1",
+      "source": "User test instance; byte-identical to the library embedded by Biotech 2.0.0 on Modrinth",
+      "sha256": "0faa9e40a4983f50f1208e55391bd19089e8954851732c5730fa329f46247aec",
+      "path": "dependencies/optional/pondererlib/0.1.1/pondererlib-1.21.1-neoforge-0.1.1.jar"
+    },
+    {
+      "transport": "biotech",
+      "version": "2.0.0",
+      "source": "https://modrinth.com/mod/create-biotech/version/HwFFLGrz",
+      "sha256": "29d16438e5953017e56523336eca6b9d7e1759764ad1dac3e2e279356e52eba7",
+      "path": "dependencies/optional/create-biotech/2.0.0/create_biotech-1.21.1-2.0.0.jar",
+      "id": "HwFFLGrz",
+      "url": "https://cdn.modrinth.com/data/UW0IjVT0/versions/HwFFLGrz/create_biotech-1.21.1-2.0.0.jar"
+    },
+    {
+      "transport": "biotech",
+      "version": "2.0.0-instance",
+      "source": "User 1.21.1 test instance (2.0.0, distinct archive from Modrinth)",
+      "sha256": "1e71be4ea07a75e7e1108ef9b86bd77c95c7f0dd6825d1334d282c9c761baa7b",
+      "path": "dependencies/optional/create-biotech/2.0.0-instance/create_biotech-1.21.1-2.0.0.jar"
+    },
+    {
+      "transport": "tacz",
+      "version": "1.2.0-hotfix",
+      "source": "https://modrinth.com/version/tJiZL0He",
+      "id": "tJiZL0He",
+      "url": "https://cdn.modrinth.com/data/SzzJttH8/versions/tJiZL0He/tacz-neoforge-1.21.1-1.2.0-hotfix.jar",
+      "sha256": "f07dc9cab8c3baa27bbbb740e38c30512cae38972d5d4792a3c0d21bc82ad601",
+      "path": "dependencies/optional/tacz/1.2.0-hotfix/tacz-neoforge-1.21.1-1.2.0-hotfix.jar"
+    },
+    {
+      "transport": "biotech",
+      "version": "2.0.0-beta.3",
+      "source": "https://modrinth.com/version/exGZMIgK",
+      "id": "exGZMIgK",
+      "url": "https://cdn.modrinth.com/data/UW0IjVT0/versions/exGZMIgK/create_biotech-1.21.1-2.0.0-beta.3.jar",
+      "sha256": "7cc374173c336bd7eab10598d6a43f23854c110bb4648af704b39337e656d7bd",
+      "path": "dependencies/optional/create-biotech/2.0.0-beta.3/create_biotech-1.21.1-2.0.0-beta.3.jar"
+    },
+    {
+      "transport": "tacz",
+      "version": "1.1.8-hotfix-r7",
+      "source": "https://modrinth.com/version/62q6mB5Q",
+      "id": "62q6mB5Q",
+      "url": "https://cdn.modrinth.com/data/OypNE65K/versions/62q6mB5Q/tacz-neoforge-1.21.1-1.1.8-hotfix-r7.jar",
+      "sha256": "fa3a09f15265a4065a566960a8deab315f6c601a5f9a542840b362d455dd5470",
+      "path": "dependencies/optional/tacz/1.1.8-hotfix-r7/tacz-neoforge-1.21.1-1.1.8-hotfix-r7.jar"
+    },
+    {
       "version": "19.70.0.469",
       "source": "https://www.curseforge.com/minecraft/mc-mods/jei",
       "localSource": "H:/MC/PCL/.minecraft/versions/1.21.1-NeoForge_21.1.249/mods/[JEI物品管理器] jei-1.21.1-neoforge-19.70.0.469.jar",
@@ -132,6 +182,7 @@
       "sha512": "1ed427186f96300df7d9add3e191c9e17610c3f9e821e1c8958f85a3eb66b06b80ee6110b4e79c2c5ccc0b49bf8c1d802dd383aa998c16a8c680468ff633418f"
     },
     {
+      "transport": "tacz",
       "source": "https://modrinth.com/mod/timeless-and-classics-zero/version/O2Pfsh6w",
       "url": "https://cdn.modrinth.com/data/SzzJttH8/versions/O2Pfsh6w/tacz-neoforge-1.21.1-1.2.0.jar",
       "version": "1.2.0",

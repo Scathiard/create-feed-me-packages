@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.compat.tacz;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.FmpConfig;
 import dev.scathiard.feedmepackages.consumption.CraftingReservations;
@@ -143,7 +144,10 @@ public final class TaczMaterials {
             var tx = transaction(); if (tx == null) return ItemStack.EMPTY;
             int take = Math.min(amount, Math.min(remaining(slot, segment), tx.cacheAvailable(segment.prototype)));
             if (take <= 0 || (!simulate && (!tx.takeCache(segment.prototype, take) || !tx.commit()))) return ItemStack.EMPTY;
-            if (!simulate) extracted.merge(slot, take, Integer::sum);
+            if (!simulate) {
+                extracted.merge(slot, take, Integer::sum);
+                FmpAdvancement.CACHE_AMMO.award((ServerPlayer) player);
+            }
             return segment.prototype.copyWithCount(take);
         }
         @Override public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {

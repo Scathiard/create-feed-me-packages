@@ -1,6 +1,7 @@
 package dev.scathiard.feedmepackages.fluid;
 
 import dev.scathiard.feedmepackages.logistics.ParcelAuthentication;
+import dev.scathiard.feedmepackages.logistics.ParcelReceipt;
 import dev.scathiard.feedmepackages.logistics.ParcelSeal;
 import dev.scathiard.feedmepackages.registry.FmpRegistries;
 import dev.scathiard.feedmepackages.storage.*;
@@ -10,7 +11,7 @@ import net.minecraft.world.item.ItemStack;
 /** Authentication and per-cell receipt ownership. ReceiveService owns the single publication boundary. */
 public final class FluidReceipt {
     private FluidReceipt() {}
-    public static CacheRecord simulate(LivingEntity player, CacheHandle handle, ItemStack box, boolean residual) {
+    public static ParcelReceipt simulate(LivingEntity player, CacheHandle handle, ItemStack box, boolean residual) {
         var seal = box.get(FmpRegistries.FLUID_PARCEL_SEAL.get());
         if (seal == null || (residual ? !seal.arrived() : !seal.playerId().equals(player.getUUID()))) return null;
         var ledger = CacheLedger.get(player.getServer());
@@ -34,6 +35,6 @@ public final class FluidReceipt {
                     target.cacheId(), seal.playerId(), seal.requestId(), seal.variant(), target.revision(), seal.address(), true, ""));
             fluids = fluids.withResidual(requested, remaining);
         } else if (residual) fluids = fluids.withResidual(requested, ItemStack.EMPTY);
-        return record.withFluids(fluids);
+        return new ParcelReceipt(record.withFluids(fluids), ItemStack.EMPTY, intake.moved());
     }
 }

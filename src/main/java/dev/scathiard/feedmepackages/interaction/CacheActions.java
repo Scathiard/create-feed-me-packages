@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.interaction;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.domain.CollectPlan;
 import dev.scathiard.feedmepackages.domain.CacheLevel;
@@ -146,7 +147,12 @@ public final class CacheActions {
         ItemStack cursor;
         try {
             if (count == 0 && template.isEmpty()) cursor = ItemStack.EMPTY;
-            else cursor = ItemVariantKey.decode(template, player.registryAccess()).stack(player.registryAccess(), count);
+            else {
+                var rejected = FmpAdvancement.rejectedTemplate(template);
+                if (!rejected.isEmpty() && intent.action() == Action.DEPOSIT && count > 0 && count <= rejected.getMaxStackSize())
+                    cursor = rejected.copyWithCount(count);
+                else cursor = ItemVariantKey.decode(template, player.registryAccess()).stack(player.registryAccess(), count);
+            }
         } catch (IllegalArgumentException invalid) { return Result.INVALID_ITEM; }
         // Creative inventory owns its cursor on the client. A second server cursor would be
         // returned by vanilla on close after SetCreativeModeSlot has already placed the item.
@@ -199,8 +205,10 @@ public final class CacheActions {
         // must bypass the per-cell slot validation below. Setting it marks the ledger dirty (saved).
         if (intent.action() == Action.SET_RETURN_ADDRESS) {
             if (!dev.scathiard.feedmepackages.domain.ReturnAddress.valid(intent.template())) return Result.INVALID_REQUEST;
-            if (intent.template().equals(ledger.returnAddress(access.handle().cacheId()))) return Result.OK;
-            ledger.setReturnAddress(access.handle().cacheId(), intent.template());
+            if (!intent.template().equals(ledger.returnAddress(access.handle().cacheId())))
+                ledger.setReturnAddress(access.handle().cacheId(), intent.template());
+            if (!PanelAccess.maid(player) && intent.template().equals(dev.scathiard.feedmepackages.logistics.SupplyService.address(player)))
+                FmpAdvancement.RETURN_TO_SELF.award(player);
             return Result.OK;
         }
         var carried = creativeCursor == null ? player.containerMenu.getCarried() : creativeCursor;
@@ -245,11 +253,17 @@ public final class CacheActions {
             default -> false;
         }) return Result.READ_ONLY;
         var cell = before.state().cells().get(slot); var edit = before.state().edit();
+        if (intent.action() == Action.DEPOSIT && (intent.first() == 0 || intent.first() == 1)) {
+            var rejected = FmpAdvancement.rejectedItem(carried);
+            if (rejected != null) { rejected.award(player); return Result.INVALID_ITEM; }
+        }
         ItemStack nextCursor = null; InventoryTransfer.Plan inventoryPlan = null;
         switch (intent.action()) {
             case SET_GHOST -> {
                 if (cell.amount() != 0) return Result.FILTER_OCCUPIED;
                 if (!carried.isEmpty()) return Result.INVALID_REQUEST;
+                var rejected = FmpAdvancement.rejectedItem(FmpAdvancement.rejectedTemplate(intent.template()));
+                if (rejected != null) { rejected.award(player); return Result.INVALID_ITEM; }
                 ItemVariantKey variant;
                 try { variant = ItemVariantKey.decode(intent.template(), player.registryAccess()); }
                 catch (IllegalArgumentException invalid) { return Result.INVALID_ITEM; }

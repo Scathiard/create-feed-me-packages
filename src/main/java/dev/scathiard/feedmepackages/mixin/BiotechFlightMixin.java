@@ -43,10 +43,6 @@ public abstract class BiotechFlightMixin implements BiotechTaskLink {
     private void fmp$loadedMaid(MinecraftServer server, CallbackInfoReturnable<Object> cir) {
         if (BiotechMaidFlight.targetsMaid(this)) cir.setReturnValue(BiotechMaidFlight.resolve(this, server));
     }
-    @Inject(method = "landingTarget", at = @At("HEAD"), cancellable = true, remap = false)
-    private void fmp$landing(@Coerce Object port, ServerPlayer player, CallbackInfoReturnable<Vec3> cir) {
-        if (port == null && BiotechMaidFlight.targetsMaid(this)) cir.setReturnValue(BiotechMaidFlight.position(this, false));
-    }
     @Inject(method = "nearTargetWaypoint", at = @At("HEAD"), cancellable = true, remap = false)
     private void fmp$approach(@Coerce Object port, ServerPlayer player, CallbackInfoReturnable<Vec3> cir) {
         if (port == null && BiotechMaidFlight.targetsMaid(this)) cir.setReturnValue(BiotechMaidFlight.position(this, true));

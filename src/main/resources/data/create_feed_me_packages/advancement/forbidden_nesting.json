@@ -1,0 +1,21 @@
+{
+  "parent": "create_feed_me_packages:root",
+  "display": {
+    "icon": {
+      "id": "minecraft:shulker_box"
+    },
+    "title": {
+      "translate": "advancement.create_feed_me_packages.forbidden_nesting.title"
+    },
+    "description": {
+      "translate": "advancement.create_feed_me_packages.forbidden_nesting.description"
+    },
+    "frame": "task",
+    "hidden": true
+  },
+  "criteria": {
+    "triggered": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

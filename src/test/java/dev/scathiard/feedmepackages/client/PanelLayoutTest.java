@@ -938,8 +938,9 @@ class PanelLayoutTest {
                     key + " is longer than four characters: " + zhText);
             assertTrue(enText.trim().split("\\s+").length <= 2, key + " English text is not terse: " + enText);
         }
-        for (String name : new String[]{"batch","return_batch","lower","upper","wheel","pending","reset","late","conflict"})
+        for (String name : new String[]{"batch","return_batch","lower","upper","wheel","pending","reset","conflict"})
             assertNotNull(zh.get("gui.create_feed_me_packages.controls."+name),"Missing new cell-control tooltip: "+name);
+        assertFalse(zh.containsKey("gui.create_feed_me_packages.controls.late"));
         assertEquals(zh.keySet(), en.keySet(), "en_us and zh_cn must stay key-for-key identical");
     }
 

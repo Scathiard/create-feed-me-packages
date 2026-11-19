@@ -52,7 +52,11 @@ public final class FeedMePackages {
             if (event.getEntity() instanceof ServerPlayer player) CraftingReservations.forget(player);
         });
         NeoForge.EVENT_BUS.addListener((CurioChangeEvent event) -> {
-            if (event.getIdentifier().equals("necklace") && event.getEntity() instanceof ServerPlayer player) CacheActions.close(player);
+            if (event.getIdentifier().equals("necklace") && event.getEntity() instanceof ServerPlayer player) {
+                CacheActions.close(player);
+                if (event.getTo().is(FmpRegistries.PENDANT.get()) && dev.scathiard.feedmepackages.service.AccessGate.resolve(player).active())
+                    FmpAdvancement.ROOT.award(player);
+            }
         });
         LOGGER.info("Loading Create: Feed Me Packages! {}", modContainer.getModInfo().getVersion());
     }

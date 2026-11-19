@@ -1,0 +1,21 @@
+{
+  "parent": "create_feed_me_packages:root",
+  "display": {
+    "icon": {
+      "id": "minecraft:arrow"
+    },
+    "title": {
+      "translate": "advancement.create_feed_me_packages.cache_ammo.title"
+    },
+    "description": {
+      "translate": "advancement.create_feed_me_packages.cache_ammo.description"
+    },
+    "frame": "task",
+    "hidden": false
+  },
+  "criteria": {
+    "triggered": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

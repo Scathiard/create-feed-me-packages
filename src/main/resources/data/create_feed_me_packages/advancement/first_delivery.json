@@ -1,0 +1,21 @@
+{
+  "parent": "create_feed_me_packages:root",
+  "display": {
+    "icon": {
+      "id": "create:cardboard_package_12x10"
+    },
+    "title": {
+      "translate": "advancement.create_feed_me_packages.first_delivery.title"
+    },
+    "description": {
+      "translate": "advancement.create_feed_me_packages.first_delivery.description"
+    },
+    "frame": "task",
+    "hidden": false
+  },
+  "criteria": {
+    "triggered": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

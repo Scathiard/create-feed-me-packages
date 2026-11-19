@@ -3,7 +3,6 @@ package dev.scathiard.feedmepackages.compat.sophisticated;
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.network.TransferOrigin;
 import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
@@ -37,16 +36,9 @@ public final class SophisticatedTransfer {
         @Override public Type<Request> type() { return TYPE; }
     }
     private static final Map<ServerPlayer, long[]> BUDGETS = new WeakHashMap<>();
-    private static final Map<ServerPlayer, Long> LAST_NOTICE = new WeakHashMap<>();
     public static void register(RegisterPayloadHandlersEvent event) {
         event.registrar("sophisticated-native-2").playToServer(Request.TYPE, Request.CODEC, (request, context) -> {
-            if (context.player() instanceof ServerPlayer player && !accept(player, request)) {
-                long tick = player.serverLevel().getGameTime(); Long previous = LAST_NOTICE.get(player);
-                if (previous == null || tick < previous || tick - previous >= 20) {
-                    LAST_NOTICE.put(player, tick);
-                    player.sendSystemMessage(Component.translatable("gui.create_feed_me_packages.result.stale"));
-                }
-            }
+            if (context.player() instanceof ServerPlayer player) accept(player, request);
         });
     }
     public static boolean accept(ServerPlayer player, Request request) {

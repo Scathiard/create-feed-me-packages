@@ -94,13 +94,15 @@ public final class ConsumptionTests {
     }
     @GameTest(template = "empty")
     public static void nativeBowQueryCancelAndSuccessfulShot(GameTestHelper helper) {
-        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); seed(player, 0, new ItemStack(Items.ARROW), 10);
+        var player = AdvancementTests.equipped(helper); seed(player, 0, new ItemStack(Items.ARROW), 10);
         var bow = new ItemStack(Items.BOW); player.setItemInHand(InteractionHand.MAIN_HAND, bow);
         for (int i = 0; i < 20; i++) helper.assertTrue(player.getProjectile(bow).is(Items.ARROW), "Cache-only arrow unavailable to native query");
         helper.assertTrue(stock(player, 0) == 10, "Query deducted ammo");
         bow.getItem().releaseUsing(bow, player.level(), player, bow.getUseDuration(player) - 1);
         helper.assertTrue(stock(player, 0) == 10, "Cancelled/weak charge deducted ammo");
+        helper.assertFalse(AdvancementTests.done(player, "cache_ammo"), "Query or canceled draw granted progress");
         bow.getItem().releaseUsing(bow, player.level(), player, bow.getUseDuration(player) - 20);
+        helper.assertTrue(AdvancementTests.done(player, "cache_ammo"), "Native arrow debit did not grant progress");
         helper.assertTrue(stock(player, 0) == 9 && player.getInventory().items.stream().noneMatch(s -> s.is(Items.ARROW)), "Native bow did not consume exactly one cached arrow"); helper.succeed();
     }
     @GameTest(template = "empty")

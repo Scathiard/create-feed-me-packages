@@ -1,0 +1,21 @@
+{
+  "parent": "create_feed_me_packages:maid_logistics",
+  "display": {
+    "icon": {
+      "id": "minecraft:emerald"
+    },
+    "title": {
+      "translate": "advancement.create_feed_me_packages.maid_boss.title"
+    },
+    "description": {
+      "translate": "advancement.create_feed_me_packages.maid_boss.description"
+    },
+    "frame": "challenge",
+    "hidden": true
+  },
+  "criteria": {
+    "triggered": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

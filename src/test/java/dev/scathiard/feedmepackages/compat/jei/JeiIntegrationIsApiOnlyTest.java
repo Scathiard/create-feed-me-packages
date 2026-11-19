@@ -84,7 +84,8 @@ class JeiIntegrationIsApiOnlyTest {
             assertFalse(text.contains("missing_entry"), lang);
             assertFalse(text.contains("missing_detail"), lang);
             assertFalse(text.contains("missing_scope"), lang);
-            assertTrue(text.contains("result.panel_not_ready"), "the panel's own messages must stay: " + lang);
+            assertFalse(text.contains("result.panel_not_ready"), lang);
+            assertTrue(text.contains("result.inactive"), "Keep the actionable sync hint: " + lang);
         }
     }
 

@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.client;
 
+import dev.scathiard.feedmepackages.registry.FmpRegistries;
 import dev.scathiard.feedmepackages.consumption.PalletService;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.network.PalletNetwork;
@@ -114,7 +115,11 @@ public final class PalletClient {
                 open(InputConstants.getKey(event.getKey(), event.getScanCode()));
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.ItemTooltipEvent event) -> {
-            if (event.getItemStack().getItem() instanceof dev.scathiard.feedmepackages.item.PocketPalletItem)
+            var stack = event.getItemStack();
+            if (stack.is(FmpRegistries.PERSONAL_PENDANT.get()) || stack.is(FmpRegistries.PRIVATE_LINK.get())
+                    || stack.is(FmpRegistries.INCOMPLETE_PRIVATE_LINK.get()))
+                event.getToolTip().add(Component.translatable("tooltip.create_feed_me_packages.legacy_retired"));
+            if (stack.getItem() instanceof dev.scathiard.feedmepackages.item.PocketPalletItem)
                 event.getToolTip().add(Component.translatable("item.create_feed_me_packages.pocket_pallet.tip",
                         ClientBootstrap.PALLET_SELECT.getTranslatedKeyMessage(), Minecraft.getInstance().options.keyUse.getTranslatedKeyMessage()));
         });

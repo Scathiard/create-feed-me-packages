@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.compat.maid;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.FmpConfig;
 import dev.scathiard.feedmepackages.logistics.SupplyService;
@@ -83,6 +84,8 @@ public final class MaidCompatibility {
     public static void tick(LivingEntity maid) {
         if (maid.tickCount % 40 == 0) dev.scathiard.feedmepackages.logistics.ReturnService.check(MaidAccess.endpoint(maid));
         var access = MaidAccess.resolve(maid); if (!access.active()) return;
+        if (maid.tickCount % 40 == 0 && maid instanceof net.minecraft.world.entity.TamableAnimal pet)
+            FmpAdvancement.maidWearsMax(pet, access);
         MaidCouriers.refresh(maid);
         try {
             var available = (IItemHandlerModifiable) availableInventory.invoke(maid, true);

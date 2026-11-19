@@ -133,7 +133,10 @@ public final class ReceiveTests {
     static final int FULL = CacheLevel.of(1).capacity();
 
     static Fixture setup(GameTestHelper helper, int initialStock) {
-        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack());
+        return setup(helper, initialStock, TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()));
+    }
+
+    static Fixture setup(GameTestHelper helper, int initialStock, ServerPlayer player) {
         var access = AccessGate.resolve(player);
         helper.assertTrue(access.active() && access.handle().networkId() == null, "Unbound functional pendant not active");
         var ledger = CacheLedger.get(helper.getLevel().getServer()); var handle = access.handle();

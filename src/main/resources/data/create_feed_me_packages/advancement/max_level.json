@@ -1,0 +1,21 @@
+{
+  "parent": "create_feed_me_packages:root",
+  "display": {
+    "icon": {
+      "id": "create_feed_me_packages:upgrade_link_5"
+    },
+    "title": {
+      "translate": "advancement.create_feed_me_packages.max_level.title"
+    },
+    "description": {
+      "translate": "advancement.create_feed_me_packages.max_level.description"
+    },
+    "frame": "challenge",
+    "hidden": false
+  },
+  "criteria": {
+    "triggered": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

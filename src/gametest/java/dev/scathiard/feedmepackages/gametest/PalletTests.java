@@ -36,7 +36,10 @@ public final class PalletTests {
         }
     }
     private static Fixture setup(GameTestHelper h, ItemStack block) {
-        var p = TestPlayers.create(h, FmpRegistries.PENDANT.toStack()); p.setGameMode(GameType.SURVIVAL);
+        return setup(h, block, TestPlayers.create(h, FmpRegistries.PENDANT.toStack()));
+    }
+    private static Fixture setup(GameTestHelper h, ItemStack block, ServerPlayer p) {
+        p.setGameMode(GameType.SURVIVAL);
         p.setPos(h.absoluteVec(new Vec3(2.5, 2, 1.2))); h.setBlock(2, 1, 2, Blocks.STONE);
         var tool = FmpRegistries.POCKET_PALLET.toStack(); p.setItemInHand(InteractionHand.MAIN_HAND, tool);
         var handle = AccessGate.resolve(p).handle(); var ledger = CacheLedger.get(p.getServer()); var old = ledger.find(handle.cacheId());
@@ -76,9 +79,11 @@ public final class PalletTests {
     }
     @GameTest(template = "empty")
     public static void nativePalletPlacementDebitsOneAndKeepsToolAndZeroAir(GameTestHelper h) {
-        var f = setup(h, new ItemStack(Items.STONE));
+        var f = setup(h, new ItemStack(Items.STONE), AdvancementTests.equipped(h));
+        h.assertFalse(AdvancementTests.done(f.player(), "pocket_pallet"), "Selection granted progress");
         h.assertTrue(f.place().consumesAction()  &&  h.getBlockState(new BlockPos(2,2,2)).is(Blocks.STONE)
                  &&  f.stock() == 6  &&  f.player().getMainHandItem() == f.tool() , "Native placement failed conservation");
+        h.assertTrue(AdvancementTests.done(f.player(), "pocket_pallet"), "A committed placement did not count");
         h.assertTrue(WorldPlacement.reserved(f.handle().cacheId(),0) == 0, "Committed placement kept a reservation"); h.succeed();
     }
     @GameTest(template = "empty")

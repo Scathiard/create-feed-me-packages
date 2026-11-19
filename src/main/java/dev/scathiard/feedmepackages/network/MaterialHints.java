@@ -134,8 +134,10 @@ public final class MaterialHints {
     }
     /** Explain preservation without guessing the fault or serializing all caches for a notice. */
     private static Component lockMessage(ServerPlayer player) {
-        // A bad component and an unsupported schema are different causes. Do not guess by serializing the ledger.
-        return Component.translatable("gui.create_feed_me_packages.status.storage_locked.preserved");
+        var schema = CacheLedger.get(player.getServer()).newerSchema();
+        return schema.isPresent()
+                ? Component.translatable("gui.create_feed_me_packages.status.storage_locked.detail", schema.getAsInt(), CacheLedger.SCHEMA)
+                : Component.translatable("gui.create_feed_me_packages.status.storage_locked.preserved");
     }
     public static Message next(ServerPlayer player) {
         var access = AccessGate.resolve(player); boolean active = access.active() && !player.isSpectator();

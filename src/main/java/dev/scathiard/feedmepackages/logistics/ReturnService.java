@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.logistics;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import com.simibubi.create.content.logistics.box.PackageItem;
 import dev.scathiard.feedmepackages.FeedMePackages;
 import dev.scathiard.feedmepackages.compat.TransportDispatch;
@@ -212,6 +213,8 @@ public final class ReturnService {
             publishDeparture(hold);
             rememberSent(handle, slot, cell);
             for (var line : extra) rememberSent(handle, line.slot(), state.cells().get(line.slot()));
+            if (bearer instanceof ServerPlayer player) FmpAdvancement.AUTO_RETURN.award(player);
+            else FmpAdvancement.maidWorked(bearer);
             return RETURN_SENT;
         }
         if (result.outcome() == TransportDispatch.Outcome.NOT_SENT) {

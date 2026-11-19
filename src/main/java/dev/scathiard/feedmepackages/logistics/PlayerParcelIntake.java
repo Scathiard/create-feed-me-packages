@@ -17,7 +17,6 @@ import net.minecraft.world.item.ItemStack;
  * All contents must qualify before any goods move. Existing cache-owned residuals bypass this gate. */
 final class PlayerParcelIntake {
     private PlayerParcelIntake() {}
-    record Plan(CacheRecord record, ItemStack remainder) {}
 
     static boolean eligible(CacheRecord record, ItemStack box, HolderLookup.Provider registries) {
         try {
@@ -54,14 +53,14 @@ final class PlayerParcelIntake {
 
     /** Ordinary parcels carry goods, not proof of an FMP order. Never settle pending here.
      * The caller has checked eligibility; the return line is not an intake quantity cap. */
-    static Plan ordinary(ServerPlayer player, CacheRecord record, ItemStack box) {
+    static ParcelReceipt ordinary(ServerPlayer player, CacheRecord record, ItemStack box) {
         if (!PackageItem.getAddress(box).equals(SupplyService.address(player))) return null;
         if (FluidPackages.isFamily(box)) {
             var key = FluidVariantKey.of(FluidPackages.read(box), player.registryAccess());
             var intake = FluidParcelIntake.simulate(record.fluids().state(), box, key, null, true, player.registryAccess());
-            return intake.moved() == 0 ? null : new Plan(record.withFluids(record.fluids().withState(intake.state())), intake.remainder());
+            return intake.moved() == 0 ? null : new ParcelReceipt(record.withFluids(record.fluids().withState(intake.state())), intake.remainder(), intake.moved());
         }
         var intake = ParcelIntake.simulate(record.state(), box, null, null, true, player.registryAccess());
-        return intake.moved() == 0 ? null : new Plan(record.withState(intake.state()), intake.remainder());
+        return intake.moved() == 0 ? null : new ParcelReceipt(record.withState(intake.state()), intake.remainder(), intake.moved());
     }
 }

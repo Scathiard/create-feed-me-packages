@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.consumption;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import dev.scathiard.feedmepackages.fluid.FluidVariantKey;
 import dev.scathiard.feedmepackages.interaction.FluidActions;
 import dev.scathiard.feedmepackages.service.AccessGate;
@@ -42,7 +43,7 @@ public final class PalletFluidUse {
             }
         };
         source.setFluid(key.stack(player.registryAccess(),amount));
-        return FluidActions.worldUse(player,access.handle(),slot,key,source,()-> {
+        var result = FluidActions.worldUse(player,access.handle(),slot,key,source,()-> {
             var targetHandler=player.level().getCapability(Capabilities.FluidHandler.BLOCK,clicked,context.getClickedFace());
             if(targetHandler!=null) {
                 var moved=FluidUtil.tryFluidTransfer(targetHandler,source,amount,true);
@@ -60,6 +61,8 @@ public final class PalletFluidUse {
             if(EventHooks.onBlockPlace(player,BlockSnapshot.create(player.level().dimension(),player.level(),pos),context.getClickedFace())) return false;
             return FluidUtil.tryPlaceFluid(player,player.level(),context.getHand(),pos,source,fluid.copy());
         });
+        if (result.consumesAction()) FmpAdvancement.POCKET_PALLET.award(player);
+        return result;
     }
     private static boolean allowed(ServerPlayer player,BlockPos pos) {
         return player.level().hasChunkAt(pos) && player.level().mayInteract(player,pos)

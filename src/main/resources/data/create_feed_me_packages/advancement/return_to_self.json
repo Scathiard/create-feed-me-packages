@@ -1,0 +1,21 @@
+{
+  "parent": "create_feed_me_packages:auto_return",
+  "display": {
+    "icon": {
+      "id": "minecraft:name_tag"
+    },
+    "title": {
+      "translate": "advancement.create_feed_me_packages.return_to_self.title"
+    },
+    "description": {
+      "translate": "advancement.create_feed_me_packages.return_to_self.description"
+    },
+    "frame": "task",
+    "hidden": true
+  },
+  "criteria": {
+    "triggered": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

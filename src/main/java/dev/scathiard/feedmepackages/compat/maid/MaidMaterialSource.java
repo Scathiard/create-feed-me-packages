@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.compat.maid;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import dev.scathiard.feedmepackages.consumption.CraftingReservations;
 import dev.scathiard.feedmepackages.interaction.FluidActions;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
@@ -52,6 +53,7 @@ public final class MaidMaterialSource {
                 - CraftingReservations.reservedCache(handle.cacheId(), cell, null) < amount) return false;
         var edit = record.state().edit(); edit.extract(cell, amount);
         CacheLedger.get(maid.getServer()).replace(handle, record.state().revision(), record.withState(edit.finish()));
+        FmpAdvancement.maidWorked(maid);
         return true;
     }
 }

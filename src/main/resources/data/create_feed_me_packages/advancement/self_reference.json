@@ -1,0 +1,21 @@
+{
+  "parent": "create_feed_me_packages:root",
+  "display": {
+    "icon": {
+      "id": "create_feed_me_packages:supply_chain_pendant"
+    },
+    "title": {
+      "translate": "advancement.create_feed_me_packages.self_reference.title"
+    },
+    "description": {
+      "translate": "advancement.create_feed_me_packages.self_reference.description"
+    },
+    "frame": "challenge",
+    "hidden": true
+  },
+  "criteria": {
+    "triggered": {
+      "trigger": "minecraft:impossible"
+    }
+  }
+}

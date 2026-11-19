@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.consumption;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import dev.scathiard.feedmepackages.item.PocketPalletItem;
 import dev.scathiard.feedmepackages.interaction.InventoryTransfer;
 import dev.scathiard.feedmepackages.network.PalletNetwork;
@@ -60,6 +61,7 @@ public final class PalletUse {
                 boolean changed=material.isEmpty() || !ItemStack.isSameItemSameComponents(original,material);
                 if(changed && lease!=null) {
                     lease.spent();
+                    FmpAdvancement.POCKET_PALLET.award((ServerPlayer) player);
                     if(!material.isEmpty()) {
                         var plan=InventoryTransfer.insert(player.getInventory(),material,material.getCount());
                         if(plan.moved()==material.getCount()) plan.commit(player.getInventory());

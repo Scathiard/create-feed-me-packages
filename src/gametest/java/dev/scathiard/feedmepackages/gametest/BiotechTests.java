@@ -88,7 +88,7 @@ public final class BiotechTests {
         h.assertTrue((boolean)call(port, "tryDispatch"), "Native allay port refused addressed package");
         h.assertTrue(port.inventory.getStackInSlot(0).isEmpty() && carriers(port).getStackInSlot(0).isEmpty(), "Native launch did not consume exactly one box/carrier");
     }
-    private static Map<UUID, ServerPlayer> playerMap(ServerPlayer player) throws ReflectiveOperationException {
+    static Map<UUID, ServerPlayer> playerMap(ServerPlayer player) throws ReflectiveOperationException {
         var field = net.minecraft.server.players.PlayerList.class.getDeclaredField("playersByUUID"); field.setAccessible(true);
         return (Map<UUID, ServerPlayer>)field.get(player.getServer().getPlayerList());
     }
@@ -173,7 +173,7 @@ public final class BiotechTests {
                 bearer.setItemInHand(hand == net.minecraft.world.InteractionHand.MAIN_HAND ? net.minecraft.world.InteractionHand.OFF_HAND : net.minecraft.world.InteractionHand.MAIN_HAND, new ItemStack(Items.IRON_SWORD));
             }
         } else {
-            var player = TestPlayers.create(h, FmpRegistries.PENDANT.toStack()); player.setPos(h.absoluteVec(new Vec3(4, 2, 4)));
+            var player = AdvancementTests.equipped(h); player.setPos(h.absoluteVec(new Vec3(4, 2, 4)));
             ConsumptionTests.seed(player, 0, new ItemStack(Items.STONE), 20); bearer = player;
             handle = AccessGate.resolve(player).handle(); ledger = CacheLedger.get(player.getServer()); pendant = TestPlayers.necklace(player).getStackInSlot(0);
             player.getInventory().setItem(0, BiotechCompatibility.carrier());
@@ -192,6 +192,7 @@ public final class BiotechTests {
             ReturnService.check(maid ? MaidAccess.endpoint(bearer) : LogisticsEndpoint.player((ServerPlayer)bearer));
         } catch (ReflectiveOperationException failed) { throw new IllegalStateException(failed); }
         finally { if (original != null) ports.put("add", original); }
+        if (!maid) h.assertTrue(AdvancementTests.done((ServerPlayer) bearer, "auto_return"), "Accepted return did not grant progress");
         if (fault) h.assertTrue(admissionFaults == faultsBefore + 1, "After-admission failure injection was not reached exactly once");
         h.assertTrue(ledger.find(handle.cacheId()).state().cells().getFirst().amount() == 8 && ledger.returnEscrow(handle.cacheId()) == null,
                 "Active allay return did not debit surplus exactly once");

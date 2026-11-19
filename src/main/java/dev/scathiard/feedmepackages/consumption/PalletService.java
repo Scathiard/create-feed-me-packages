@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.consumption;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.item.PocketPalletItem;
 import dev.scathiard.feedmepackages.service.AccessGate;
@@ -120,6 +121,7 @@ public final class PalletService {
             // WorldPlacement only returns a consuming result after its native placement lease committed.
             // The display receipt is not a second consumption path.
             if (result.consumesAction()) {
+                FmpAdvancement.POCKET_PALLET.award(server);
                 var current = ledger.find(selection.cache());
                 var remaining = current == null || slot>=current.state().cells().size() ? null : current.state().cells().get(slot);
                 boolean next = remaining != null && selection.key().equals(remaining.filter())
@@ -132,7 +134,7 @@ public final class PalletService {
     }
     static InteractionResult failed(ServerPlayer player, String reason) {
         // Ordinary placement rejections are quiet; missing-stock and setup guidance remain.
-        if (!"denied".equals(reason) && !"no_placement".equals(reason))
+        if ("missing".equals(reason) || "no_access".equals(reason))
             player.displayClientMessage(Component.translatable("message.create_feed_me_packages.pallet." + reason), true);
         return InteractionResult.FAIL;
     }

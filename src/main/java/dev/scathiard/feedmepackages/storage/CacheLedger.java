@@ -133,6 +133,13 @@ public final class CacheLedger extends SavedData {
     }
 
     public String problem() { return problem; }
+
+    /** Only a preserved whole ledger can substantiate a newer save version. */
+    public java.util.OptionalInt newerSchema() {
+        if (preserved != null && preserved.contains("schema", Tag.TAG_INT) && preserved.getInt("schema") > SCHEMA)
+            return java.util.OptionalInt.of(preserved.getInt("schema"));
+        return java.util.OptionalInt.empty();
+    }
     /** Empty only when both the global header and this cache are usable. */
     public String problem(UUID id) { return problem.isEmpty() ? id == null ? "" : isolated.getOrDefault(id, "") : problem; }
     public boolean ownerIsolated(UUID owner) { return isolatedOwners.contains(owner); }

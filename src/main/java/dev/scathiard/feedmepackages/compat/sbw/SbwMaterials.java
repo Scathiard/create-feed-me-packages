@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.compat.sbw;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import com.atsuishio.superbwarfare.data.gun.*;
 import com.atsuishio.superbwarfare.entity.vehicle.base.VehicleEntity;
 import com.atsuishio.superbwarfare.item.ammo.AmmoBoxItem;
@@ -93,6 +94,7 @@ public final class SbwMaterials {
             if (!(player instanceof ServerPlayer server)) return ItemStack.EMPTY;
             var tx = MaterialTransaction.open(server).orElse(null);
             if (tx == null || operator(gun, supplier) != player || !tx.takeCache(current, taken) || !tx.commit()) return ItemStack.EMPTY;
+            FmpAdvancement.CACHE_AMMO.award(server);
             return current.copyWithCount(taken);
         }
         public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) { return stack; }

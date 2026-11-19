@@ -203,7 +203,10 @@ public final class OptionalMixins implements IMixinConfigPlugin {
             return MixinTransportShapes.inspectLegacyPaper(targetClassName);
         }
         if (mixinClassName.contains(".Biotech")) {
-            return MixinTransportShapes.inspectBiotech() && targetClassName.startsWith(MixinTransportShapes.biotechRoot);
+            if (!MixinTransportShapes.inspectBiotech() || !targetClassName.startsWith(MixinTransportShapes.biotechRoot)) return false;
+            if (mixinClassName.endsWith("BiotechRouteLandingMixin")) return MixinTransportShapes.biotechRouteLanding;
+            if (mixinClassName.endsWith("BiotechTaskLandingMixin")) return !MixinTransportShapes.biotechRouteLanding;
+            return true;
         }
         if (mixinClassName.endsWith("Phantom100FlightMixin")) {
             return MixinTransportShapes.inspectPhantom100Flight(targetClassName);

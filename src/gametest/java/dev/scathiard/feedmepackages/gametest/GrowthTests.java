@@ -268,7 +268,7 @@ public final class GrowthTests {
 
     @GameTest(template = "empty")
     public static void allOrdinaryLevelsUseNativeResultClicksAndPreserveTheFullCache(GameTestHelper helper) {
-        var player = TestPlayers.create(helper, FmpRegistries.PENDANT.toStack()); var access = AccessGate.resolve(player); var ledger = CacheLedger.get(player.getServer());
+        var player = AdvancementTests.equipped(helper); var access = AccessGate.resolve(player); var ledger = CacheLedger.get(player.getServer());
         ItemStack pendant = TestPlayers.necklace(player).getStackInSlot(0); UUID network = UUID.randomUUID(); pendant.set(FmpRegistries.NETWORK.get(), network);
         pendant.set(DataComponents.CUSTOM_NAME, Component.literal("My factory pendant")); TestPlayers.necklace(player).setStackInSlot(0, ItemStack.EMPTY);
         var original = ledger.find(access.handle().cacheId()); var edit = original.state().edit(); var key = ItemVariantKey.of(new ItemStack(Items.STONE), player.registryAccess());
@@ -279,6 +279,7 @@ public final class GrowthTests {
             for (int preview = 0; preview < 3; preview++) menu.createResult();
             helper.assertTrue(before.equals(saved(player)) && menu.getSlot(3).getItem().getOrDefault(FmpRegistries.PREVIEW.get(), false), "Smithing preview changed a real cache or became usable");
             helper.assertTrue(!menu.getSlot(3).mayPickup(player), "An uncontrolled slot path can take an uncommitted preview");
+            helper.assertFalse(AdvancementTests.done(player,"max_level"), "Preview granted max level");
             menu.clicked(3, 0, ClickType.PICKUP, player); pendant = menu.getCarried();
             helper.assertTrue(pendant.is(FmpRegistries.PENDANT.get()) && !pendant.has(FmpRegistries.PREVIEW.get()) && network.equals(pendant.get(FmpRegistries.NETWORK.get()))
                     && pendant.getHoverName().getString().equals("My factory pendant"), "Manufacturing changed binding/components or yielded a preview");
@@ -291,6 +292,7 @@ public final class GrowthTests {
         }
         TestPlayers.necklace(player).setStackInSlot(0, pendant);
         helper.assertTrue(AccessGate.resolve(player).handle().cacheId().equals(access.handle().cacheId()), "Upgraded pendant changed cache identity");
+        helper.assertTrue(AdvancementTests.done(player,"max_level"), "Taking the fifth level did not count");
         helper.succeed();
     }
 

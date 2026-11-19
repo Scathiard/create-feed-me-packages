@@ -10,6 +10,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import java.util.HashSet;
+import java.util.function.BooleanSupplier;
 import java.util.Set;
 
 /** Warn once per changed failure on joining/reload, including players not wearing a pendant. */
@@ -17,7 +18,8 @@ public final class ClientCompatibility {
     private ClientCompatibility() {}
     private static CompatibilityStatus.State serverFxnt, serverEmi, serverTacz, serverWand, serverGadgets, serverEffortless, serverSophisticated, serverMaid, serverFactory, serverSbw;
     private static CompatibilityStatus.State serverCraftingTweaks,serverPaper,serverBee,serverPhantom,serverBiotech;
-    private static Set<String> reported = Set.of();
+    private record Warning(String reason, String mod) {}
+    private static Set<Warning> reported = Set.of();
     public static boolean sbwSourcesAvailable() { return serverSbw==CompatibilityStatus.State.READY && OptionalMixins.sbwCompatible(); }
     public static boolean sophisticatedSourcesAvailable() { return serverSophisticated == CompatibilityStatus.State.READY && dev.scathiard.feedmepackages.compat.sophisticated.SophisticatedAccess.enabled(); }
     public static boolean effortlessSourcesAvailable() { return serverEffortless == CompatibilityStatus.State.READY && OptionalMixins.effortlessCompatible(); }
@@ -35,53 +37,45 @@ public final class ClientCompatibility {
     private static void tick() {
         var player = Minecraft.getInstance().player;
         if (player == null || serverFxnt == null || player.tickCount % 20 != 0) return;
-        var failures = new HashSet<String>();
-        if(serverCraftingTweaks==CompatibilityStatus.State.API_MISMATCH || !OptionalMixins.craftingTweaksSafe())failures.add("craftingtweaks_mismatch");
-        if(serverPaper==CompatibilityStatus.State.API_MISMATCH)failures.add("paper_mismatch");
-        if(serverBee==CompatibilityStatus.State.API_MISMATCH)failures.add("bee_mismatch");
-        if(serverPhantom==CompatibilityStatus.State.API_MISMATCH)failures.add("phantom_mismatch");
-        if(serverBiotech==CompatibilityStatus.State.API_MISMATCH)failures.add("biotech_mismatch");
-        if(serverSbw==CompatibilityStatus.State.CONFIG_DISABLED) failures.add("sbw_config_disabled");
-        else if(serverSbw==CompatibilityStatus.State.API_MISMATCH) failures.add("sbw_server_mismatch");
-        else if(serverSbw==CompatibilityStatus.State.READY && !OptionalMixins.sbwCompatible()) failures.add("sbw_client_mismatch");
-        if (serverFactory == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("factory_config_disabled");
-        else if (serverFactory == CompatibilityStatus.State.API_MISMATCH) failures.add("factory_server_mismatch");
-        if (serverMaid == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("maid_config_disabled");
-        else if (serverMaid == CompatibilityStatus.State.API_MISMATCH) failures.add("maid_server_mismatch");
-        if (serverSophisticated == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("sophisticated_config_disabled");
-        else if (serverSophisticated == CompatibilityStatus.State.API_MISMATCH) failures.add("sophisticated_server_mismatch");
-        else if (serverSophisticated == CompatibilityStatus.State.READY && dev.scathiard.feedmepackages.compat.sophisticated.SophisticatedAccess.installed()
-                && !dev.scathiard.feedmepackages.compat.sophisticated.SophisticatedAccess.ready()) failures.add("sophisticated_client_mismatch");
-        if (serverEffortless == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("effortless_config_disabled");
-        else if (serverEffortless == CompatibilityStatus.State.API_MISMATCH) failures.add("effortless_server_mismatch");
-        else if (serverEffortless == CompatibilityStatus.State.ABSENT && ModList.get().isLoaded("effortlessbuilding")) failures.add("effortless_server_missing");
-        else if (serverEffortless == CompatibilityStatus.State.READY && ModList.get().isLoaded("effortlessbuilding") && !OptionalMixins.effortlessCompatible()) failures.add("effortless_client_mismatch");
-        if (serverGadgets == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("gadgets_config_disabled");
-        else if (serverGadgets == CompatibilityStatus.State.API_MISMATCH) failures.add("gadgets_server_mismatch");
-        else if (serverGadgets == CompatibilityStatus.State.ABSENT && ModList.get().isLoaded("buildinggadgets2")) failures.add("gadgets_server_missing");
-        else if (serverGadgets == CompatibilityStatus.State.READY && ModList.get().isLoaded("buildinggadgets2") && !OptionalMixins.gadgetsCompatible()) failures.add("gadgets_client_mismatch");
-        if (serverWand == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("wand_config_disabled");
-        else if (serverWand == CompatibilityStatus.State.API_MISMATCH) failures.add("wand_server_mismatch");
-        if (serverTacz == CompatibilityStatus.State.ABSENT && ModList.get().isLoaded("tacz")) failures.add("tacz_server_missing");
-        else if (serverTacz == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("tacz_config_disabled");
-        else if (serverTacz == CompatibilityStatus.State.API_MISMATCH) failures.add("tacz_server_mismatch");
-        else if (serverTacz == CompatibilityStatus.State.READY && ModList.get().isLoaded("tacz")
-                && (!dev.scathiard.feedmepackages.compat.tacz.TaczMaterials.ready()
-                    || !dev.scathiard.feedmepackages.compat.tacz.TaczClientSources.ready())) failures.add("tacz_client_mismatch");
-        if (serverEmi == CompatibilityStatus.State.ABSENT && ModList.get().isLoaded("emi")) failures.add("emi_server_missing");
-        else if (serverEmi == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("emi_config_disabled");
-        else if (serverEmi == CompatibilityStatus.State.API_MISMATCH) failures.add("emi_server_mismatch");
-        else if (serverEmi == CompatibilityStatus.State.READY && ModList.get().isLoaded("emi") && !OptionalMixins.emiPreviewCompatible()) failures.add("emi_client_mismatch");
-        if (serverFxnt == CompatibilityStatus.State.CONFIG_DISABLED) failures.add("fxnt_config_disabled");
-        else if (serverFxnt == CompatibilityStatus.State.API_MISMATCH) failures.add("fxnt_server_mismatch");
-        if (serverFxnt == CompatibilityStatus.State.READY && ModList.get().isLoaded("emi") && FmpConfig.emiCraftingEnabled()
-                && !OptionalMixins.fxntEmiOriginCompatible()) failures.add("fxnt_client_mismatch");
-        if (serverFxnt == CompatibilityStatus.State.READY && ModList.get().isLoaded("jei")) {
-            if (!FmpConfig.jeiCraftingEnabled()) failures.add("fxnt_jei_disabled");
-            else if (!OptionalMixins.fxntPreviewFailures().isEmpty()) failures.add("fxnt_client_mismatch");
+        var failures = new HashSet<Warning>();
+        check(failures, "Crafting Tweaks", serverCraftingTweaks, false, OptionalMixins::craftingTweaksSafe);
+        check(failures, "Paper Couriers", serverPaper, false, () -> true);
+        check(failures, "Create: Mobile Packages", serverBee, false, () -> true);
+        check(failures, "Create: Phantom Logistics", serverPhantom, false, () -> true);
+        check(failures, "Create: BioTech", serverBiotech, false, () -> true);
+        check(failures, "Superb Warfare", serverSbw, false, OptionalMixins::sbwCompatible);
+        check(failures, "Create: Factory Logistics", serverFactory, false, () -> true);
+        check(failures, "Touhou Little Maid", serverMaid, false, () -> true);
+        check(failures, "Sophisticated Core", serverSophisticated, false,
+                () -> !dev.scathiard.feedmepackages.compat.sophisticated.SophisticatedAccess.installed()
+                        || dev.scathiard.feedmepackages.compat.sophisticated.SophisticatedAccess.ready());
+        var mods = ModList.get();
+        check(failures, "Effortless Building", serverEffortless, mods.isLoaded("effortlessbuilding"),
+                () -> !mods.isLoaded("effortlessbuilding") || OptionalMixins.effortlessCompatible());
+        check(failures, "Building Gadgets 2", serverGadgets, mods.isLoaded("buildinggadgets2"),
+                () -> !mods.isLoaded("buildinggadgets2") || OptionalMixins.gadgetsCompatible());
+        check(failures, "Construction Wand", serverWand, false, () -> true);
+        check(failures, "TaCZ", serverTacz, mods.isLoaded("tacz"),
+                () -> !mods.isLoaded("tacz") || taczSourcesAvailable());
+        check(failures, "EMI", serverEmi, mods.isLoaded("emi"),
+                () -> !mods.isLoaded("emi") || OptionalMixins.emiPreviewCompatible());
+        check(failures, "Create: Storage", serverFxnt, false, () ->
+                (!mods.isLoaded("emi") || !FmpConfig.emiCraftingEnabled() || OptionalMixins.fxntEmiOriginCompatible())
+                && (!mods.isLoaded("jei") || !FmpConfig.jeiCraftingEnabled() || OptionalMixins.fxntPreviewFailures().isEmpty()));
+        for (String reason : new String[]{"missing", "mismatch"}) {
+            String names = failures.stream().filter(w -> w.reason().equals(reason) && !reported.contains(w))
+                    .map(Warning::mod).sorted().collect(java.util.stream.Collectors.joining(", "));
+            if (!names.isEmpty())
+                player.displayClientMessage(Component.translatable("gui.create_feed_me_packages.compat." + reason, names), false);
         }
-        for (var failure : failures) if (!reported.contains(failure))
-            player.displayClientMessage(Component.translatable("gui.create_feed_me_packages.compat." + failure), false);
         reported = Set.copyOf(failures);
+    }
+
+    private static void check(Set<Warning> failures, String mod, CompatibilityStatus.State state,
+                              boolean warnIfAbsent, BooleanSupplier clientReady) {
+        if (state == CompatibilityStatus.State.API_MISMATCH || state == CompatibilityStatus.State.READY && !clientReady.getAsBoolean())
+            failures.add(new Warning("mismatch", mod));
+        else if (state == CompatibilityStatus.State.ABSENT && warnIfAbsent)
+            failures.add(new Warning("missing", mod));
     }
 }

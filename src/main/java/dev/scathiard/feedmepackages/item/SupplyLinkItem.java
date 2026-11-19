@@ -15,7 +15,7 @@ public final class SupplyLinkItem extends Item {
     }
     public int targetLevel() { return targetLevel; }
     @Override public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flags) {
-        tooltip.add(Component.translatable("tooltip.create_feed_me_packages.upgrade_link", targetLevel));
+        tooltip.add(Component.translatable("tooltip.create_feed_me_packages.upgrade_link", targetLevel - 1, targetLevel));
         tooltip.add(Component.translatable("tooltip.create_feed_me_packages.smithing"));
     }
 }

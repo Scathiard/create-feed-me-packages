@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.consumption;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -93,6 +94,7 @@ public final class AmmoService {
         if (ticket == null) return;
         if (result.isEmpty() || (!ticket.committed && !ticket.valid(weapon, shooter))) throw new Unavailable();
         ticket.used = true;
+        if (ticket.committed && shooter instanceof ServerPlayer player) FmpAdvancement.CACHE_AMMO.award(player);
     }
     /** Internal control flow to stop a complete native draw before it can manufacture multishot copies. */
     public static final class Unavailable extends RuntimeException {

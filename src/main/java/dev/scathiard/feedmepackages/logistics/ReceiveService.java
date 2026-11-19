@@ -1,5 +1,6 @@
 package dev.scathiard.feedmepackages.logistics;
 
+import dev.scathiard.feedmepackages.FmpAdvancement;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.interaction.InventoryTransfer;
 import dev.scathiard.feedmepackages.registry.FmpRegistries;
@@ -15,22 +16,17 @@ import java.util.*;
 public final class ReceiveService {
     private ReceiveService() {}
     private static final Map<ServerPlayer, UUID> WARNED_RESIDUALS = new WeakHashMap<>();
-    private record Plan(CacheRecord replacement, ItemStack remainder) {
-        Plan(CacheRecord replacement) { this(replacement, ItemStack.EMPTY); }
-    }
 
-    private static Plan simulate(LivingEntity player, CacheHandle handle, ItemStack box, boolean residual) {
+    private static ParcelReceipt simulate(LivingEntity player, CacheHandle handle, ItemStack box, boolean residual) {
         if (!residual && player instanceof ServerPlayer serverPlayer) {
             var record = CacheLedger.get(player.getServer()).find(handle.cacheId());
             if (!PlayerParcelIntake.eligible(record, box, player.registryAccess())) return null;
             if (!box.has(FmpRegistries.PARCEL_SEAL.get()) && !box.has(FmpRegistries.FLUID_PARCEL_SEAL.get())) {
-                var ordinary = PlayerParcelIntake.ordinary(serverPlayer, record, box);
-                return ordinary == null ? null : new Plan(ordinary.record(), ordinary.remainder());
+                return PlayerParcelIntake.ordinary(serverPlayer, record, box);
             }
         }
         if (box.has(FmpRegistries.FLUID_PARCEL_SEAL.get())) {
-            var candidate = dev.scathiard.feedmepackages.fluid.FluidReceipt.simulate(player, handle, box, residual);
-            return candidate == null ? null : new Plan(candidate);
+            return dev.scathiard.feedmepackages.fluid.FluidReceipt.simulate(player, handle, box, residual);
         }
         var seal = box.get(FmpRegistries.PARCEL_SEAL.get());
         if (seal == null) return null;
@@ -65,7 +61,7 @@ public final class ReceiveService {
         } else if (residual) {
             nextResiduals.remove(requested);
         }
-        return new Plan(record.withState(intake.state()).withResidual(requested, nextResiduals.getOrDefault(requested, ItemStack.EMPTY)));
+        return new ParcelReceipt(record.withState(intake.state()).withResidual(requested, nextResiduals.getOrDefault(requested, ItemStack.EMPTY)), ItemStack.EMPTY, intake.moved());
     }
 
     public static boolean receive(ServerPlayer player, ItemStack source) {
@@ -92,17 +88,26 @@ public final class ReceiveService {
         if (dev.scathiard.feedmepackages.consumption.CraftingReservations.operating(access.handle().cacheId())
                 || dev.scathiard.feedmepackages.interaction.FluidActions.operating(access.handle().cacheId())) return false;
         var ledger = CacheLedger.get(player.getServer()); var before = ledger.find(access.handle().cacheId());
-        Plan plan = simulate(player, access.handle(), source, false); if (plan == null) return false;
+        var plan = simulate(player, access.handle(), source, false); if (plan == null) return false;
         if (inventorySlot < 0 && !plan.remainder().isEmpty()) return false;
         var again = endpoint.access();
         if (!again.active() || !again.handle().equals(access.handle()) || ledger.find(access.handle().cacheId()) != before) return false;
+        boolean ordinary = !source.has(FmpRegistries.PARCEL_SEAL.get()) && !source.has(FmpRegistries.FLUID_PARCEL_SEAL.get());
         // No callbacks between the state replacement and relinquishing the original stack.
         ledger.replace(access.handle(), before.state().revision(), plan.replacement()); source.setCount(0);
         if (inventorySlot >= 0) ((ServerPlayer) player).getInventory().setItem(inventorySlot, plan.remainder());
         LogisticsSignals.received(before.state(), plan.replacement().state());
         LogisticsSignals.received(before.fluids().state(), plan.replacement().fluids().state());
         if (player instanceof ServerPlayer serverPlayer) serverPlayer.getInventory().setChanged();
+        if (plan.moved() > 0) delivered(player, ordinary);
         return true;
+    }
+
+    private static void delivered(LivingEntity bearer, boolean ordinary) {
+        if (bearer instanceof ServerPlayer player) {
+            FmpAdvancement.FIRST_DELIVERY.award(player);
+            if (ordinary) FmpAdvancement.HUMAN_COURIER.award(player);
+        } else FmpAdvancement.maidWorked(bearer);
     }
 
     public static void resume(ServerPlayer player) {
@@ -122,6 +127,7 @@ public final class ReceiveService {
                 if (plan != null) {
                     ledger.replace(access.handle(), record.state().revision(), plan.replacement());
                     LogisticsSignals.received(record.state(), plan.replacement().state());
+                    delivered(player, false);
                 }
             }
             for (var entry : List.copyOf(ledger.find(access.handle().cacheId()).fluids().residuals().entrySet())) {
@@ -130,6 +136,7 @@ public final class ReceiveService {
                 if (plan != null) {
                     ledger.replace(access.handle(), record.state().revision(), plan.replacement());
                     LogisticsSignals.received(record.fluids().state(), plan.replacement().fluids().state());
+                    delivered(player, false);
                 }
             }
             if (player instanceof ServerPlayer serverPlayer) returnUnmatchedResidual(serverPlayer, access.handle());

@@ -27,6 +27,26 @@ public final class UiClientReview {
     private static int phase, ticks, changed;
     private static CompletableFuture<Void> work;
 
+    private static void verifyPendantText() {
+        var pendant = FmpRegistries.PENDANT.toStack();
+        String prefix = "tooltip.create_feed_me_packages.";
+        String bind = net.minecraft.network.chat.Component.translatable(prefix + "bind").getString();
+        String clear = net.minecraft.network.chat.Component.translatable(prefix + "clear").getString();
+        var unbound = net.minecraft.client.gui.screens.Screen.getTooltipFromItem(MC, pendant).stream()
+                .map(net.minecraft.network.chat.Component::getString).toList();
+        pendant.set(FmpRegistries.NETWORK.get(), HIGHLIGHT);
+        var bound = net.minecraft.client.gui.screens.Screen.getTooltipFromItem(MC, pendant).stream()
+                .map(net.minecraft.network.chat.Component::getString).toList();
+        if (!unbound.contains(bind) || unbound.contains(clear) || !bound.contains(clear) || bound.contains(bind))
+            throw new AssertionError("Binding hints disagree with the actual pendant state");
+        String upgrade = net.minecraft.network.chat.Component.translatable(prefix + "upgrade_link", 1, 2).getString();
+        var link = net.minecraft.client.gui.screens.Screen.getTooltipFromItem(MC, FmpRegistries.upgradeLink(2).toStack());
+        if (!upgrade.contains("1") || !upgrade.contains("2") || link.stream().noneMatch(line -> line.getString().equals(upgrade)))
+            throw new AssertionError("The upgrade link did not display both levels");
+        dev.scathiard.feedmepackages.FeedMePackages.LOGGER.info("FMP_PENDANT_COPY_OK language={} levelHint={}",
+                MC.getLanguageManager().getSelected(), upgrade);
+    }
+
     public static boolean tick() throws ReflectiveOperationException {
         ticks++;
         if (work != null) { if (!work.isDone()) return false; work.join(); work = null; }
@@ -35,6 +55,7 @@ public final class UiClientReview {
             case 0 -> { openInventory(); }
             case 1 -> {
                 if (!panelReady()) return false;
+                verifyPendantText();
                 TemplateClientReview.capture("ui-panel-level-zh");
                 onServer(UiClientReview::givePendantCopy);
                 next();
@@ -51,6 +72,7 @@ public final class UiClientReview {
             case 8 -> { if (MC.getOverlay() != null) return false; TemplateClientReview.capture("ui-controls-en"); openInventory(); }
             case 9 -> {
                 if (!panelReady()) return false;
+                verifyPendantText();
                 TemplateClientReview.capture("ui-panel-level-en");
                 if (!hoverPendant()) { changed = ticks; return false; }
                 next();

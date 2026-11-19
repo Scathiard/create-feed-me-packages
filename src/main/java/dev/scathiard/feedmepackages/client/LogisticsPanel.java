@@ -21,7 +21,6 @@ import dev.scathiard.feedmepackages.network.PanelNetwork;
 import dev.scathiard.feedmepackages.network.PanelPackets;
 import dev.scathiard.feedmepackages.registry.FmpRegistries;
 import dev.scathiard.feedmepackages.service.AccessGate;
-import dev.scathiard.feedmepackages.storage.CacheLedger;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -565,7 +564,6 @@ public final class LogisticsPanel {
             for(var draft:controlDrafts.values()) draft.timedOut(waiting);
             waiting = 0;
             predict = null;   // Timeout is an unknown result: drop the display prediction only, and refresh.
-            LogisticsPanel.notice("timeout");
         }
         flushPendingThresholds();
         if (queuedScrollRow >= 0 && pageReady() && waiting == 0) scrollToRow(queuedScrollRow);
@@ -683,7 +681,7 @@ public final class LogisticsPanel {
             predict = null;
             if (incoming.result() != CacheActions.Result.OK) {
                 if (incoming.acknowledged() != silentCollectSequence)
-                    notice("result." + incoming.result().name().toLowerCase(Locale.ROOT));
+                    noticeResult(incoming.result());
                 if (LogisticsPanel.pendingReturnMatches(incoming)) {
                     pendingAddressSurrogate = 0;
                     returnEditing = true;
@@ -755,7 +753,7 @@ public final class LogisticsPanel {
             waiting = 0;
             if (incoming.result() != CacheActions.Result.OK
                     && incoming.acknowledged() != silentCollectSequence) {
-                LogisticsPanel.notice("result." + incoming.result().name().toLowerCase(Locale.ROOT));
+                noticeResult(incoming.result());
             }
         }
         if (incoming.acknowledged() == silentCollectSequence) silentCollectSequence = 0;
@@ -773,7 +771,7 @@ public final class LogisticsPanel {
             present.add(cell.template());
             if (cell.fluid()) {
                 try { FLUID_ICONS.put(cell.template(), FluidVariantKey.decode(cell.template(), MC.player.registryAccess()).stack(MC.player.registryAccess(), 1)); }
-                catch (IllegalArgumentException invalid) { notice("invalid_display"); }
+                catch (IllegalArgumentException unavailable) { /* Keep the placeholder for this icon. */ }
                 continue;
             }
             if (ICONS.containsKey(cell.template())) continue;
@@ -781,7 +779,7 @@ public final class LogisticsPanel {
                 ICONS.put(cell.template(), ItemVariantKey.decode(cell.template(), LogisticsPanel.MC.player.registryAccess()).stack(LogisticsPanel.MC.player.registryAccess(), 1));
             }
             catch (IllegalArgumentException invalid) {
-                LogisticsPanel.notice("invalid_display");
+                // Unavailable icons keep their placeholder.
             }
         }
         ICONS.keySet().retainAll(present); FLUID_ICONS.keySet().retainAll(present);
@@ -917,7 +915,7 @@ public final class LogisticsPanel {
                 g.pose().pushPose(); g.pose().translate(0, 0, 400);
                 TemplateBrowsers.renderFluid(g, fluid, mouseX - 8, mouseY - 8); g.pose().popPose();
                 tooltip = List.of(fluid.getHoverName(), Component.literal(preview.amount() + " mB"), tr("fluid_preview"));
-            } catch (IllegalArgumentException invalid) { notice("invalid_display"); }
+            } catch (IllegalArgumentException unavailable) { /* Keep the placeholder for this icon. */ }
         }
         if (layout.compact()) {
             tooltip = List.of();
@@ -960,12 +958,17 @@ public final class LogisticsPanel {
         if (!LogisticsPanel.active() || !snapshot.bound()) {
             LogisticsPanel.text(g, "!", x + 10, y + 20, COLOR_STATUS_WARNING);
             if (new PanelLayout.Rect(x + 10, y + 20, 6, 9).contains(mouseX, mouseY)) {
-                var statusKey = LogisticsPanel.active() ? "unbound" : "status." + snapshot.status().name().toLowerCase(Locale.ROOT);
+                String statusKey = switch (snapshot.status()) {
+                    case ACTIVE -> LogisticsPanel.active() ? "unbound" : "result.inactive";
+                    case NOT_WORN -> "result.inactive";
+                    case NETWORK_CONFLICT, CACHE_CONFLICT -> "status.multiple_terminals";
+                    default -> "status." + snapshot.status().name().toLowerCase(Locale.ROOT);
+                };
                 // A locked cache has to explain itself here too, not only in the server log: this is the
                 // state that made every cache-supplied recipe look like "missing materials".
                 tooltip = snapshot.status() == AccessGate.Status.STORAGE_LOCKED
                         ? List.of(LogisticsPanel.tr(statusKey),
-                                LogisticsPanel.tr("status.storage_locked.detail", CacheLedger.SCHEMA))
+                                LogisticsPanel.tr("status.storage_locked.preserved"))
                         : List.of(LogisticsPanel.tr(statusKey));
             }
         }
@@ -1164,14 +1167,13 @@ public final class LogisticsPanel {
                 if (predict != null && predict.slot() == box.slot() && predict.window().equals(window))
                     display = Math.max(0, predict.result());
                 tooltip.add(LogisticsPanel.tr(cell.fluid() ? "fluid_stock" : "stock", display, snapshot.groupCapacity() * cell.stackSize()));
-                if (!cell.fluid() && cell.stackSize() > 1) {
-                    tooltip.add(LogisticsPanel.tr("stock_groups", cell.amount() / cell.stackSize(), snapshot.groupCapacity()));
-                }
-                if (display == 0 && cell.reserved() > 0) tooltip.add(LogisticsPanel.tr("held_preview"));
             }
-            if (cell.writable() && !cell.template().isEmpty()) tooltip.add(tr("clear_filter_hint"));
+            if (cell.writable() && cell.amount() == 0 && !cell.template().isEmpty()) tooltip.add(tr("clear_filter_hint"));
             if (cell.fluid()) tooltip.add(tr("fluid_take"));
-            if (cell.fluid() || cell.template().isEmpty()) tooltip.add(tr("fluid_deposit"));
+            var carried = MC.player.containerMenu.getCarried();
+            if (cell.writable() && (cell.fluid() || cell.template().isEmpty() && !carried.isEmpty()
+                    && net.neoforged.neoforge.fluids.FluidUtil.getFluidHandler(carried).isPresent()))
+                tooltip.add(tr("fluid_deposit"));
             if (cell.amount() == 0 && TemplateBrowsers.available()) tooltip.add(tr("template_hint", ClientBootstrap.SELECT_TEMPLATE.getTranslatedKeyMessage()));
             if (cell.writable() && cell.minimum() >= 0 && cell.amount() < cell.minimum() && mouseX < x + 7 && mouseY < y + 7) {
                 tooltip = List.of(LogisticsPanel.tr(cell.pending() > 0 ? "requested" : "shortage"));
@@ -1260,7 +1262,7 @@ public final class LogisticsPanel {
                 }
                 break;
             }
-            tooltip = field == 4 ? List.of(tr("controls.pending",cell.pending()),tr("controls.reset"),tr("controls.late"))
+            tooltip = field == 4 ? List.of(tr("controls.pending",cell.pending()),tr("controls.reset"))
                     : List.of(tr("controls."+new String[]{"batch","return_batch","lower","upper"}[field]),tr("controls.wheel"));
             if (field<4 && draft.value().conflicting())
                 tooltip=List.of(tr("controls."+new String[]{"batch","return_batch","lower","upper"}[field]),tr("controls.wheel"),tr("controls.conflict"));
@@ -1363,7 +1365,7 @@ public final class LogisticsPanel {
             returnEditing = false;
             return ReturnClose.SUBMITTED;
         }
-        LogisticsPanel.notice("result.stale");
+
         return ReturnClose.NONE;
     }
 
@@ -1844,8 +1846,6 @@ public final class LogisticsPanel {
         if (keyCode == 257 || keyCode == 335) {
             if (LogisticsPanel.sendReturnAddressDraft()) {
                 returnEditing = false;
-            } else {
-                LogisticsPanel.notice("result.stale");
             }
             return true;
         }
@@ -1958,7 +1958,7 @@ public final class LogisticsPanel {
         try {
             boolean fluid = !template.fluid().isEmpty();
             String encoded = fluid ? FluidVariantKey.of(template.fluid(), MC.player.registryAccess()).encoded()
-                    : ItemVariantKey.of(template.item(), MC.player.registryAccess()).encoded();
+                    : panelItem(template.item());
             if (!send(fluid ? CacheActions.Action.SET_FLUID_GHOST : CacheActions.Action.SET_GHOST, slot, 0, -1, encoded)) return false;
             templateSequence = waiting; return true;
         } catch (IllegalArgumentException invalid) { notice("result.invalid_item"); return false; }
@@ -1980,6 +1980,12 @@ public final class LogisticsPanel {
         return LogisticsPanel.current(candidate) && LogisticsPanel.visible() ? (layout.slider()==null ? List.of(layout.bounds()) : List.of(layout.bounds(),layout.slider())) : List.of();
     }
 
+    private static String panelItem(ItemStack stack) {
+        if (dev.scathiard.feedmepackages.FmpAdvancement.rejectedItem(stack) != null)
+            return net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+        return ItemVariantKey.of(stack, MC.player.registryAccess()).encoded();
+    }
+
     private static boolean send(CacheActions.Action action, int slot, int first, int second, String template) {
         ItemStack held;
         if (snapshot == null || snapshot.session() == null || waiting != 0 || cursorPending || pendingCursorChange != null || window == null || !pageReady()) {
@@ -1990,7 +1996,7 @@ public final class LogisticsPanel {
         int count = 0;
         if (creative && !(held = LogisticsPanel.MC.player.containerMenu.getCarried()).isEmpty()) {
             try {
-                cursor = ItemVariantKey.of(held, LogisticsPanel.MC.player.registryAccess()).encoded();
+                cursor = panelItem(held);
                 count = held.getCount();
             }
             catch (IllegalArgumentException invalid) {
@@ -2060,6 +2066,13 @@ public final class LogisticsPanel {
 
     private static Component tr(String key, Object... args) {
         return Component.translatable("gui.create_feed_me_packages." + key, args);
+    }
+
+    private static void noticeResult(CacheActions.Result result) {
+        switch (result) {
+            case INVALID_ITEM, FILTER_OCCUPIED, READ_ONLY, DENIED -> notice("result." + result.name().toLowerCase(Locale.ROOT));
+            default -> { } // Routine refusals still refresh the snapshot.
+        }
     }
 
     private static void notice(String key) {

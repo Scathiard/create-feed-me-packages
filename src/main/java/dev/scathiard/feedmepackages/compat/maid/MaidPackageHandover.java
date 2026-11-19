@@ -3,7 +3,6 @@ package dev.scathiard.feedmepackages.compat.maid;
 import com.simibubi.create.content.logistics.box.PackageItem;
 import dev.scathiard.feedmepackages.item.ItemVariantKey;
 import dev.scathiard.feedmepackages.storage.CacheLedger;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
@@ -64,8 +63,6 @@ public final class MaidPackageHandover {
         }
         if (stored == 0) {
             // Nothing of hers takes this batch: the package is NOT opened and stays in hand.
-            player.displayClientMessage(Component.translatable(
-                    "message.create_feed_me_packages.maid_package_no_filter"), true);
             return 0;
         }
         ledger.replace(access.handle(), before.state().revision(), before.withState(edit.finish()));

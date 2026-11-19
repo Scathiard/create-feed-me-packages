@@ -194,7 +194,9 @@ public final class TaczTests {
         var first = fire(player, holder);
         h.assertTrue(first.equals("SUCCESS") && player.getInventory().getItem(1).isEmpty() && ConsumptionTests.stock(player, 0) == 3,
                 "Native inventory-fed first shot did not prefer inventory: " + first);
+        h.assertFalse(AdvancementTests.done(player, "cache_ammo"), "Inventory firing counted as cache supply");
         var second = fire(player, holder);
+        h.assertTrue(AdvancementTests.done(player, "cache_ammo"), "Native TaCZ cache firing did not grant progress");
         h.assertTrue(second.equals("SUCCESS") && ConsumptionTests.stock(player, 0) == 2,
                 "Native inventory-fed second shot did not use cache exactly once: " + second);
         player.setGameMode(net.minecraft.world.level.GameType.CREATIVE);

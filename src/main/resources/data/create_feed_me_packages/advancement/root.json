@@ -1,0 +1,37 @@
+{
+  "display": {
+    "icon": {
+      "id": "create_feed_me_packages:supply_chain_pendant"
+    },
+    "title": {
+      "translate": "advancement.create_feed_me_packages.root.title"
+    },
+    "description": {
+      "translate": "advancement.create_feed_me_packages.root.description"
+    },
+    "frame": "task",
+    "hidden": false,
+    "background": "minecraft:textures/gui/advancements/backgrounds/stone.png"
+  },
+  "criteria": {
+    "triggered": {
+      "trigger": "minecraft:impossible"
+    },
+    "obtained": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "create_feed_me_packages:supply_chain_pendant"
+          }
+        ]
+      }
+    }
+  },
+  "requirements": [
+    [
+      "triggered",
+      "obtained"
+    ]
+  ]
+}

@@ -1,7 +1,6 @@
 package dev.scathiard.feedmepackages.mixin;
 
 import dev.scathiard.feedmepackages.growth.GrowthService;
-import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ServerboundContainerClickPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -20,7 +19,7 @@ public abstract class SmithingPacketMixin {
         var menu = player.containerMenu;
         if (packet.getContainerId() == menu.containerId && packet.getSlotNum() == 3 && GrowthService.applies(menu)
                 && packet.getStateId() != menu.getStateId()) {
-            menu.broadcastFullState(); player.displayClientMessage(Component.translatable("message.create_feed_me_packages.growth.stale"), true); ci.cancel();
+            menu.broadcastFullState(); ci.cancel();
         }
     }
 }
