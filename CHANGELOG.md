@@ -8,6 +8,48 @@ gameplay milestone.
 本文件记录本项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号沿用 `MAJOR.MINOR.PATCH`，其中 `MINOR` 对应一次玩法里程碑。
 
+## [0.3.1] - 2026-11-20
+
+### English
+
+#### Added
+
+- An **Expansion Link** permanently adds five cache cells to a Supply Chain Pendant at a smithing table. It works at any level and can be applied repeatedly. Make the frames with sequenced assembly, then use a mechanical crafter with a dragon head to finish the link.
+- **Twelve advancements** track deliveries, returns, upgrades, and the supplies you use from your cache. Pick up a pendant to unlock the tab in the vanilla advancements screen. Five of the advancements are hidden.
+
+#### Improved
+
+- **Mixed returns** can share a courier. Once each item's surplus meets its own return conditions, eligible items are packed in order into one nine-slot package. Four stacks of iron ingots, three of copper ingots, and two of redstone dust fit in a single trip.
+- Hold a bound pendant in your main hand to see nearby devices on the same logistics network flash.
+- Both the player and maid panels now accept pasted return addresses, including Chinese text. Press Ctrl+V to paste, Enter to save, or Esc to discard your edits.
+- The cell settings panel now takes precedence over the footer buttons it covers. Clicking, scrolling, or dragging the slider in the overlap only affects the open panel.
+- Shortened item descriptions, keybind labels, and chat messages in English and Chinese. The pendant now shows the action relevant to its current binding.
+
+#### Integrations
+
+- Restored allay deliveries to maids and outgoing returns from both players and maids when using **Create: Biotech 2.0.0**.
+- **TaCZ** cache-fed, round-by-round reloading has been verified with the official 1.2.0-hotfix and the unofficial 1.1.8-hotfix-r7 port.
+
+### 中文
+
+#### 新增
+
+- **扩容链节**可以在锻造台给任意等级的供应链坠永久增加 5 个缓存格，同一枚坠子可以反复扩容。先用序列组装做出框架，再用龙首等材料动力合成链节。
+- **12 个模组进度**记录收发货、坠子升级和缓存取用。拿到坠子就能在原版进度页找到它们，其中 5 个是隐藏进度。
+
+#### 改进
+
+- **合包退货**让多种普通物品共用一个载具。每格各自达到退货条件后，按顺序装进同一个九槽包裹。4 组铁锭、3 组铜锭和 2 组红石刚好一趟送完。
+- 主手拿着已绑定的坠子，附近同一物流网络的设备会闪光。
+- 玩家和女仆面板的退货地址均可用 Ctrl+V 粘贴，支持中文。按 Enter 保存，按 Esc 撤销本次编辑。
+- 格控面板展开后可以盖住底栏。在重叠处调数字、拖滑条或点击面板时，只会操作格控面板。
+- 精简中英文物品说明、按键及聊天提示。坠子会按当前绑定状态提示对应操作。
+
+#### 联动
+
+- 已适配**机械动力：生物科技 2.0.0** 正式版，悦灵可以给女仆送货，也可以从玩家和女仆处运走退货。
+- **TaCZ** 已验证官方 1.2.0-hotfix 和非官方移植版 1.1.8-hotfix-r7 的缓存供弹与逐发装填。
+
 ## [0.3.0] - 2026-11-13
 
 ### English
@@ -255,6 +297,7 @@ package — the only difference is the version number.
   drawing, five-level growth and owner-locked personal caches.
   首个本地可玩版本：坠子绑定缓存、真实 Create 补货请求、含残包的收件、合成／JEI／标准投射物取料、五级成长与物主锁定的个人缓存。
 
+[0.3.1]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.3.0
 [0.2.3]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.3
 [0.2.2]: https://github.com/Scathiard/create-feed-me-packages/releases/tag/v0.2.2

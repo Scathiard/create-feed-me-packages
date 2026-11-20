@@ -46,6 +46,8 @@ Stored items keep data such as enchantments, with different variants kept in sep
 
 When you've finished building, put the spare materials back in the cache. Set how much you want to keep, a minimum return batch size, and a return address. Once the surplus meets those conditions, it gets packed for a paper plane, robo-bee, phantom courier, or allay courier to carry back.
 
+When several items meet their own return conditions, they can share one nine-slot package and one courier.
+
 Returns require the corresponding courier carrier. Without a suitable carrier, or if dispatch cannot start, the materials stay in the cache without being dispatched.
 
 ### Pocket Pallet and fluid cache
@@ -62,7 +64,7 @@ You can manage a maid's cache and logistics settings directly on the left side o
 
 ### Five levels of capacity
 
-Your factory has a part in upgrades, too. Make Upgrade Links through Create sequenced assembly, then upgrade the pendant at a smithing table to carry more kinds of supplies and more of each.
+Your factory has a part in upgrades, too. Make Upgrade Links through Create sequenced assembly, then upgrade the pendant at a smithing table to carry more kinds of supplies and more of each. The table shows the base capacity at each level. For more item types, craft an Expansion Link with a dragon head. Each link permanently adds five cells, and you can use as many as you like at any pendant level.
 
 | Level | Cache cells | Capacity per cell |
 | --- | --- | --- |
